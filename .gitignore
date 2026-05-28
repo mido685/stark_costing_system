@@ -35,3 +35,4 @@ htmlcov/
 # SQLite (if you use it)
 *.sqlite3
 *.db
+node_modules
