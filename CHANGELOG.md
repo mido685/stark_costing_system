@@ -1,3 +1,16 @@
+# [3.1.0](https://github.com/mido685/stark_costing_system/compare/v3.0.2...v3.1.0) (2026-05-28)
+
+
+### Bug Fixes
+
+* sync package.json version with semantic release ([e2e5f31](https://github.com/mido685/stark_costing_system/commit/e2e5f3181d630a58c91acaaec97c14770e337c9b))
+* trigger release to sync package.json version ([067c29b](https://github.com/mido685/stark_costing_system/commit/067c29b466a58686f676372016783a1a42bf7764))
+
+
+### Features
+
+* test full pipeline ([633b1ba](https://github.com/mido685/stark_costing_system/commit/633b1bae97bea8b2b9fb164334c3db24e85579db))
+
 ## [3.0.2](https://github.com/mido685/stark_costing_system/compare/v3.0.1...v3.0.2) (2026-05-28)
 
 
