@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.config import APP_NAME, APP_VERSION, ENVIRONMENT
 from app.api.responses import success
+
 router = APIRouter(
     prefix="/system",
     tags=["system"]

@@ -1,0 +1,21 @@
+name: Version Check
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get version from Git
+        run: |
+          echo "VERSION=$(git describe --tags --always)" 
+          echo "Build version: $(git describe --tags --always)"
