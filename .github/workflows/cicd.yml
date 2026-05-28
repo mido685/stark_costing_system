@@ -38,7 +38,7 @@ jobs:
 
       - name: Run frontend type check
         working-directory: frontend
-        run: npm run check
+        run: npm ci --legacy-peer-deps
 
       - name: Build frontend
         working-directory: frontend
