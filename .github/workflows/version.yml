@@ -21,12 +21,7 @@ jobs:
       - name: Get Git version
         id: version_step
         run: |
-          if git describe --tags --exact-match >/dev/null 2>&1; then
-            VERSION=$(git describe --tags --exact-match)
-          else
-            VERSION=$(git rev-parse --short HEAD)
-          fi
-
+          VERSION=$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)
           echo "VERSION=$VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
