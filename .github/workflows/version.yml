@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   version:
     runs-on: ubuntu-latest
@@ -18,7 +21,12 @@ jobs:
       - name: Get Git version
         id: version_step
         run: |
-          VERSION=$(git describe --tags --always)
+          if git describe --tags --exact-match >/dev/null 2>&1; then
+            VERSION=$(git describe --tags --exact-match)
+          else
+            VERSION=$(git rev-parse --short HEAD)
+          fi
+
           echo "VERSION=$VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
