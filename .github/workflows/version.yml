@@ -11,11 +11,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get version from Git
+      - name: Get Git version
+        id: version_step
         run: |
-          echo "VERSION=$(git describe --tags --always)" 
-          echo "Build version: $(git describe --tags --always)"
+          VERSION=$(git describe --tags --always)
+          echo "VERSION=$VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Show version cleanly
+        run: echo "BUILD VERSION: ${{ steps.version_step.outputs.version }}"
