@@ -1,0 +1,15 @@
+                                                             List of databases
+             Name             |  Owner   | Encoding | Locale Provider | Collate |  Ctype  | ICU Locale | ICU Rules |   Access privileges   
+------------------------------+----------+----------+-----------------+---------+---------+------------+-----------+-----------------------
+ chatbot                      | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | 
+ medical_db                   | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | 
+ postgres                     | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | 
+ practicing                   | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | 
+ resturant_costing_for_branch | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | 
+ stark_costing                | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | 
+ template0                    | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | =c/postgres          +
+                              |          |          |                 |         |         |            |           | postgres=CTc/postgres
+ template1                    | postgres | UTF8     | libc            | C.UTF-8 | C.UTF-8 |            |           | =c/postgres          +
+                              |          |          |                 |         |         |            |           | postgres=CTc/postgres
+(8 rows)
+

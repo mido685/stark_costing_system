@@ -1,0 +1,75 @@
+from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.database import schema as db
+from app.config import APP_NAME, APP_VERSION
+from dotenv import load_dotenv
+from pathlib import Path
+import os
+
+# Load .env from app/.env — must run before any os.getenv() calls
+load_dotenv(Path(__file__).parent / ".env")
+
+def create_app() -> FastAPI:
+    application = FastAPI(title=APP_NAME, version=APP_VERSION)
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=['*'],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ── Serve uploaded logos ───────────────────────────────────────────────────
+    os.makedirs("app/static/logos", exist_ok=True)
+    application.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+    db.init_db()
+
+    # Register all routers
+    from app.routes import (
+        approvals as approvals_router,
+        auth as auth_router,
+        branches as branches_router,
+        cash_purchases as cash_purchases_router,
+        damage as damage_router,
+        expenses as expenses_router,
+        ingredients as ingredients_router,
+        inventory as inventory_router,
+        products as products_router,
+        production as production_router,
+        purchases as purchases_router,
+        recipes as recipes_router,
+        reports as reports_router,
+        revenues as revenues_router,
+        sales as sales_router,
+        suppliers as suppliers_router,
+        superadmin as superadmin_router,
+        user as user_router,
+        waste as waste_router,
+        rbac as rbac_router,
+        system as system_router,
+    )
+    application.include_router(system_router.router, prefix="/api")
+    application.include_router(approvals_router.router, prefix="/api")
+    application.include_router(auth_router.router, prefix="/api")
+    application.include_router(branches_router.router, prefix="/api")
+    application.include_router(cash_purchases_router.router, prefix="/api")
+    application.include_router(expenses_router.router, prefix="/api")
+    application.include_router(inventory_router.router, prefix="/api")
+    application.include_router(products_router.router, prefix="/api")
+    application.include_router(production_router.router, prefix="/api")
+    application.include_router(purchases_router.router, prefix="/api")
+    application.include_router(ingredients_router.router, prefix="/api")
+    application.include_router(recipes_router.router, prefix="/api")
+    application.include_router(reports_router.router, prefix="/api")
+    application.include_router(revenues_router.router, prefix="/api")
+    application.include_router(sales_router.router, prefix="/api")
+    application.include_router(suppliers_router.router, prefix="/api")
+    application.include_router(superadmin_router.router, prefix="/api")
+    application.include_router(waste_router.router, prefix="/api")
+    application.include_router(damage_router.router, prefix="/api")
+    application.include_router(user_router.router, prefix="/api")
+    application.include_router(rbac_router.router, prefix="/api")
+    return application
