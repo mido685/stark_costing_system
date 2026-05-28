@@ -16,9 +16,5 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Show version
-        run: |
-          echo "BUILD VERSION: $GITHUB_REF_NAME"
-
-      - name: Create GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
