@@ -1,3 +1,10 @@
+## [3.1.3](https://github.com/mido685/stark_costing_system/compare/v3.1.2...v3.1.3) (2026-05-28)
+
+
+### Bug Fixes
+
+* reset versioning to start from 0.0.1 ([41c4db5](https://github.com/mido685/stark_costing_system/commit/41c4db54ede6038c5cae7a26e273b7646af3e677))
+
 ## [3.1.2](https://github.com/mido685/stark_costing_system/compare/v3.1.1...v3.1.2) (2026-05-28)
 
 
