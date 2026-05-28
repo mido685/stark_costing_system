@@ -1,3 +1,10 @@
+## [3.1.1](https://github.com/mido685/stark_costing_system/compare/v3.1.0...v3.1.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* add all semantic-release plugins to CI ([bf596ea](https://github.com/mido685/stark_costing_system/commit/bf596eaa9a29b9db3f2e190d411c61a51ed15780))
+
 # [3.1.0](https://github.com/mido685/stark_costing_system/compare/v3.0.2...v3.1.0) (2026-05-28)
 
 
