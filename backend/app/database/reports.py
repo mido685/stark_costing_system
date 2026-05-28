@@ -272,17 +272,51 @@ def dashboard(
             WHERE company_id = %s AND is_active = TRUE
         """, (company_id,))
 
-        inventory_value = _scalar(cur, """
-            SELECT COALESCE(SUM(balance_qty * cost_per_unit), 0)
+        raw_inventory_params: list[Any] = []
+        raw_inventory_branch_filter = ""
+        if branch_id:
+            raw_inventory_branch_filter = "AND im.branch_id = %s"
+            raw_inventory_params.append(branch_id)
+        raw_inventory_params.append(company_id)
+
+        raw_inventory_value = _scalar(cur, f"""
+            SELECT COALESCE(SUM(GREATEST(balance_qty, 0) * cost_per_unit), 0)
             FROM (
                 SELECT i.id, i.cost_per_unit,
                        COALESCE(SUM(im.quantity_delta), 0) AS balance_qty
                 FROM ingredients i
-                LEFT JOIN inventory_movements im ON im.ingredient_id = i.id
+                LEFT JOIN inventory_movements im
+                    ON im.ingredient_id = i.id {raw_inventory_branch_filter}
                 WHERE i.company_id = %s AND i.is_active = TRUE
                 GROUP BY i.id, i.cost_per_unit
             ) stock
-        """, (company_id,))
+        """, tuple(raw_inventory_params))
+
+        finished_goods_params: list[Any] = []
+        finished_goods_branch_filter = ""
+        if branch_id:
+            finished_goods_branch_filter = "AND fgm.branch_id = %s"
+            finished_goods_params.append(branch_id)
+        finished_goods_params.append(company_id)
+
+        finished_goods_value = _scalar(cur, f"""
+            SELECT COALESCE(SUM(GREATEST(balance_qty, 0) * avg_unit_cost), 0)
+            FROM (
+                SELECT p.id,
+                       COALESCE(SUM(fgm.quantity_delta), 0) AS balance_qty,
+                       CASE WHEN COALESCE(SUM(fgm.quantity_delta) FILTER (WHERE fgm.quantity_delta > 0), 0) > 0
+                            THEN SUM(fgm.quantity_delta * fgm.unit_cost) FILTER (WHERE fgm.quantity_delta > 0)
+                               / SUM(fgm.quantity_delta) FILTER (WHERE fgm.quantity_delta > 0)
+                            ELSE 0 END AS avg_unit_cost
+                FROM products p
+                LEFT JOIN finished_goods_movements fgm
+                    ON fgm.product_id = p.id {finished_goods_branch_filter}
+                WHERE p.company_id = %s AND p.is_active = TRUE
+                GROUP BY p.id
+            ) stock
+        """, tuple(finished_goods_params))
+
+        inventory_value = raw_inventory_value + finished_goods_value
 
         return {
             "total_sales":         total_sales,

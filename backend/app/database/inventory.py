@@ -33,21 +33,14 @@ def get_branch_stock_balances(company_id: int, branch_id: int) -> list[dict[str,
             SELECT 
                 i.id AS ingredient_id, i.name, i.unit, i.reorder_level, i.cost_per_unit,
                 COALESCE(SUM(im.quantity_delta), 0) AS movement_qty,
-                COALESCE(p.purchased_qty, 0)        AS purchased_qty,
-                COALESCE(SUM(im.quantity_delta), 0) + COALESCE(p.purchased_qty, 0) AS balance_qty
+                COALESCE(SUM(im.quantity_delta), 0) AS balance_qty
             FROM ingredients i
             LEFT JOIN inventory_movements im 
                 ON im.ingredient_id = i.id AND im.branch_id = %s
-            LEFT JOIN (
-                SELECT ingredient_id, SUM(quantity) AS purchased_qty
-                FROM purchases
-                WHERE branch_id = %s AND status = 'approved'
-                GROUP BY ingredient_id
-            ) p ON p.ingredient_id = i.id
             WHERE i.company_id = %s AND i.is_active = TRUE
-            GROUP BY i.id, i.name, i.unit, i.reorder_level, i.cost_per_unit, p.purchased_qty
+            GROUP BY i.id, i.name, i.unit, i.reorder_level, i.cost_per_unit
             ORDER BY i.name
-        """, (branch_id, branch_id, company_id))
+        """, (branch_id, company_id))
         rows = [_row(dict(r)) for r in cur.fetchall()]
         for row in rows:
             qty = row["balance_qty"]
