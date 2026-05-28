@@ -26,4 +26,5 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Show version cleanly
-        run: echo "BUILD VERSION: ${{ steps.version_step.outputs.version }}"
+        run: |
+          echo "BUILD VERSION: ${{ steps.version_step.outputs.version }}"
