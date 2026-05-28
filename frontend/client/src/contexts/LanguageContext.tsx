@@ -1,5 +1,15 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { isAppLanguage, type AppLanguage } from "@/lib/localization";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Language = AppLanguage;
 
@@ -10,7 +20,11 @@ interface LanguageContextValue {
   t:              (key: string) => string;
 }
 
-const translations: Record<Language, Record<string, string>> = {
+// ─── Translations ─────────────────────────────────────────────────────────────
+// Defined outside the component so it is never re-created across renders.
+// `satisfies` gives us exhaustive-key checking without widening the type.
+
+const translations = {
   en: {
     // Nav
     "nav.dashboard":   "Dashboard",
@@ -26,6 +40,14 @@ const translations: Record<Language, Record<string, string>> = {
     // Topbar
     "topbar.home":    "Home",
     "topbar.signout": "Sign out",
+    "topbar.welcome":         "Welcome, {name}",
+    "topbar.accountMenu":     "Account menu",
+    "topbar.companyLogo":     "Company logo",
+    "topbar.switchToArabic":  "Switch to Arabic",
+    "topbar.switchToEnglish": "Switch to English",
+    "topbar.lightMode":       "Light mode",
+    "topbar.darkMode":        "Dark mode",
+    "nav.userManagement":     "User Management",
     // Common
     "common.refresh":  "Refresh",
     "common.approve":  "Approve",
@@ -63,12 +85,18 @@ const translations: Record<Language, Record<string, string>> = {
     "dashboard.totalRevenue":       "Total Revenue",
     "dashboard.pendingItems":       "{count} items are pending approval.",
     "dashboard.noPendingItems":     "No pending items requiring attention.",
+    // Dashboard — enterprise costing row (added session 2)
+    "dashboard.totalExpenses":      "Total Expenses",
+    "dashboard.totalPurchases":     "Total Purchases",
+    "dashboard.cogs":               "COGS",
+    "dashboard.grossProfit":        "Gross Profit",
     // Approval Queue
     "approval.title":        "Approval Queue",
     "approval.pending":      "pending",
     "approval.empty":        "No pending approvals",
     "approval.loadError":    "Failed to load pending approvals.",
     "approval.actionFailed": "Action failed",
+    "approval.actionError":  "Failed to {action} request #{id}: {detail}",
     "approval.id":           "ID",
     "approval.type":         "Type",
     "approval.branch":       "Branch",
@@ -230,8 +258,7 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.ratio.ebitdaMargin": "EBITDA Margin",
     "finance.ratio.opexRatio":    "OpEx Ratio",
     "finance.ratio.vsPrior":      "vs prior period",
-
-    // ── Inventory Controls ────────────────────────────────────────────────────
+    // Inventory Controls
     "inv.title":               "Inventory Controls",
     "inv.subtitle":            "Enterprise stock management · costing · compliance",
     "inv.selectBranch":        "Select branch...",
@@ -252,7 +279,7 @@ const translations: Record<Language, Record<string, string>> = {
     "inv.kpi.products":        "{n} products",
     "inv.kpi.requiresReorder": "Requires reorder",
     "inv.kpi.urgentAttention": "Urgent attention",
-    "inv.pendingBanner.title": "{n} adjustment pending approval",
+    "inv.pendingBanner.title":       "{n} adjustment pending approval",
     "inv.pendingBanner.titlePlural": "{n} adjustments pending approval",
     "inv.pendingBanner.sub":   "Review and approve or reject flagged stock adjustments",
     "inv.pendingBanner.cta":   "Review Now",
@@ -514,8 +541,7 @@ const translations: Record<Language, Record<string, string>> = {
     "inv.modal.transferNotesPlaceholder": "Transfer notes...",
     "inv.modal.openingNotesPlaceholder": "Opening stock notes...",
     "inv.modal.periodNotesPlaceholder":  "Period close notes...",
-
-    // ── Masters ───────────────────────────────────────────────────────────────
+    // Masters
     "masters.title":               "Masters",
     "masters.subtitle":            "Manage branches, items, suppliers, users and prices",
     "masters.tab.branches":        "Branches",
@@ -606,7 +632,7 @@ const translations: Record<Language, Record<string, string>> = {
     "masters.ph.selectSupplier":   "Select supplier...",
     "masters.cancel":              "Cancel",
     "masters.save":                "Save",
-    // ── Procurement ──
+    // Procurement
     "proc.title":               "Procurement",
     "proc.subtitle":            "Purchase orders, returns, and supplier pricing",
     "proc.modal.newPurchase":   "📋 New Purchase Order",
@@ -662,7 +688,7 @@ const translations: Record<Language, Record<string, string>> = {
     "proc.table.status":        "Status",
     "proc.cancel":              "Cancel",
     "proc.save":                "Save",
-    // ── Production ──
+    // Production
     "prod.title":                "Production",
     "prod.subtitle":             "Kitchen issues, transfers, and production batches",
     "prod.modal.kitchen":        "🍳 Kitchen Issue",
@@ -746,8 +772,7 @@ const translations: Record<Language, Record<string, string>> = {
     "prod.table.status":         "Status",
     "prod.cancel":               "Cancel",
     "prod.save":                 "Save",
-
-    // ── Recipes ───────────────────────────────────────────────────────────────
+    // Recipes
     "recipes.title":                   "Recipes",
     "recipes.subtitle":                "Define ingredients and costs for each product",
     "recipes.kpi.totalProducts":       "Total Products",
@@ -824,8 +849,7 @@ const translations: Record<Language, Record<string, string>> = {
     "recipes.confirm.cancel":          "Cancel",
     "recipes.modal.save":              "Save",
     "recipes.modal.cancel":            "Cancel",
-
-    // ── Governance ────────────────────────────────────────────────────────────
+    // Governance
     "gov.title":                       "Governance",
     "gov.subtitle":                    "Approvals, period closing, and audit controls",
     "gov.metric.pendingApprovals":     "Pending approvals",
@@ -871,6 +895,31 @@ const translations: Record<Language, Record<string, string>> = {
     "gov.pending.approved":            "Approved",
     "gov.pending.rejected":            "Rejected",
     "gov.metric.openPeriodsClosed":    "No open periods",
+    "period.label":               "Accounting Period",
+    "period.heading":             "Accounting Period",
+    "period.currentStatus":       "Current Status",
+    "period.lastChangedBy":       "Last changed by",
+    "period.changeTo":            "Change To",
+    "period.confirm":             "Confirm",
+    "period.reasonOptional":      "Reason (optional)",
+    "period.reasonPlaceholder":   "e.g. Month-end close, audit freeze…",
+    "period.footerNote":          "Changes apply company-wide across all branches for {period}.",
+    "period.status.open":         "Open",
+    "period.status.closed":       "Closed",
+    "period.status.locked":       "Locked",
+    "period.action.close":        "Close Period",
+    "period.action.lock":         "Lock Period",
+    "period.action.reopen":       "Reopen Period",
+    "period.action.unlockOpen":   "Unlock & Open",
+    "period.action.unlockClose":  "Unlock & Close",
+    "period.desc.close":          "Prevents new entries for this period",
+    "period.desc.lock":           "Fully frozen — requires admin to reopen",
+    "period.desc.reopen":         "Allow entries again for this period",
+    "period.desc.unlockOpen":     "Remove all restrictions for this period",
+    "period.desc.unlockClose":    "Reopen with restrictions (no new entries)",
+    // also add to common:
+    "common.back":                "Back",
+    "common.saving":              "Saving…",
   },
 
   ar: {
@@ -888,6 +937,15 @@ const translations: Record<Language, Record<string, string>> = {
     // Topbar
     "topbar.home":    "الرئيسية",
     "topbar.signout": "تسجيل الخروج",
+    "topbar.welcome":         "مرحباً، {name}",
+    "topbar.accountMenu":     "قائمة الحساب",
+    "topbar.companyLogo":     "شعار الشركة",
+    "topbar.switchToArabic":  "التبديل إلى العربية",
+    "topbar.switchToEnglish": "Switch to English",
+    "topbar.lightMode":       "الوضع الفاتح",
+    "topbar.darkMode":        "الوضع الداكن",
+    "nav.userManagement":     "إدارة المستخدمين",
+    
     // Common
     "common.refresh":  "تحديث",
     "common.approve":  "موافقة",
@@ -925,12 +983,18 @@ const translations: Record<Language, Record<string, string>> = {
     "dashboard.totalRevenue":       "إجمالي الإيرادات",
     "dashboard.pendingItems":       "{count} عناصر بانتظار الموافقة.",
     "dashboard.noPendingItems":     "لا توجد عناصر تتطلب الانتباه.",
+    // Dashboard — enterprise costing row (added session 2)
+    "dashboard.totalExpenses":      "إجمالي المصروفات",
+    "dashboard.totalPurchases":     "إجمالي المشتريات",
+    "dashboard.cogs":               "تكلفة البضاعة المباعة",
+    "dashboard.grossProfit":        "إجمالي الربح",
     // Approval Queue
     "approval.title":        "قائمة الموافقات",
     "approval.pending":      "معلّق",
     "approval.empty":        "لا توجد موافقات معلّقة",
     "approval.loadError":    "فشل تحميل الموافقات المعلّقة.",
     "approval.actionFailed": "فشل الإجراء",
+    "approval.actionError":  "فشل {action} الطلب #{id}: {detail}",
     "approval.id":           "الرقم",
     "approval.type":         "النوع",
     "approval.branch":       "الفرع",
@@ -959,7 +1023,6 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.assetRequired":     "اسم الأصل مطلوب",
     "finance.monthsPositive":    "يجب أن تكون الأشهر أكبر من صفر",
     "finance.budgetPositive":    "يجب أن يكون مبلغ الميزانية أكبر من صفر",
-    // Finance — Operations
     "finance.operations":    "العمليات المالية",
     "finance.snapshot":      "لقطة مالية",
     "finance.expense":       "مصروف",
@@ -979,13 +1042,11 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.noBudget":      "لم يتم تعيين ميزانية لهذه الفترة.",
     "finance.noBudgetHint":  "اذهب إلى تبويب الميزانية لتعيين الأهداف.",
     "finance.viewFullPL":    "عرض كامل الأرباح والخسائر",
-    // Finance — Tabs
     "finance.tab.overview":  "نظرة عامة",
     "finance.tab.pl":        "تقرير الأرباح والخسائر",
     "finance.tab.budget":    "الميزانية",
     "finance.tab.activity":  "سجل النشاط",
     "finance.tab.approvals": "الموافقات",
-    // Finance — KPIs
     "finance.kpi.revenue":          "الإيرادات",
     "finance.kpi.grossProfit":      "إجمالي الربح",
     "finance.kpi.ebitda":           "EBITDA",
@@ -1003,7 +1064,6 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.kpi.periodStatus":     "حالة الفترة",
     "finance.kpi.profitable":       "رابح",
     "finance.kpi.loss":             "خسارة",
-    // Finance — P&L
     "finance.pl.title":           "قائمة الأرباح والخسائر",
     "finance.pl.exportPdf":       "تصدير PDF",
     "finance.pl.incomeStatement": "قائمة الدخل",
@@ -1037,7 +1097,6 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.pl.detailedBreakdown":"تفصيل المصروفات",
     "finance.pl.noExpenseData":   "لا توجد بيانات مصروفات لهذه الفترة",
     "finance.pl.totalOpexRow":    "إجمالي المصروفات التشغيلية",
-    // Finance — Budget tab
     "finance.budget.title":    "الميزانية مقابل الفعلي",
     "finance.budget.category": "الفئة",
     "finance.budget.budget":   "الميزانية",
@@ -1047,7 +1106,6 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.budget.progress": "التقدم",
     "finance.budget.over":     "زيادة",
     "finance.budget.under":    "نقص",
-    // Finance — Activity tab
     "finance.activity.title":       "سجل النشاط المالي",
     "finance.activity.exportPdf":   "تصدير PDF",
     "finance.activity.noActivity":  "لا يوجد نشاط مالي لهذه الفترة.",
@@ -1057,7 +1115,6 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.activity.amount":      "المبلغ",
     "finance.activity.notes":       "ملاحظات",
     "finance.activity.total":       "الإجمالي ({count} قيد)",
-    // Finance — Approvals tab
     "finance.approvals.title":       "الموافقات المعلقة",
     "finance.approvals.empty":       "لا توجد موافقات معلقة",
     "finance.approvals.reviewed":    "تمت مراجعة جميع العناصر.",
@@ -1066,7 +1123,6 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.approvals.unknown":     "فرع غير معروف",
     "finance.approvals.unknownBy":   "غير معروف",
     "finance.approvals.requestedBy": "طُلب بواسطة",
-    // Finance — Modals
     "finance.modal.recordExpense":      "تسجيل مصروف",
     "finance.modal.recordPayroll":      "تسجيل رواتب",
     "finance.modal.recordAccrual":      "تسجيل مستحقات",
@@ -1086,14 +1142,12 @@ const translations: Record<Language, Record<string, string>> = {
     "finance.modal.assetName":          "اسم الأصل *",
     "finance.modal.months":             "الأشهر *",
     "finance.modal.period":             "الفترة *",
-    // Ratios
     "finance.ratio.grossMargin":  "هامش الربح الإجمالي",
     "finance.ratio.netMargin":    "هامش الربح الصافي",
     "finance.ratio.ebitdaMargin": "هامش EBITDA",
     "finance.ratio.opexRatio":    "نسبة المصروفات التشغيلية",
     "finance.ratio.vsPrior":      "مقارنة بالفترة السابقة",
-
-    // ── Inventory Controls ────────────────────────────────────────────────────
+    // Inventory (ar keys abbreviated — same structure as en, already in original file)
     "inv.title":               "ضوابط المخزون",
     "inv.subtitle":            "إدارة المخزون المؤسسي · التكاليف · الامتثال",
     "inv.selectBranch":        "اختر فرعاً...",
@@ -1376,8 +1430,7 @@ const translations: Record<Language, Record<string, string>> = {
     "inv.modal.transferNotesPlaceholder": "ملاحظات التحويل...",
     "inv.modal.openingNotesPlaceholder": "ملاحظات مخزون الافتتاح...",
     "inv.modal.periodNotesPlaceholder":  "ملاحظات إغلاق الفترة...",
-
-    // ── Masters ───────────────────────────────────────────────────────────────
+    // Masters (ar)
     "masters.title":               "البيانات الأساسية",
     "masters.subtitle":            "إدارة الفروع والأصناف والموردين والمستخدمين والأسعار",
     "masters.tab.branches":        "الفروع",
@@ -1468,7 +1521,7 @@ const translations: Record<Language, Record<string, string>> = {
     "masters.ph.selectSupplier":   "اختر مورداً...",
     "masters.cancel":              "إلغاء",
     "masters.save":                "حفظ",
-    // ── Procurement ──
+    // Procurement (ar)
     "proc.title":               "المشتريات",
     "proc.subtitle":            "أوامر الشراء والمرتجعات وأسعار الموردين",
     "proc.modal.newPurchase":   "📋 أمر شراء جديد",
@@ -1524,7 +1577,7 @@ const translations: Record<Language, Record<string, string>> = {
     "proc.table.status":        "الحالة",
     "proc.cancel":              "إلغاء",
     "proc.save":                "حفظ",
-    // ── Production ──
+    // Production (ar)
     "prod.title":                "الإنتاج",
     "prod.subtitle":             "إصدارات المطبخ والتحويلات ودفعات الإنتاج",
     "prod.modal.kitchen":        "🍳 إصدار مطبخ",
@@ -1608,8 +1661,7 @@ const translations: Record<Language, Record<string, string>> = {
     "prod.table.status":         "الحالة",
     "prod.cancel":               "إلغاء",
     "prod.save":                 "حفظ",
-
-    // ── Recipes ───────────────────────────────────────────────────────────────
+    // Recipes (ar)
     "recipes.title":                   "الوصفات",
     "recipes.subtitle":                "تعريف المكونات والتكاليف لكل منتج",
     "recipes.kpi.totalProducts":       "إجمالي المنتجات",
@@ -1686,8 +1738,7 @@ const translations: Record<Language, Record<string, string>> = {
     "recipes.confirm.cancel":          "إلغاء",
     "recipes.modal.save":              "حفظ",
     "recipes.modal.cancel":            "إلغاء",
-
-    // ── Governance ────────────────────────────────────────────────────────────
+    // Governance (ar)
     "gov.title":                       "الحوكمة",
     "gov.subtitle":                    "الموافقات وإغلاق الفترات وضوابط المراجعة",
     "gov.metric.pendingApprovals":     "الموافقات المعلقة",
@@ -1733,8 +1784,45 @@ const translations: Record<Language, Record<string, string>> = {
     "gov.pending.approved":            "تمت الموافقة",
     "gov.pending.rejected":            "تم الرفض",
     "gov.metric.openPeriodsClosed":    "لا توجد فترات مفتوحة",
+    "period.label":               "فترة المحاسبة",
+    "period.heading":             "فترة المحاسبة",
+    "period.currentStatus":       "الحالة الحالية",
+    "period.lastChangedBy":       "آخر تعديل بواسطة",
+    "period.changeTo":            "تغيير إلى",
+    "period.confirm":             "تأكيد",
+    "period.reasonOptional":      "السبب (اختياري)",
+    "period.reasonPlaceholder":   "مثل: إغلاق نهاية الشهر، تجميد المراجعة…",
+    "period.footerNote":          "تسري التغييرات على جميع الفروع لفترة {period}.",
+    "period.status.open":         "مفتوحة",
+    "period.status.closed":       "مغلقة",
+    "period.status.locked":       "مقفلة",
+    "period.action.close":        "إغلاق الفترة",
+    "period.action.lock":         "قفل الفترة",
+    "period.action.reopen":       "إعادة فتح الفترة",
+    "period.action.unlockOpen":   "فتح القفل وإتاحة الإدخال",
+    "period.action.unlockClose":  "فتح القفل مع تقييد الإدخال",
+    "period.desc.close":          "يمنع إضافة قيود جديدة لهذه الفترة",
+    "period.desc.lock":           "مجمّد بالكامل — يتطلب مدير لإعادة الفتح",
+    "period.desc.reopen":         "يسمح بالإدخال مجدداً لهذه الفترة",
+    "period.desc.unlockOpen":     "إزالة جميع القيود عن هذه الفترة",
+    "period.desc.unlockClose":    "إعادة الفتح مع تقييد الإدخال",
+    "common.back":                "رجوع",
+    "common.saving":              "جارٍ الحفظ…",
   },
-};
+} satisfies Record<Language, Record<string, string>>;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function safeGetStoredLanguage(): Language {
+  try {
+    const stored = localStorage.getItem("lang");
+    return isAppLanguage(stored) ? stored : "en";
+  } catch {
+    return "en";
+  }
+}
+
+// ─── Context ──────────────────────────────────────────────────────────────────
 
 const LanguageContext = createContext<LanguageContextValue>({
   language:       "en",
@@ -1743,11 +1831,10 @@ const LanguageContext = createContext<LanguageContextValue>({
   t:              (key) => key,
 });
 
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>(() => {
-    const storedLanguage = localStorage.getItem("lang");
-    return isAppLanguage(storedLanguage) ? storedLanguage : "en";
-  });
+  const [language, setLanguage] = useState<Language>(safeGetStoredLanguage);
 
   const isRTL = language === "ar";
 
@@ -1758,23 +1845,43 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     html.style.fontFamily = isRTL
       ? "'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif"
       : "";
-    localStorage.setItem("lang", language);
+    try {
+      localStorage.setItem("lang", language);
+    } catch {
+      // Ignore — storage may be unavailable in private browsing
+    }
   }, [language, isRTL]);
 
-  function toggleLanguage() {
-    setLanguage(l => (l === "en" ? "ar" : "en"));
-  }
+  const toggleLanguage = useCallback(() => {
+    setLanguage((l) => (l === "en" ? "ar" : "en"));
+  }, []);
 
-  function t(key: string): string {
-    return translations[language][key] ?? translations["en"][key] ?? key;
-  }
+  // Stable `t` — only recreated when `language` changes.
+  // Cast to Record<string, string> at the lookup point because `satisfies`
+  // preserves the literal key union, which TypeScript won't let a plain
+  // `string` parameter index into directly (TS7053).
+  const t = useCallback(
+    (key: string): string => {
+      const dict = translations[language] as Record<string, string>;
+      const base = translations["en"]    as Record<string, string>;
+      return dict[key] ?? base[key] ?? key;
+    },
+    [language]
+  );
+
+  const value = useMemo<LanguageContextValue>(
+    () => ({ language, toggleLanguage, isRTL, t }),
+    [language, toggleLanguage, isRTL, t]
+  );
 
   return (
-    <LanguageContext.Provider value={{ language, toggleLanguage, isRTL, t }}>
+    <LanguageContext.Provider value={value}>
       {children}
     </LanguageContext.Provider>
   );
 }
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useLanguage() {
   return useContext(LanguageContext);

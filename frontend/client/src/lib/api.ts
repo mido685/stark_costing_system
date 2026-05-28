@@ -72,6 +72,7 @@ const UNWRAP_KEYS = new Set([
   "waste",
   "inventory_movements",
 ]);
+
 export async function apiUpload<T>(endpoint: string, formData: FormData): Promise<T> {
   const token = localStorage.getItem("token");
   const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -97,7 +98,9 @@ export async function apiUpload<T>(endpoint: string, formData: FormData): Promis
 
 function normalizeApiResponse(body: any) {
   if (!body || typeof body !== "object" || body.success !== true) return body;
-  const payloadKeys = Object.keys(body).filter((key) => key !== "success" && key !== "message");
+  const payloadKeys = Object.keys(body).filter(
+    (key) => key !== "success" && key !== "message"
+  );
   if (payloadKeys.length === 1 && UNWRAP_KEYS.has(payloadKeys[0])) {
     return body[payloadKeys[0]];
   }
@@ -320,36 +323,13 @@ export interface CompanyRow {
   slug: string;
 }
 
-interface User {
-  id: number;
-  username: string;
-  display_name: string;
-  role: string;
-}
-
-interface Item {
-  id: number;
-  name: string;
-  sku: string;
-  category: string;
-  unit: string;
-}
-
-interface Supplier {
-  id: number;
-  name: string;
-  phone: string;
-  notes: string;
-}
-
-// api.ts
 export interface Transaction {
   id: number;
   date: string;
   description: string;
   amount: number;
   status: string;
-  type: "sale" | "purchase" | "expense" | "adjustment" | string; // keeps broad compat
+  type: "sale" | "purchase" | "expense" | "adjustment" | string;
 }
 
 export interface SalesTrendPoint {
@@ -377,7 +357,10 @@ export interface DashboardMetrics {
 
 // ─── Core Helper ──────────────────────────────────────────────────────────────
 
-export async function apiCall<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function apiCall<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
   const token = localStorage.getItem("token");
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
@@ -406,9 +389,9 @@ export async function login(
   companySlug: string,
   username: string,
   password: string
-): Promise<{ user: User; token: string } | null> {
+): Promise<{ user: UserRow; token: string } | null> {
   try {
-    return await apiCall<{ user: User; token: string }>("/api/auth/login", {
+    return await apiCall<{ user: UserRow; token: string }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({
         company_slug: companySlug.trim().toLowerCase(),
@@ -429,7 +412,10 @@ export async function registerCompany(data: {
   owner_password: string;
 }): Promise<boolean> {
   try {
-    await apiCall("/api/auth/register", { method: "POST", body: JSON.stringify(data) });
+    await apiCall("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
     return true;
   } catch {
     return false;
@@ -500,10 +486,10 @@ export async function deleteBranch(branchId: number): Promise<boolean> {
 
 // ─── Items ────────────────────────────────────────────────────────────────────
 
-export async function getItems(category?: string): Promise<Item[]> {
+export async function getItems(category?: string): Promise<ItemRow[]> {
   try {
     const query = category ? `?category=${category}` : "";
-    return await apiCall<Item[]>(`/api/products/items${query}`);
+    return await apiCall<ItemRow[]>(`/api/products/items${query}`);
   } catch {
     return [];
   }
@@ -538,13 +524,14 @@ export async function deleteItem(itemId: number): Promise<boolean> {
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 
-export async function getSuppliers(): Promise<Supplier[]> {
+export async function getSuppliers(): Promise<SupplierRow[]> {
   try {
-    return await apiCall<Supplier[]>("/api/suppliers");
+    return await apiCall<SupplierRow[]>("/api/suppliers");
   } catch {
     return [];
   }
 }
+
 export async function addSupplier(data: {
   name: string;
   contact?: string;
@@ -632,16 +619,13 @@ export async function addPurchase(data: {
   user_id: number;
 }): Promise<{ id: number; [key: string]: any } | null> {
   try {
-    return await apiCall<{ id: number; [key: string]: any }>(
-      "/api/purchases",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          ...data,
-          ingredient_id: data.item_id,
-        }),
-      }
-    );
+    return await apiCall<{ id: number; [key: string]: any }>("/api/purchases", {
+      method: "POST",
+      body: JSON.stringify({
+        ...data,
+        ingredient_id: data.item_id,
+      }),
+    });
   } catch {
     return null;
   }
@@ -663,18 +647,25 @@ export async function addSale(data: {
   notes: string;
   user_id: number;
 }): Promise<boolean> {
-  await apiCall("/api/sales", {
-    method: "POST",
-    body: JSON.stringify({
-      ...data,
-      product_id: data.item_id,
-      receivable_amount: data.receivable,
-    }),
-  });
-  return true;
+  try {
+    await apiCall("/api/sales", {
+      method: "POST",
+      body: JSON.stringify({
+        ...data,
+        product_id:       data.item_id,
+        receivable_amount: data.receivable,
+      }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export async function getSalesByBranch(branchId: number, period?: string): Promise<SaleRow[]> {
+export async function getSalesByBranch(
+  branchId: number,
+  period?: string
+): Promise<SaleRow[]> {
   const params = new URLSearchParams({ branch_id: String(branchId) });
   if (period) params.set("period", period);
   return apiCall<SaleRow[]>(`/api/sales?${params.toString()}`);
@@ -703,8 +694,8 @@ export async function addProduction(data: {
       method: "POST",
       body: JSON.stringify({
         ...data,
-        product_id: data.finished_item_id,
-        labor_cost: data.direct_labor,
+        product_id:    data.finished_item_id,
+        labor_cost:    data.direct_labor,
         overhead_cost: data.overhead,
         material_cost: data.legacy_material_cost,
       }),
@@ -731,7 +722,9 @@ export async function getStockBalances(branchId: number): Promise<StockBalance[]
   }));
 }
 
-export async function getFinishedGoodsBalances(branchId: number): Promise<StockBalance[]> {
+export async function getFinishedGoodsBalances(
+  branchId: number
+): Promise<StockBalance[]> {
   const rows = await apiCall<any[]>(`/api/stock/finished-goods/${branchId}`);
   return rows.map((row) => ({
     ingredient_id:   Number(row.product_id) + PRODUCT_OFFSET,
@@ -761,7 +754,7 @@ export async function addStockCount(data: {
 }): Promise<boolean> {
   try {
     const balances  = await getStockBalances(data.branch_id);
-    const current   = balances.find(b => b.ingredient_id === data.ingredient_id);
+    const current   = balances.find((b) => b.ingredient_id === data.ingredient_id);
     const systemQty = current?.balance_qty ?? 0;
     await apiCall("/api/stock-counts", {
       method: "POST",
@@ -1102,7 +1095,9 @@ export async function isPeriodClosed(
 }
 
 export async function getPeriodStatus(period: string): Promise<PeriodStatusRow> {
-  return apiCall<PeriodStatusRow>(`/api/period/status?period=${encodeURIComponent(period)}`);
+  return apiCall<PeriodStatusRow>(
+    `/api/period/status?period=${encodeURIComponent(period)}`
+  );
 }
 
 export async function setPeriodStatus(data: {
@@ -1173,7 +1168,10 @@ export async function rejectRequest(
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
 
-export async function generateReport(reportType: string, format = "json"): Promise<any> {
+export async function generateReport(
+  reportType: string,
+  format = "json"
+): Promise<any> {
   try {
     return await apiCall(`/api/reports/${reportType}?format=${format}`);
   } catch {
@@ -1193,9 +1191,8 @@ export async function exportReport(
     date_to:   dateTo,
     format,
   });
-  const base  = import.meta.env.VITE_API_URL || "http://localhost:8085";
   const token = localStorage.getItem("token");
-  const response = await fetch(`${base}/api/export?${params}`, {
+  const response = await fetch(`${API_BASE}/api/export?${params}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!response.ok) throw new Error("Export failed");

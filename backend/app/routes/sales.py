@@ -36,7 +36,7 @@ def get_sale(
 def create_sale(
     req: SaleRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
     product_id = req.product_id or req.item_id
@@ -69,7 +69,7 @@ def create_sale(
 def create_sale_return(
     req: SaleRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
     product_id = req.product_id or req.item_id
@@ -81,7 +81,7 @@ def create_sale_return(
             branch_id=req.branch_id,
             product_id=product_id,
             entry_date=req.entry_date,
-            quantity=-abs(req.quantity),
+            quantity=-abs(req.quantity),  # always negative for returns
             unit_price=req.unit_price or refund or 0,
             company_id=current_user["company_id"],
             user_id=current_user["id"],
@@ -93,6 +93,7 @@ def create_sale_return(
             notes=req.notes,
             status=req.status,
             ip_address=request.client.host,
+            is_return=True,  # skip stock validation, add back to inventory
         )
         return success("Sale return recorded", sale_return=sale_return)
     except ValueError as e:
@@ -103,7 +104,7 @@ def create_sale_return(
 def delete_sale(
     sale_id: int,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         sales_db.delete_sale(

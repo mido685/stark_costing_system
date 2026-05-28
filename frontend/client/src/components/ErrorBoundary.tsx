@@ -11,6 +11,20 @@ interface State {
   error: Error | null;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Error boundaries must be class components, so hooks are unavailable.
+// We read localStorage directly — same key used by LanguageContext.
+
+function getIsRTL(): boolean {
+  try {
+    return localStorage.getItem("lang") === "ar";
+  } catch {
+    return false;
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
@@ -21,17 +35,33 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error("[ErrorBoundary] Caught error:", error);
+    console.error("[ErrorBoundary] Component stack:", info.componentStack);
+  }
+
   render() {
     if (this.state.hasError) {
+      const isRTL = getIsRTL();
+
+      const heading = isRTL
+        ? "حدث خطأ غير متوقع."
+        : "An unexpected error occurred.";
+
+      const reloadLabel = isRTL ? "إعادة تحميل الصفحة" : "Reload Page";
+
       return (
-        <div className="flex items-center justify-center min-h-screen p-8 bg-background">
+        <div
+          dir={isRTL ? "rtl" : "ltr"}
+          className="flex items-center justify-center min-h-screen p-8 bg-background"
+        >
           <div className="flex flex-col items-center w-full max-w-2xl p-8">
             <AlertTriangle
               size={48}
               className="text-destructive mb-6 flex-shrink-0"
             />
 
-            <h2 className="text-xl mb-4">An unexpected error occurred.</h2>
+            <h2 className="text-xl mb-4">{heading}</h2>
 
             <div className="p-4 w-full rounded bg-muted overflow-auto mb-6">
               <pre className="text-sm text-muted-foreground whitespace-break-spaces">
@@ -48,7 +78,7 @@ class ErrorBoundary extends Component<Props, State> {
               )}
             >
               <RotateCcw size={16} />
-              Reload Page
+              {reloadLabel}
             </button>
           </div>
         </div>

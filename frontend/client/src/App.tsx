@@ -29,7 +29,7 @@ function SuperAdminRouter() {
     <Switch>
       <Route path="/"          component={SuperAdminPanel} />
       <Route path="/register"  component={Register}        />
-      <Route                   component={SuperAdminPanel} />
+      <Route                   component={NotFound} />
     </Switch>
   );
 }

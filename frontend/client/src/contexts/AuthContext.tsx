@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
 } from "react";
 import { apiCall } from "@/lib/api";
 
@@ -36,9 +37,40 @@ const KEYS = {
 
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 
+// ─── Storage helpers ──────────────────────────────────────────────────────────
+
+function storageSave(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* private browsing */ }
+}
+
+function storageRemove(...keys: string[]): void {
+  try { keys.forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }
+}
+
+/** Parse + minimally validate a stored AuthUser. Returns null if invalid. */
+function parseStoredUser(raw: string | null): AuthUser | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    // Guard against corrupt / outdated stored objects
+    if (
+      parsed &&
+      typeof parsed.id         === "number" &&
+      typeof parsed.username   === "string" &&
+      typeof parsed.role       === "string" &&
+      typeof parsed.company_id === "number"
+    ) {
+      return parsed as AuthUser;
+    }
+  } catch { /* corrupt JSON */ }
+  return null;
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthState>(null!);
+AuthContext.displayName = "AuthContext";
+
 export const useAuth = () => useContext(AuthContext);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -48,16 +80,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token,    setToken]    = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
 
-  // ── logout (stable ref so the fetch interceptor always sees the latest) ──
+  // ── logout ────────────────────────────────────────────────────────────────
+  // Defined first so logoutRef can reference it immediately.
 
   const logout = useCallback(() => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem(KEYS.token);
-    localStorage.removeItem(KEYS.user);
+    storageRemove(KEYS.token, KEYS.user);
   }, []);
 
-  // Keep a stable ref so the interceptor closure never goes stale
+  // Stable ref — fetch interceptor always calls the latest logout without
+  // being listed as a dependency (avoids re-patching window.fetch).
   const logoutRef = useRef(logout);
   useEffect(() => { logoutRef.current = logout; }, [logout]);
 
@@ -66,8 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback((authUser: AuthUser, authToken: string) => {
     setUser(authUser);
     setToken(authToken);
-    localStorage.setItem(KEYS.token, authToken);
-    localStorage.setItem(KEYS.user,  JSON.stringify(authUser));
+    storageSave(KEYS.token, authToken);
+    storageSave(KEYS.user,  JSON.stringify(authUser));
   }, []);
 
   // ── Session restore on mount ──────────────────────────────────────────────
@@ -75,23 +108,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const storedToken = localStorage.getItem(KEYS.token);
-      const storedUser  = localStorage.getItem(KEYS.user);
+      const storedUser  = parseStoredUser(localStorage.getItem(KEYS.user));
       if (storedToken && storedUser) {
         setToken(storedToken);
-        setUser(JSON.parse(storedUser));
+        setUser(storedUser);
+      } else if (storedToken && !storedUser) {
+        // Token present but user data corrupt — clear everything
+        storageRemove(KEYS.token, KEYS.user);
       }
     } catch {
-      // Corrupt storage — clear and start fresh
-      localStorage.removeItem(KEYS.token);
-      localStorage.removeItem(KEYS.user);
+      storageRemove(KEYS.token, KEYS.user);
     } finally {
       setChecking(false);
     }
   }, []);
 
   // ── Re-validate token + refresh user profile ──────────────────────────────
-  // Runs after session restore and after every login. We skip validation while
-  // `checking` is still true to avoid a race where restore hasn't finished yet.
+  // Skips while `checking` is true to avoid racing with session restore.
+  // Cancels the in-flight request if the effect re-runs (token changed).
 
   useEffect(() => {
     if (!token || checking) return;
@@ -101,19 +135,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then(({ user: freshUser }) => {
         if (cancelled) return;
         setUser(freshUser);
-        localStorage.setItem(KEYS.user, JSON.stringify(freshUser));
+        storageSave(KEYS.user, JSON.stringify(freshUser));
       })
       .catch(() => {
         if (!cancelled) logoutRef.current();
       });
 
     return () => { cancelled = true; };
-  // `checking` is intentionally included so validation runs after hydration.
+  // `checking` included intentionally — validation must run after hydration.
   }, [token, checking]);
 
   // ── Global 401 interceptor ────────────────────────────────────────────────
-  // Patches window.fetch once on mount. Uses logoutRef so it never captures
-  // a stale closure. Guard against double-patching on StrictMode remounts.
+  // Patches window.fetch exactly once on mount.
+  // Uses logoutRef so it never captures a stale closure.
 
   useEffect(() => {
     const original = window.fetch;
@@ -130,24 +164,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const isAuthRoute = AUTH_ROUTES.some((r) => url.includes(r));
         if (!isAuthRoute) {
           logoutRef.current();
-          // Return a clone so the caller can still inspect the response
           return res.clone();
         }
       }
       return res;
     };
 
-    return () => {
-      window.fetch = original;
-    };
-  // Empty deps — intentional: we only want to patch once.
-  // logoutRef is a stable ref so no stale-closure risk.
+    return () => { window.fetch = original; };
+  // Empty deps — intentional: patch once, logoutRef handles staleness.
   }, []);
 
-  // ── Provider value ────────────────────────────────────────────────────────
+  // ── Stable context value ──────────────────────────────────────────────────
+  // Memoised so consumers only re-render when the values actually change,
+  // not on every render of AuthProvider itself.
+
+  const value = useMemo<AuthState>(
+    () => ({ user, token, checking, login, logout }),
+    [user, token, checking, login, logout]
+  );
 
   return (
-    <AuthContext.Provider value={{ user, token, checking, login, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

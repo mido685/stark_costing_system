@@ -55,6 +55,34 @@ def get_sale(sale_id: int, company_id: int) -> dict[str, Any] | None:
         conn.close()
 
 
+def _get_finished_goods_balance(cur, branch_id: int, product_id: int) -> float:
+    """Returns the current stock balance for a finished good at a branch."""
+    cur.execute("""
+        SELECT COALESCE(SUM(quantity_delta), 0) AS balance
+        FROM finished_goods_movements
+        WHERE branch_id = %s AND product_id = %s
+    """, (branch_id, product_id))
+    row = cur.fetchone()
+    return float(row["balance"] if row else 0)
+
+
+def _get_product_avg_cost(cur, branch_id: int, product_id: int) -> float:
+    """Returns the weighted average unit cost from positive (inbound) movements."""
+    cur.execute("""
+        SELECT
+            CASE
+                WHEN SUM(quantity_delta) FILTER (WHERE quantity_delta > 0) > 0
+                THEN SUM(quantity_delta * unit_cost) FILTER (WHERE quantity_delta > 0)
+                   / SUM(quantity_delta) FILTER (WHERE quantity_delta > 0)
+                ELSE 0
+            END AS avg_unit_cost
+        FROM finished_goods_movements
+        WHERE branch_id = %s AND product_id = %s
+    """, (branch_id, product_id))
+    row = cur.fetchone()
+    return float(row["avg_unit_cost"] if row else 0)
+
+
 def add_sale(
     branch_id: int,
     product_id: int,
@@ -78,6 +106,16 @@ def add_sale(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
+        # ── Validate stock availability ───────────────────────────────────────
+        current_balance = _get_finished_goods_balance(cur, branch_id, product_id)
+        if quantity > current_balance:
+            raise ValueError(
+                f"Insufficient stock: available {current_balance}, requested {quantity}"
+            )
+
+        # ── Use avg cost (not sale price) for inventory valuation ─────────────
+        unit_cost = _get_product_avg_cost(cur, branch_id, product_id)
+
         gross_amount = quantity * unit_price
         net_amount   = gross_amount - discount_amount - promotion_amount + tax_amount
 
@@ -105,7 +143,7 @@ def add_sale(
                  quantity_delta, unit_cost, reference_table, reference_id, notes)
             VALUES (%s, %s, 'sale', %s, %s, %s, 'sales', %s, %s)
         """, (branch_id, product_id, entry_date,
-              -quantity, unit_price, sale["id"], notes))
+              -quantity, unit_cost, sale["id"], notes))
 
         log_audit(
             conn,
