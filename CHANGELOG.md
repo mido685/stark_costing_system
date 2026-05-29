@@ -1,3 +1,10 @@
+## [3.3.1](https://github.com/mido685/stark_costing_system/compare/v3.3.0...v3.3.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* clean up vite config remove manus and jsx-loc plugins ([1e85221](https://github.com/mido685/stark_costing_system/commit/1e85221f1c8f0f34ea56809f9ef43fd2b5003121))
+
 # [3.3.0](https://github.com/mido685/stark_costing_system/compare/v3.2.0...v3.3.0) (2026-05-28)
 
 
