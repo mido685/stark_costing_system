@@ -1,3 +1,10 @@
+## [3.3.2](https://github.com/mido685/stark_costing_system/compare/v3.3.1...v3.3.2) (2026-06-01)
+
+
+### Bug Fixes
+
+* add vite and plugin-react as dev dependencies ([91549cd](https://github.com/mido685/stark_costing_system/commit/91549cd31528eadbab4649b98405dd61fb2044ed))
+
 ## [3.3.1](https://github.com/mido685/stark_costing_system/compare/v3.3.0...v3.3.1) (2026-05-29)
 
 
