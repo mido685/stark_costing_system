@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Loader2, Lock, Building2, User, Eye, EyeOff } from "lucide-react";
+import { Loader2, Lock, User, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { apiCall } from "@/lib/api";
 import { useAuth, type AuthUser } from "@/contexts/AuthContext";
 
@@ -9,12 +10,12 @@ const inputClass =
   "w-full px-3 py-2.5 rounded-lg border border-input bg-background text-sm " +
   "focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground transition-colors";
 
-export default function Login() {
-  const { login } = useAuth();
-
-  const [form, setForm]       = useState({ company_slug: "", username: "", password: "" });
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState("");
+export default function SystemOwnerLogin() {
+  const { login }       = useAuth();
+  const [, setLocation] = useLocation();
+  const [form, setForm]         = useState({ username: "", password: "" });
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState("");
   const [showPass, setShowPass] = useState(false);
 
   function update(field: keyof typeof form, value: string) {
@@ -23,25 +24,24 @@ export default function Login() {
   }
 
   async function handleSubmit() {
-    const { company_slug, username, password } = form;
-    if (!company_slug.trim()) return setError("Company code is required");
-    if (!username.trim())     return setError("Username is required");
-    if (!password)            return setError("Password is required");
+    if (!form.username.trim()) return setError("Username is required");
+    if (!form.password)        return setError("Password is required");
 
     setLoading(true);
     setError("");
     try {
-      const data = await apiCall<{ user: AuthUser; token: string }>("/api/auth/login", {
+      const data = await apiCall<{ user: AuthUser; token: string }>("/api/auth/superadmin/login", {
         method: "POST",
         body: JSON.stringify({
-          company_slug: company_slug.trim().toLowerCase(),
-          username:     username.trim(),
-          password,
+          company_slug: "",
+          username: form.username.trim(),
+          password: form.password,
         }),
       });
       login(data.user, data.token);
+      setLocation("/");
     } catch (err: any) {
-      setError(err?.message ?? "Login failed. Check your credentials.");
+      setError(err?.message ?? "Access denied.");
     }
     setLoading(false);
   }
@@ -60,16 +60,16 @@ export default function Login() {
               STARK AI
             </h1>
             <p className="text-[10px] text-muted-foreground mt-0.5 uppercase tracking-widest">
-              Enterprise Costing System
+              System Owner Access
             </p>
           </div>
         </div>
 
-        {/* Card */}
         <Card className="p-6 shadow-lg border-border/60">
-          <h2 className="text-base font-semibold text-foreground mb-5">
-            Sign in to your account
-          </h2>
+          <div className="mb-4 px-3 py-2.5 rounded-lg bg-purple-50 border border-purple-200 text-xs text-purple-700 flex items-center gap-2">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            Restricted area — authorized personnel only
+          </div>
 
           {error && (
             <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
@@ -79,34 +79,17 @@ export default function Login() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Company Code</label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  className={inputClass + " pl-9"}
-                  placeholder="company-code"
-                  value={form.company_slug}
-                  onChange={e => update("company_slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                  onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                  autoComplete="organization"
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Username</label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <input
                   type="text"
                   className={inputClass + " pl-9"}
-                  placeholder="your username"
+                  placeholder="system username"
                   value={form.username}
                   onChange={e => update("username", e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                  autoComplete="username"
+                  autoFocus
                 />
               </div>
             </div>
@@ -122,12 +105,11 @@ export default function Login() {
                   value={form.password}
                   onChange={e => update("password", e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -136,13 +118,12 @@ export default function Login() {
           </div>
 
           <Button
-            type="button"
-            className="w-full mt-6"
+            className="w-full mt-6 bg-purple-600 hover:bg-purple-700"
             onClick={handleSubmit}
             disabled={loading}
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+            {loading ? "Verifying..." : "Access System"}
           </Button>
         </Card>
 
