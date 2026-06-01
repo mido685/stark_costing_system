@@ -78,7 +78,7 @@ export async function apiUpload<T>(endpoint: string, formData: FormData): Promis
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     headers: {
-      // NO Content-Type here — browser sets it automatically with the correct multipart boundary
+      "ngrok-skip-browser-warning": "true",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: formData,
@@ -366,6 +366,7 @@ export async function apiCall<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
