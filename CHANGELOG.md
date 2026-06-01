@@ -1,3 +1,21 @@
+# [3.4.0](https://github.com/mido685/stark_costing_system/compare/v3.3.2...v3.4.0) (2026-06-01)
+
+
+### Bug Fixes
+
+* correct git email for Vercel ([4ae8a42](https://github.com/mido685/stark_costing_system/commit/4ae8a42555f149271ae0a0e5130b3da3f1e09b2f))
+* remove package-lock.json, force pnpm on Vercel ([addaf39](https://github.com/mido685/stark_costing_system/commit/addaf39c557fdd20e6d35dca8f3587b526b33b87))
+* switch CI from npm to pnpm ([3e390bc](https://github.com/mido685/stark_costing_system/commit/3e390bc528188d3f27f9d7dab70a36e66049423d))
+* sync pnpm lockfile with package.json ([325f37d](https://github.com/mido685/stark_costing_system/commit/325f37d701fea8be35fc69be431faa3f08b380cc))
+* use --no-frozen-lockfile for Vercel install ([d89ed62](https://github.com/mido685/stark_costing_system/commit/d89ed6222c328714819396040dc3a90fffea38da))
+
+
+### Features
+
+* your change description ([dc0e16f](https://github.com/mido685/stark_costing_system/commit/dc0e16f2a25ee0962a9ba84648cedb8f7ae41583))
+* your change description ([f3198f2](https://github.com/mido685/stark_costing_system/commit/f3198f2789f904d1f89f57a2c4c3b49110e9501b))
+* your change description ([b27e167](https://github.com/mido685/stark_costing_system/commit/b27e1670309b4a232e492dfde19484fb16fdf025))
+
 ## [3.3.2](https://github.com/mido685/stark_costing_system/compare/v3.3.1...v3.3.2) (2026-06-01)
 
 
