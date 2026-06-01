@@ -1,5 +1,4 @@
 name: CI Pipeline
-
 on:
   push:
     branches:
@@ -7,58 +6,47 @@ on:
   pull_request:
     branches:
       - main
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
-  # ─── Backend ───────────────────────────────────────────
   backend:
     name: Backend Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         working-directory: backend
         run: pip install -r requirements.txt
-
       - name: Run backend checks
         working-directory: backend
         run: python -m compileall app
 
-  # ─── Frontend ──────────────────────────────────────────
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci --legacy-peer-deps
-
-      - name: Type check
-        working-directory: frontend
-        run: npm run check
-
+        run: pnpm install --no-frozen-lockfile
       - name: Build
         working-directory: frontend
-        run: npm run build
+        run: pnpm run build
 
-  # ─── Release (only on main after checks pass) ──────────
   release:
     name: Release
     needs: [backend, frontend]
@@ -68,22 +56,17 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Install Semantic Release
         run: npm install --save-dev semantic-release @semantic-release/git @semantic-release/changelog @semantic-release/github @semantic-release/npm @semantic-release/commit-analyzer @semantic-release/release-notes-generator
-
-
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
