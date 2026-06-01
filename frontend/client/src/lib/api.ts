@@ -10,7 +10,7 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to localhost:8085
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = "https://uneulogised-liliana-unheedfully.ngrok-free.dev";
 
 const UNWRAP_KEYS = new Set([
   "accrual",
