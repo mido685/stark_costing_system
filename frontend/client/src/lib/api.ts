@@ -1205,3 +1205,19 @@ export async function exportReport(
   a.click();
   URL.revokeObjectURL(url);
 }
+export async function superadminLogin(
+  username: string,
+  password: string
+): Promise<{ user: UserRow; token: string } | null> {
+  try {
+    return await apiCall<{ user: UserRow; token: string }>(
+      "/api/auth/superadmin/login",
+      {
+        method: "POST",
+        body: JSON.stringify({ username: username.trim(), password }),
+      }
+    );
+  } catch {
+    return null;
+  }
+}

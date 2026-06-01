@@ -15,7 +15,11 @@ def create_app() -> FastAPI:
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["https://stark-costing-system.vercel.app"],
+        allow_origins=[
+        "https://stark-costing-system.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

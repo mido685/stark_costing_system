@@ -19,7 +19,7 @@ class CompanyRegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    company_slug: str
+    company_slug: Optional[str] = None
     username: str
     password: str
 
