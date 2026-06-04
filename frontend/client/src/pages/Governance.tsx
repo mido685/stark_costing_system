@@ -30,7 +30,7 @@ import {
   User,
   DollarSign,
 } from "lucide-react";
-import { apiCall } from "@/lib/api";
+import { apiCall,API_BASE} from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -212,7 +212,7 @@ async function downloadPOPdf(
 ) {
   try {
     const serverId = poId.startsWith("po-") ? poId.slice(3) : poId;
-    const response = await fetch(`/api/purchases/${serverId}/pdf`, {
+    const response = await fetch(`${API_BASE}/api/purchases/${serverId}/pdf`, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("token") ?? ""}`,
       },
