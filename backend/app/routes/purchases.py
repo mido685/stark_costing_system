@@ -127,6 +127,17 @@ def create_purchase_return(
         return success("Purchase return recorded", purchase_return=purchase_return)
     except ValueError as e:
         return error(str(e))
+@router.options("/{purchase_id}/pdf")
+def pdf_options(purchase_id: int):
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "https://stark-costing-system.vercel.app",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Authorization, ngrok-skip-browser-warning, Content-Type",
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
 
 
 @router.get("/{purchase_id}/pdf")
