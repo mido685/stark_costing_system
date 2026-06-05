@@ -1,3 +1,10 @@
+# [3.22.0](https://github.com/mido685/stark_costing_system/compare/v3.21.0...v3.22.0) (2026-06-05)
+
+
+### Features
+
+* updating the convernce problem and the stock in the inventory ([6f7aba8](https://github.com/mido685/stark_costing_system/commit/6f7aba84cf8a0b9316f56ea7c92c26a3661c92d8))
+
 # [3.21.0](https://github.com/mido685/stark_costing_system/compare/v3.20.0...v3.21.0) (2026-06-05)
 
 
