@@ -4,6 +4,21 @@
 ### Bug Fixes
 
 * the last fixing today ([15886e8](https://github.com/mido685/stark_costing_system/commit/15886e8b65a22949e6e75df61db104ac2c2b9d19))
+* trigger release after stale tag cleanup ([f69eae3](https://github.com/mido685/stark_costing_system/commit/f69eae3c3326bf1e29ec84108e40fc2751865185))
+
+
+### Features
+
+* updated version from masters on frontend ([ebc940a](https://github.com/mido685/stark_costing_system/commit/ebc940affa01760fec03fe95eafabc97316094fd))
+* your change description ([2305d74](https://github.com/mido685/stark_costing_system/commit/2305d74226c0f85f7094fd371a52d79bf3071149))
+* your change description ([c731285](https://github.com/mido685/stark_costing_system/commit/c7312858382ee596ffca59d15e1a81c145578b96))
+
+# [3.20.0](https://github.com/mido685/stark_costing_system/compare/v3.19.2...v3.20.0) (2026-06-05)
+
+
+### Bug Fixes
+
+* the last fixing today ([15886e8](https://github.com/mido685/stark_costing_system/commit/15886e8b65a22949e6e75df61db104ac2c2b9d19))
 
 
 ### Features
