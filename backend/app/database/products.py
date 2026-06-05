@@ -18,6 +18,16 @@ def list_products(company_id: int) -> list[dict[str, Any]]:
         conn.close()
 
 
+def _next_fg_sku(cur, company_id: int) -> str:
+    """Generate next FG SKU for this company based on total count."""
+    cur.execute(
+        "SELECT COUNT(*) FROM products WHERE company_id = %s",
+        (company_id,)
+    )
+    count = cur.fetchone()[0] + 1
+    return f"FG-{str(count).zfill(5)}"
+
+
 def add_product(
     name: str,
     company_id: int,
@@ -30,11 +40,13 @@ def add_product(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
+        auto_sku = sku or _next_fg_sku(cur, company_id)
+
         cur.execute("""
             INSERT INTO products (company_id, name, unit, sale_price, sku)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING *
-        """, (company_id, name, unit, sale_price, sku))
+        """, (company_id, name, unit, sale_price, auto_sku))
         product = dict(cur.fetchone())
 
         log_audit(

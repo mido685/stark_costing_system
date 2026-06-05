@@ -38,6 +38,16 @@ def get_ingredient(ingredient_id: int, company_id: int) -> dict[str, Any] | None
         conn.close()
 
 
+def _next_rm_sku(cur, company_id: int) -> str:
+    """Generate next RM SKU for this company based on total count."""
+    cur.execute(
+        "SELECT COUNT(*) FROM ingredients WHERE company_id = %s",
+        (company_id,)
+    )
+    count = cur.fetchone()[0] + 1
+    return f"RM-{str(count).zfill(5)}"
+
+
 def add_ingredient(
     name: str,
     unit: str,
@@ -47,18 +57,20 @@ def add_ingredient(
     stock_qty: float = 0,
     reorder_level: float = 0,
     supplier_id: int | None = None,
-    sku: str | None = None,          # ← added
+    sku: str | None = None,
     ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
+        auto_sku = sku or _next_rm_sku(cur, company_id)
+
         cur.execute("""
             INSERT INTO ingredients
                 (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
-        """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku))
+        """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, auto_sku))
         ingredient = dict(cur.fetchone())
 
         log_audit(
@@ -216,14 +228,11 @@ def update_image(ingredient_id: int, company_id: int, image_url: str) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        cur.execute(
-            """
+        cur.execute("""
             UPDATE ingredients
             SET image_url = %s
             WHERE id = %s AND company_id = %s AND is_active = TRUE
-            """,
-            (image_url, ingredient_id, company_id),
-        )
+        """, (image_url, ingredient_id, company_id))
         if cur.rowcount == 0:
             raise ValueError("Ingredient not found or access denied")
         conn.commit()
