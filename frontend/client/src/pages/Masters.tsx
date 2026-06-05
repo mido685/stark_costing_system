@@ -6,7 +6,7 @@ import {
   ChevronRight, Loader2, AlertCircle, DollarSign,
   FileDown, History, TrendingUp, TrendingDown, Minus, Lock,
   Search, ChevronLeft, Eye, Phone, Mail, MapPin, Globe,
-  Tag, Ruler, ShoppingCart, BadgeDollarSign, Upload,
+  Tag, Ruler, ShoppingCart, BadgeDollarSign, Upload, Pencil,
 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import {
@@ -18,11 +18,11 @@ import {
 import type { UserRow, ItemRow, SupplierRow, PeriodStatusRow } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, getCurrencyLabel } from "@/lib/localization";
-import { apiUpload,assetUrl } from "@/lib/api"; 
+import { apiUpload, assetUrl } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ModalType = "branch" | "supplier" | "item" | "user" | "price" | null;
+type ModalType = "branch" | "supplier" | "item" | "editItem" | "user" | "price" | null;
 type Tab = "branches" | "suppliers" | "items" | "users" | "prices";
 
 interface PriceHistoryRow {
@@ -75,8 +75,6 @@ const SUPPLIER_CATEGORIES = [
   "General",
 ] as const;
 
-type SupplierCategory = typeof SUPPLIER_CATEGORIES[number];
-
 function supplierCatColor(category: string | null | undefined) {
   switch (category) {
     case "Food & Ingredients": return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
@@ -106,33 +104,32 @@ interface CountryPhone {
 }
 
 const COUNTRY_PHONES: CountryPhone[] = [
-  { code: "EG", name: "Egypt",        dialCode: "+20",  pattern: /^1[0-9]{9}$/,          placeholder: "1xxxxxxxxx",   example: "+20 10 1234 5678" },
-  { code: "SA", name: "Saudi Arabia", dialCode: "+966", pattern: /^5[0-9]{8}$/,           placeholder: "5xxxxxxxx",    example: "+966 50 123 4567" },
-  { code: "AE", name: "UAE",          dialCode: "+971", pattern: /^5[0-9]{8}$/,           placeholder: "5xxxxxxxx",    example: "+971 50 123 4567" },
-  { code: "JO", name: "Jordan",       dialCode: "+962", pattern: /^7[789][0-9]{7}$/,      placeholder: "7xxxxxxxx",    example: "+962 79 123 4567" },
-  { code: "KW", name: "Kuwait",       dialCode: "+965", pattern: /^[569][0-9]{7}$/,       placeholder: "xxxxxxxx",     example: "+965 5123 4567"   },
-  { code: "QA", name: "Qatar",        dialCode: "+974", pattern: /^[357][0-9]{7}$/,       placeholder: "xxxxxxxx",     example: "+974 3312 3456"   },
-  { code: "BH", name: "Bahrain",      dialCode: "+973", pattern: /^[369][0-9]{7}$/,       placeholder: "xxxxxxxx",     example: "+973 3612 3456"   },
-  { code: "OM", name: "Oman",         dialCode: "+968", pattern: /^[79][0-9]{7}$/,        placeholder: "xxxxxxxx",     example: "+968 9912 3456"   },
-  { code: "LB", name: "Lebanon",      dialCode: "+961", pattern: /^[37][0-9]{7}$/,        placeholder: "xxxxxxxx",     example: "+961 3123 4567"   },
-  { code: "IQ", name: "Iraq",         dialCode: "+964", pattern: /^7[0-9]{9}$/,           placeholder: "7xxxxxxxxx",   example: "+964 770 123 4567"},
-  { code: "SY", name: "Syria",        dialCode: "+963", pattern: /^9[0-9]{8}$/,           placeholder: "9xxxxxxxx",    example: "+963 944 123 456" },
-  { code: "LY", name: "Libya",        dialCode: "+218", pattern: /^9[0-9]{8}$/,           placeholder: "9xxxxxxxx",    example: "+218 91 123 4567" },
-  { code: "TN", name: "Tunisia",      dialCode: "+216", pattern: /^[2-9][0-9]{7}$/,       placeholder: "xxxxxxxx",     example: "+216 20 123 456"  },
-  { code: "DZ", name: "Algeria",      dialCode: "+213", pattern: /^[567][0-9]{8}$/,       placeholder: "xxxxxxxxx",    example: "+213 550 123 456" },
-  { code: "MA", name: "Morocco",      dialCode: "+212", pattern: /^[67][0-9]{8}$/,        placeholder: "xxxxxxxxx",    example: "+212 612 345 678" },
-  { code: "TR", name: "Turkey",       dialCode: "+90",  pattern: /^5[0-9]{9}$/,           placeholder: "5xxxxxxxxx",   example: "+90 530 123 4567" },
-  { code: "GB", name: "UK",           dialCode: "+44",  pattern: /^7[0-9]{9}$/,           placeholder: "7xxxxxxxxx",   example: "+44 7911 123456"  },
-  { code: "US", name: "USA",          dialCode: "+1",   pattern: /^[2-9][0-9]{9}$/,       placeholder: "xxxxxxxxxx",   example: "+1 212 123 4567"  },
-  { code: "DE", name: "Germany",      dialCode: "+49",  pattern: /^1[0-9]{10,11}$/,       placeholder: "1xxxxxxxxxxx", example: "+49 151 12345678" },
-  { code: "FR", name: "France",       dialCode: "+33",  pattern: /^[67][0-9]{8}$/,        placeholder: "xxxxxxxxx",    example: "+33 6 12 34 56 78"},
-  { code: "IN", name: "India",        dialCode: "+91",  pattern: /^[6-9][0-9]{9}$/,       placeholder: "xxxxxxxxxx",   example: "+91 98765 43210"  },
-  { code: "CN", name: "China",        dialCode: "+86",  pattern: /^1[3-9][0-9]{9}$/,      placeholder: "1xxxxxxxxxx",  example: "+86 131 2345 6789"},
+  { code: "EG", name: "Egypt",        dialCode: "+20",  pattern: /^1[0-9]{9}$/,      placeholder: "1xxxxxxxxx",   example: "+20 10 1234 5678"  },
+  { code: "SA", name: "Saudi Arabia", dialCode: "+966", pattern: /^5[0-9]{8}$/,      placeholder: "5xxxxxxxx",    example: "+966 50 123 4567"  },
+  { code: "AE", name: "UAE",          dialCode: "+971", pattern: /^5[0-9]{8}$/,      placeholder: "5xxxxxxxx",    example: "+971 50 123 4567"  },
+  { code: "JO", name: "Jordan",       dialCode: "+962", pattern: /^7[789][0-9]{7}$/, placeholder: "7xxxxxxxx",    example: "+962 79 123 4567"  },
+  { code: "KW", name: "Kuwait",       dialCode: "+965", pattern: /^[569][0-9]{7}$/,  placeholder: "xxxxxxxx",     example: "+965 5123 4567"    },
+  { code: "QA", name: "Qatar",        dialCode: "+974", pattern: /^[357][0-9]{7}$/,  placeholder: "xxxxxxxx",     example: "+974 3312 3456"    },
+  { code: "BH", name: "Bahrain",      dialCode: "+973", pattern: /^[369][0-9]{7}$/,  placeholder: "xxxxxxxx",     example: "+973 3612 3456"    },
+  { code: "OM", name: "Oman",         dialCode: "+968", pattern: /^[79][0-9]{7}$/,   placeholder: "xxxxxxxx",     example: "+968 9912 3456"    },
+  { code: "LB", name: "Lebanon",      dialCode: "+961", pattern: /^[37][0-9]{7}$/,   placeholder: "xxxxxxxx",     example: "+961 3123 4567"    },
+  { code: "IQ", name: "Iraq",         dialCode: "+964", pattern: /^7[0-9]{9}$/,      placeholder: "7xxxxxxxxx",   example: "+964 770 123 4567" },
+  { code: "SY", name: "Syria",        dialCode: "+963", pattern: /^9[0-9]{8}$/,      placeholder: "9xxxxxxxx",    example: "+963 944 123 456"  },
+  { code: "LY", name: "Libya",        dialCode: "+218", pattern: /^9[0-9]{8}$/,      placeholder: "9xxxxxxxx",    example: "+218 91 123 4567"  },
+  { code: "TN", name: "Tunisia",      dialCode: "+216", pattern: /^[2-9][0-9]{7}$/,  placeholder: "xxxxxxxx",     example: "+216 20 123 456"   },
+  { code: "DZ", name: "Algeria",      dialCode: "+213", pattern: /^[567][0-9]{8}$/,  placeholder: "xxxxxxxxx",    example: "+213 550 123 456"  },
+  { code: "MA", name: "Morocco",      dialCode: "+212", pattern: /^[67][0-9]{8}$/,   placeholder: "xxxxxxxxx",    example: "+212 612 345 678"  },
+  { code: "TR", name: "Turkey",       dialCode: "+90",  pattern: /^5[0-9]{9}$/,      placeholder: "5xxxxxxxxx",   example: "+90 530 123 4567"  },
+  { code: "GB", name: "UK",           dialCode: "+44",  pattern: /^7[0-9]{9}$/,      placeholder: "7xxxxxxxxx",   example: "+44 7911 123456"   },
+  { code: "US", name: "USA",          dialCode: "+1",   pattern: /^[2-9][0-9]{9}$/,  placeholder: "xxxxxxxxxx",   example: "+1 212 123 4567"   },
+  { code: "DE", name: "Germany",      dialCode: "+49",  pattern: /^1[0-9]{10,11}$/,  placeholder: "1xxxxxxxxxxx", example: "+49 151 12345678"  },
+  { code: "FR", name: "France",       dialCode: "+33",  pattern: /^[67][0-9]{8}$/,   placeholder: "xxxxxxxxx",    example: "+33 6 12 34 56 78" },
+  { code: "IN", name: "India",        dialCode: "+91",  pattern: /^[6-9][0-9]{9}$/,  placeholder: "xxxxxxxxxx",   example: "+91 98765 43210"   },
+  { code: "CN", name: "China",        dialCode: "+86",  pattern: /^1[3-9][0-9]{9}$/, placeholder: "1xxxxxxxxxx",  example: "+86 131 2345 6789" },
 ];
 
 function validatePhone(localNumber: string, country: CountryPhone | null): string {
-  if (!localNumber) return "";
-  if (!country) return "";
+  if (!localNumber || !country) return "";
   const digits = localNumber.replace(/[\s\-().]/g, "");
   if (!country.pattern.test(digits)) {
     return `Invalid number for ${country.name}. Expected format: ${country.example}`;
@@ -140,7 +137,7 @@ function validatePhone(localNumber: string, country: CountryPhone | null): strin
   return "";
 }
 
-// ─── Phone Input Component ────────────────────────────────────────────────────
+// ─── Phone Input ──────────────────────────────────────────────────────────────
 
 function PhoneInput({
   value, countryCode, onValueChange, onCountryChange, error,
@@ -261,6 +258,7 @@ function ItemCard({
   selectedPeriodClosed,
   currencyLabel,
   onDelete,
+  onEdit,
   onImageUploaded,
 }: {
   item: ItemRow;
@@ -268,6 +266,7 @@ function ItemCard({
   selectedPeriodClosed: boolean;
   currencyLabel: string;
   onDelete: () => void;
+  onEdit: () => void;
   onImageUploaded: () => void;
 }) {
   const isFG = item.category === "finished_good";
@@ -290,11 +289,8 @@ function ItemCard({
         `/api/products/${item.id}/image?category=${category}`,
         formData
       );
-      // Extract image_url whether it's unwrapped or nested
       const imageUrl = (result as any)?.image_url ?? null;
-      if (imageUrl) {
-        (item as any).image_url = imageUrl; // optimistic update
-      }
+      if (imageUrl) (item as any).image_url = imageUrl;
       onImageUploaded();
     } catch {
       alert("Image upload failed");
@@ -311,7 +307,7 @@ function ItemCard({
       <div className="relative h-36 bg-secondary/40 flex items-center justify-center shrink-0 overflow-hidden">
         {(item as any).image_url ? (
           <img
-            src={`${assetUrl((item as any).image_url)}`}
+            src={assetUrl((item as any).image_url)}
             alt={item.name}
             className="w-full h-full object-cover"
           />
@@ -322,7 +318,6 @@ function ItemCard({
           </div>
         )}
 
-        {/* Upload overlay on hover */}
         {!selectedPeriodClosed && (
           <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
             {uploading ? (
@@ -343,12 +338,9 @@ function ItemCard({
           </label>
         )}
 
-        {/* Category badge — top-left */}
         <span className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${isFG ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"}`}>
           {isFG ? "Finished Good" : "Raw Material"}
         </span>
-
-        {/* Status badge — top-right */}
         <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
           Active
         </span>
@@ -357,7 +349,6 @@ function ItemCard({
       {/* ── Body ── */}
       <div className="p-4 flex flex-col gap-3 flex-1">
 
-        {/* ID + Name */}
         <div>
           <p className="text-[10px] font-mono text-primary leading-none mb-1">
             {isFG ? "FG" : "RM"}-{String(item.id).padStart(5, "0")}
@@ -365,7 +356,6 @@ function ItemCard({
           <p className="text-sm font-bold text-foreground leading-snug">{item.name}</p>
         </div>
 
-        {/* Meta grid */}
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           {item.sku && (
             <div className="col-span-2">
@@ -400,7 +390,6 @@ function ItemCard({
           )}
         </div>
 
-        {/* Supplier */}
         {supplierName && (
           <div className="pt-2 border-t border-border">
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Supplier</p>
@@ -411,8 +400,18 @@ function ItemCard({
           </div>
         )}
 
-        {/* Actions */}
+        {/* ── Actions ── */}
         <div className="flex gap-2 mt-auto pt-2 border-t border-border">
+          <button
+            disabled={selectedPeriodClosed}
+            onClick={onEdit}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold
+                       text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20
+                       hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors
+                       disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Pencil className="w-3.5 h-3.5" /> Edit
+          </button>
           <button
             disabled={selectedPeriodClosed}
             onClick={onDelete}
@@ -677,11 +676,35 @@ export default function Masters() {
   const [phoneError,      setPhoneError]      = useState("");
   const [agentPhoneError, setAgentPhoneError] = useState("");
 
-  const [itemForm,  setItemForm]  = useState({ name: "", sku: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
+  const [itemForm, setItemForm] = useState({
+    name: "", sku: "", category: "raw_material", unit: "",
+    sale_price: 0, reorder_level: 0, standard_cost: 0,
+  });
+
+  // ── Edit Item state ──
+  const [editingItem,   setEditingItem]   = useState<ItemRow | null>(null);
+  const [editItemForm,  setEditItemForm]  = useState({
+    name: "", sku: "", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0,
+  });
+
   const [userForm,  setUserForm]  = useState({ username: "", display_name: "", role: "clerk" });
   const [priceForm, setPriceForm] = useState({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
 
   const openModal = (type: ModalType) => { setError(""); setPhoneError(""); setAgentPhoneError(""); setModal(type); };
+
+  function openEditItem(item: ItemRow) {
+    setEditingItem(item);
+    setEditItemForm({
+      name:          item.name,
+      sku:           item.sku ?? "",
+      unit:          item.unit,
+      sale_price:    item.sale_price ?? 0,
+      reorder_level: item.reorder_level ?? 0,
+      standard_cost: item.standard_cost ?? 0,
+    });
+    setError("");
+    setModal("editItem");
+  }
 
   function buildPhone(localNumber: string, countryCode: string): string {
     if (!localNumber) return "";
@@ -726,8 +749,51 @@ export default function Masters() {
     setSaving(true); setError("");
     const ok = await addItem({ ...itemForm, user_id: currentUserId });
     setSaving(false);
-    if (ok) { setModal(null); setItemForm({ name: "", sku: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 }); await refetchItemsRaw(); }
-    else setError(t("masters.err.itemSave"));
+    if (ok) {
+      setModal(null);
+      setItemForm({ name: "", sku: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
+      await refetchItemsRaw();
+    } else setError(t("masters.err.itemSave"));
+  }
+
+  async function handleUpdateItem() {
+    if (!editingItem) return;
+    if (!editItemForm.name.trim() || !editItemForm.unit.trim()) {
+      setError("Name and unit are required.");
+      return;
+    }
+    setSaving(true); setError("");
+    try {
+      if (editingItem.category === "finished_good") {
+        await apiCall(`/api/products/${editingItem.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            name:          editItemForm.name,
+            unit:          editItemForm.unit,
+            sale_price:    editItemForm.sale_price,
+            standard_cost: editItemForm.standard_cost,
+            sku:           editItemForm.sku,
+          }),
+        });
+      } else {
+        await apiCall(`/api/ingredients/${editingItem.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            name:          editItemForm.name,
+            unit:          editItemForm.unit,
+            cost_per_unit: editItemForm.standard_cost,
+            reorder_level: editItemForm.reorder_level,
+            sku:           editItemForm.sku,
+          }),
+        });
+      }
+      setModal(null);
+      setEditingItem(null);
+      await refetchItemsRaw();
+    } catch {
+      setError("Failed to update item. Please try again.");
+    }
+    setSaving(false);
   }
 
   async function handleSaveUser() {
@@ -846,7 +912,7 @@ export default function Masters() {
         </Modal>
       )}
 
-      {/* ── Item Modal ── */}
+      {/* ── Add Item Modal ── */}
       {modal === "item" && (
         <Modal title={t("masters.modal.addItem")} onClose={() => setModal(null)} onSave={handleSaveItem} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
@@ -869,6 +935,60 @@ export default function Masters() {
               <Field label={t("masters.field.salePrice")}><input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")} value={itemForm.sale_price || ""} onChange={e => setItemForm({ ...itemForm, sale_price: Number(e.target.value) })} /></Field>
             ) : (
               <Field label={t("masters.field.reorderLevel")}><input className={inputClass} type="number" min={0} placeholder="0" value={itemForm.reorder_level || ""} onChange={e => setItemForm({ ...itemForm, reorder_level: Number(e.target.value) })} /></Field>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Edit Item Modal ── */}
+      {modal === "editItem" && editingItem && (
+        <Modal
+          title={`Edit ${editingItem.category === "finished_good" ? "Finished Good" : "Raw Material"}`}
+          onClose={() => { setModal(null); setEditingItem(null); }}
+          onSave={handleUpdateItem}
+          {...modalProps}
+        >
+          {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${editingItem.category === "finished_good" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+              {editingItem.category === "finished_good" ? "Finished Good" : "Raw Material"}
+            </span>
+            <span className="text-xs text-muted-foreground font-mono">
+              {editingItem.category === "finished_good" ? "FG" : "RM"}-{String(editingItem.id).padStart(5, "0")}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Item Name">
+              <input className={inputClass} placeholder="Item name" value={editItemForm.name}
+                onChange={e => setEditItemForm({ ...editItemForm, name: e.target.value })} autoFocus />
+            </Field>
+            <Field label="SKU">
+              <input className={inputClass} placeholder="SKU" value={editItemForm.sku}
+                onChange={e => setEditItemForm({ ...editItemForm, sku: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="Unit">
+            <input className={inputClass} placeholder="kg / pcs / L" value={editItemForm.unit}
+              onChange={e => setEditItemForm({ ...editItemForm, unit: e.target.value })} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={`Standard Cost (${currencyLabel})`}>
+              <input className={inputClass} type="number" min={0} step={0.01}
+                value={editItemForm.standard_cost || ""}
+                onChange={e => setEditItemForm({ ...editItemForm, standard_cost: Number(e.target.value) })} />
+            </Field>
+            {editingItem.category === "finished_good" ? (
+              <Field label={`Sale Price (${currencyLabel})`}>
+                <input className={inputClass} type="number" min={0} step={0.01}
+                  value={editItemForm.sale_price || ""}
+                  onChange={e => setEditItemForm({ ...editItemForm, sale_price: Number(e.target.value) })} />
+              </Field>
+            ) : (
+              <Field label="Reorder Level">
+                <input className={inputClass} type="number" min={0}
+                  value={editItemForm.reorder_level || ""}
+                  onChange={e => setEditItemForm({ ...editItemForm, reorder_level: Number(e.target.value) })} />
+              </Field>
             )}
           </div>
         </Modal>
@@ -989,7 +1109,18 @@ export default function Masters() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge label={t("masters.label.active")} color="bg-green-100 text-green-700" />
-                      <button disabled={selectedPeriodClosed} onClick={async () => { if (selectedPeriodClosed) return; if (!confirm(t("masters.confirm.deleteBranch").replace("{name}", b.name))) return; const ok = await deleteBranch(b.id); if (ok) refetchBranches?.(); }} className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-red-100 text-red-500 disabled:opacity-20 disabled:cursor-not-allowed"><X className="w-4 h-4" /></button>
+                      <button
+                        disabled={selectedPeriodClosed}
+                        onClick={async () => {
+                          if (selectedPeriodClosed) return;
+                          if (!confirm(t("masters.confirm.deleteBranch").replace("{name}", b.name))) return;
+                          const ok = await deleteBranch(b.id);
+                          if (ok) refetchBranches?.();
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-red-100 text-red-500 disabled:opacity-20 disabled:cursor-not-allowed"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1012,9 +1143,9 @@ export default function Masters() {
                 {!supplierLoading && supplierList.length > 0 && (
                   <div className="grid grid-cols-3 gap-4 mb-6">
                     {[
-                      { label: "Total Suppliers", value: supplierList.length, color: "text-green-600 dark:text-green-400" },
-                      { label: "Active",           value: supplierList.length, color: "text-blue-600 dark:text-blue-400"  },
-                      { label: "Categories",       value: new Set(supplierList.map(s => s.category || "General")).size, color: "text-violet-600 dark:text-violet-400" },
+                      { label: "Total Suppliers", value: supplierList.length,                                                          color: "text-green-600 dark:text-green-400"  },
+                      { label: "Active",           value: supplierList.length,                                                          color: "text-blue-600 dark:text-blue-400"    },
+                      { label: "Categories",       value: new Set(supplierList.map(s => s.category || "General")).size,                color: "text-violet-600 dark:text-violet-400" },
                     ].map((stat, i) => (
                       <Card key={i} className="p-4">
                         <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
@@ -1112,6 +1243,7 @@ export default function Masters() {
                     selectedPeriodClosed={selectedPeriodClosed}
                     currencyLabel={currencyLabel}
                     onImageUploaded={() => refetchItemsRaw()}
+                    onEdit={() => openEditItem(item)}
                     onDelete={async () => {
                       if (selectedPeriodClosed) return;
                       if (!confirm(`Delete "${item.name}"?`)) return;

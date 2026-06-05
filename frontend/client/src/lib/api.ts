@@ -1229,3 +1229,42 @@ export async function superadminLogin(
     return null;
   }
 }
+export async function updateItem(data: {
+  id: number;
+  category: string;
+  name: string;
+  sku: string;
+  unit: string;
+  sale_price: number;
+  reorder_level: number;
+  standard_cost: number;
+}): Promise<boolean> {
+  try {
+    if (data.category === "finished_good") {
+      await apiCall(`/api/products/${data.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: data.name,
+          unit: data.unit,
+          sale_price: data.sale_price,
+          standard_cost: data.standard_cost,
+          sku: data.sku,
+        }),
+      });
+    } else {
+      await apiCall(`/api/ingredients/${data.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: data.name,
+          unit: data.unit,
+          cost_per_unit: data.standard_cost,
+          reorder_level: data.reorder_level,
+          sku: data.sku,
+        }),
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
