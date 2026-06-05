@@ -16,7 +16,7 @@ export interface AuthUser {
   username:      string;
   display_name:  string;
   role:          string;
-  company_id:    number;
+  company_id:    number | null;
   company_logo?: string | null;
 }
 
@@ -58,7 +58,7 @@ function parseStoredUser(raw: string | null): AuthUser | null {
       typeof parsed.id         === "number" &&
       typeof parsed.username   === "string" &&
       typeof parsed.role       === "string" &&
-      typeof parsed.company_id === "number"
+      (typeof parsed.company_id === "number" || parsed.company_id === null)
     ) {
       return parsed as AuthUser;
     }
@@ -131,9 +131,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!token || checking) return;
 
     let cancelled = false;
-    apiCall<{ user: AuthUser }>("/api/auth/me")
-      .then(({ user: freshUser }) => {
+    apiCall<AuthUser | { user: AuthUser }>("/api/auth/me")
+      .then((result) => {
         if (cancelled) return;
+        const freshUser = "user" in result ? result.user : result;
+        if (!freshUser) {
+          logoutRef.current();
+          return;
+        }
         setUser(freshUser);
         storageSave(KEYS.user, JSON.stringify(freshUser));
       })
