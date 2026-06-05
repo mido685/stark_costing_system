@@ -1,3 +1,11 @@
+# [3.19.0](https://github.com/mido685/stark_costing_system/compare/v3.18.1...v3.19.0) (2026-06-05)
+
+
+### Features
+
+* improving the sku for every item ([9cc6ebe](https://github.com/mido685/stark_costing_system/commit/9cc6ebed7918202aabe61e1e69ed48667c99a9f6))
+* improving the sku for every item ([e2e36b7](https://github.com/mido685/stark_costing_system/commit/e2e36b72e9242a4d98fbbfe7519fd5350b8cc29e))
+
 ## [3.18.1](https://github.com/mido685/stark_costing_system/compare/v3.18.0...v3.18.1) (2026-06-05)
 
 
