@@ -18,7 +18,7 @@ import {
 import type { UserRow, ItemRow, SupplierRow, PeriodStatusRow } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, getCurrencyLabel } from "@/lib/localization";
-import { apiUpload } from "@/lib/api"; 
+import { apiUpload,assetUrl } from "@/lib/api"; 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ function ItemCard({
       <div className="relative h-36 bg-secondary/40 flex items-center justify-center shrink-0 overflow-hidden">
         {(item as any).image_url ? (
           <img
-            src={`${import.meta.env.VITE_API_URL ?? ""}${(item as any).image_url}`}
+            src={`${assetUrl((item as any).image_url)}`}
             alt={item.name}
             className="w-full h-full object-cover"
           />

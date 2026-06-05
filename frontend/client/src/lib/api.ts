@@ -11,6 +11,12 @@ export function encodeFinishedGoodId(itemId: number): number {
 
 // Empty string = same origin, Vite proxy forwards /api/* to localhost:8085
 const API_BASE = "https://uneulogised-liliana-unheedfully.ngrok-free.dev";
+// api.ts
+export function assetUrl(path: string | null | undefined): string {
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return `${API_BASE}${path}`;
+}
 
 
 const UNWRAP_KEYS = new Set([
