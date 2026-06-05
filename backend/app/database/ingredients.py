@@ -56,7 +56,7 @@ def add_ingredient(
     cur = dict_cursor(conn)
     try:
         # Priority: manual sku → picked prefix → default ING prefix
-        auto_sku = sku or next_sku(company_id, sku_prefix or "ING", "ingredients")
+        auto_sku = sku or next_sku(company_id, sku_prefix or "RM", "ingredients")
 
         cur.execute("""
             INSERT INTO ingredients

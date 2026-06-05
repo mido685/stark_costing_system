@@ -284,6 +284,7 @@ class ItemRequest(BaseModel):
     standard_cost: float = 0       # for raw_material
     reorder_level: float = 0       # for raw_material
     sku: str | None = None         # for both
+    sku_prefix: str | None = None  # auto-generate SKU from this prefix
 
 
 # ── Password Change ──────────────────────────────────────────────────────────

@@ -81,6 +81,7 @@ def create_item(
                 cost_per_unit=req.standard_cost,
                 reorder_level=req.reorder_level,
                 sku=req.sku,
+                sku_prefix=req.sku_prefix,
                 ip_address=request.client.host,
             )
         else:
@@ -91,6 +92,7 @@ def create_item(
                 company_id=current_user["company_id"],
                 user_id=current_user["id"],
                 sku=req.sku,
+                sku_prefix=req.sku_prefix,
                 ip_address=request.client.host,
             )
         return success("Item created")

@@ -1,9 +1,10 @@
 import psycopg2
+import re
 from typing import Any
 from .connection import get_connection, dict_cursor
 
 DEFAULT_RAW_MATERIAL_PREFIXES = [
-    {"label": "General Ingredient", "prefix": "ING",   "item_type": "raw_material"},
+    {"label": "Raw Material",       "prefix": "RM",    "item_type": "raw_material"},
     {"label": "Dairy",              "prefix": "DAIRY", "item_type": "raw_material"},
     {"label": "Meat & Poultry",     "prefix": "MEAT",  "item_type": "raw_material"},
     {"label": "Produce",            "prefix": "PRD",   "item_type": "raw_material"},
@@ -129,12 +130,32 @@ def next_sku(company_id: int, prefix: str, table: str) -> str:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
+        if table not in {"ingredients", "products"}:
+            raise ValueError("Invalid SKU table")
+
+        prefix = prefix.upper().strip()
+        prefix_pattern = re.escape(prefix)
         cur.execute(f"""
-            SELECT COUNT(*) FROM {table}
-            WHERE company_id = %s AND sku LIKE %s
-        """, (company_id, f"{prefix}-%"))
-        count = cur.fetchone()[0] + 1
-        return f"{prefix}-{str(count).zfill(5)}"
+            SELECT
+                COALESCE(MAX(CAST(SUBSTRING(sku FROM %s) AS INTEGER)), 0) AS max_suffix,
+                COUNT(*) FILTER (WHERE sku LIKE %s) AS prefix_count,
+                COUNT(*) AS total_count
+            FROM {table}
+            WHERE company_id = %s
+        """, (rf"^{prefix_pattern}-([0-9]+)$", f"{prefix}-%", company_id))
+        row = cur.fetchone()
+        if isinstance(row, dict):
+            max_suffix = int(row["max_suffix"] or 0)
+            prefix_count = int(row["prefix_count"] or 0)
+            total_count = int(row["total_count"] or 0)
+        else:
+            max_suffix = int(row[0] or 0)
+            prefix_count = int(row[1] or 0)
+            total_count = int(row[2] or 0)
+
+        fallback_count = total_count if prefix in {"RM", "DISH"} else prefix_count
+        next_number = max(max_suffix, fallback_count) + 1
+        return f"{prefix}-{str(next_number).zfill(5)}"
     finally:
         cur.close()
         conn.close()
