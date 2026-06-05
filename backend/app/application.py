@@ -10,18 +10,28 @@ import os
 # Load .env from app/.env — must run before any os.getenv() calls
 load_dotenv(Path(__file__).parent / ".env")
 
+
+def _cors_origins() -> list[str]:
+    configured = os.getenv("CORS_ORIGINS", "")
+    extra_origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        "https://stark-costing-system.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        *extra_origins,
+    ]
+
 def create_app() -> FastAPI:
     application = FastAPI(title=APP_NAME, version=APP_VERSION)
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-        "https://stark-costing-system.vercel.app",
-        "http://localhost:5173",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://localhost:3001",
-    ],
+        allow_origins=_cors_origins(),
+        allow_origin_regex=r"https://.*\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
