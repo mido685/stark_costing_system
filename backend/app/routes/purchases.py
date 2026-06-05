@@ -12,6 +12,9 @@ from app.security.dependencies import get_current_user, require_roles, check_per
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LIST  (all statuses — used by admin views)
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("")
 def list_purchases(
     branch_id: int | None = Query(None),
@@ -26,21 +29,29 @@ def list_purchases(
     return success("Purchases retrieved", purchases=purchases)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# BY-BRANCH  (used by Inventory Controls to build purchaseMap)
+# Returns ALL statuses so pending purchases still show in stock table.
+# Stock balance is controlled by the DB function, not this filter.
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/by-branch")
 def purchases_by_branch(
     branch_id: int | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=1000),   # raised default — stock table needs all
     current_user: dict = Depends(get_current_user),
 ):
     purchases = purchases_db.list_purchases(
         company_id=current_user["company_id"],
         branch_id=branch_id,
-        status="approved",
+        # ← removed status="approved" filter so every purchase is visible
         limit=limit,
     )
-    return success("Approved purchases retrieved", purchases=purchases)
+    return success("Purchases retrieved", purchases=purchases)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SINGLE
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/{purchase_id}")
 def get_purchase(
     purchase_id: int,
@@ -52,6 +63,9 @@ def get_purchase(
     return success("Purchase retrieved", purchase=purchase)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CREATE
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("")
 def create_purchase(
     req: PurchaseRequest,
@@ -59,9 +73,11 @@ def create_purchase(
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
+
     ingredient_id = req.ingredient_id or req.item_id
     if not ingredient_id:
         return error("ingredient_id or item_id is required")
+
     try:
         purchase = purchases_db.add_purchase(
             branch_id=req.branch_id,
@@ -75,30 +91,37 @@ def create_purchase(
             tax_amount=req.tax_amount,
             payable_amount=req.payable_amount,
             notes=req.notes,
-            status="pending",          # ← always force pending, ignore req.status
+            status="pending",   # always pending — approval flow updates stock
             ip_address=request.client.host,
         )
 
-        # ── Register in approval queue ────────────────────────────────────
+        # Register in approval queue
         from app.database.connection import get_connection, dict_cursor
         conn = get_connection()
         cur = dict_cursor(conn)
         try:
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO approval_requests
                     (entity_type, entity_id, branch_id, requested_by, status)
                 VALUES ('purchase', %s, %s, %s, 'pending')
-            """, (purchase["id"], req.branch_id, current_user["id"]))
+                """,
+                (purchase["id"], req.branch_id, current_user["id"]),
+            )
             conn.commit()
         finally:
             cur.close()
             conn.close()
 
         return success("Purchase recorded", purchase=purchase)
+
     except ValueError as e:
         return error(str(e))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PURCHASE RETURNS
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("/returns")
 def create_purchase_return(
     req: PurchaseReturnRequest,
@@ -106,9 +129,11 @@ def create_purchase_return(
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
+
     ingredient_id = req.ingredient_id or req.item_id
     if not ingredient_id:
         return error("ingredient_id or item_id is required")
+
     try:
         purchase_return = purchases_db.add_purchase_return(
             branch_id=req.branch_id,
@@ -125,17 +150,31 @@ def create_purchase_return(
             ip_address=request.client.host,
         )
         return success("Purchase return recorded", purchase_return=purchase_return)
+
     except ValueError as e:
         return error(str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF EXPORT
+# ─────────────────────────────────────────────────────────────────────────────
+CORS_ORIGIN = "https://stark-costing-system.vercel.app"
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": CORS_ORIGIN,
+    "Access-Control-Allow-Credentials": "true",
+}
+
+
 @router.options("/{purchase_id}/pdf")
 def pdf_options(purchase_id: int):
     return Response(
         status_code=200,
         headers={
-            "Access-Control-Allow-Origin": "https://stark-costing-system.vercel.app",
+            **CORS_HEADERS,
             "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Authorization, ngrok-skip-browser-warning, Content-Type",
-            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Headers": (
+                "Authorization, ngrok-skip-browser-warning, Content-Type"
+            ),
         },
     )
 
@@ -149,12 +188,15 @@ def export_purchase_pdf(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import (
+        Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
 
     purchase = purchases_db.get_purchase(purchase_id, current_user["company_id"])
     if not purchase:
         return error("Purchase order not found", status=404)
 
+    # ── Build PDF in memory ───────────────────────────────────────────────────
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -167,7 +209,8 @@ def export_purchase_pdf(
     styles = getSampleStyleSheet()
     elements = []
 
-    elements.append(Paragraph("STARK AI - Purchase Order", styles["Title"]))
+    # Title
+    elements.append(Paragraph("STARK AI — Purchase Order", styles["Title"]))
     elements.append(Spacer(1, 0.4 * cm))
     elements.append(Paragraph(
         f"<b>PO #:</b> {purchase['id']} &nbsp;&nbsp; "
@@ -177,60 +220,73 @@ def export_purchase_pdf(
     ))
     elements.append(Spacer(1, 0.6 * cm))
 
-    info_table = Table([
-        ["Branch", purchase.get("branch_name") or "-"],
-        ["Supplier", purchase.get("supplier_name") or "-"],
-        ["Phone", purchase.get("supplier_phone") or "-"],
-        ["Notes", purchase.get("notes") or "-"],
-    ], colWidths=[4 * cm, 13 * cm])
+    # Info block
+    info_table = Table(
+        [
+            ["Branch",   purchase.get("branch_name")   or "—"],
+            ["Supplier", purchase.get("supplier_name") or "—"],
+            ["Phone",    purchase.get("supplier_phone") or "—"],
+            ["Notes",    purchase.get("notes")         or "—"],
+        ],
+        colWidths=[4 * cm, 13 * cm],
+    )
     info_table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#374151")),
+        ("FONTNAME",      (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("TEXTCOLOR",     (0, 0), (0, -1), colors.HexColor("#374151")),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     elements.append(info_table)
     elements.append(Spacer(1, 0.8 * cm))
 
-    qty = float(purchase.get("quantity") or 0)
-    unit_cost = float(purchase.get("unit_cost") or 0)
-    gross = qty * unit_cost
-    tax = float(purchase.get("tax_amount") or 0)
-    payable = float(purchase.get("payable_amount") or gross + tax)
+    # Amounts
+    qty      = float(purchase.get("quantity")       or 0)
+    unit_cost = float(purchase.get("unit_cost")     or 0)
+    gross    = qty * unit_cost
+    tax      = float(purchase.get("tax_amount")     or 0)
+    payable  = float(purchase.get("payable_amount") or gross + tax)
 
-    items_table = Table([
-        ["Item", "Unit", "Qty", "Unit Cost", "Gross Amount"],
+    # Line items table
+    items_table = Table(
         [
-            purchase.get("ingredient_name") or "-",
-            purchase.get("unit") or "-",
-            f"{qty:,.3f}",
-            f"{unit_cost:,.2f}",
-            f"{gross:,.2f}",
+            ["Item", "Unit", "Qty", "Unit Cost", "Gross Amount"],
+            [
+                purchase.get("ingredient_name") or "—",
+                purchase.get("unit")            or "—",
+                f"{qty:,.3f}",
+                f"{unit_cost:,.2f}",
+                f"{gross:,.2f}",
+            ],
         ],
-    ], colWidths=[6 * cm, 2.5 * cm, 2.5 * cm, 3 * cm, 3 * cm])
+        colWidths=[6 * cm, 2.5 * cm, 2.5 * cm, 3 * cm, 3 * cm],
+    )
     items_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e5e7eb")),
+        ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#1e3a5f")),
+        ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
+        ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("ALIGN",         (2, 0), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+        ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#e5e7eb")),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 0.4 * cm))
 
-    totals_table = Table([
-        ["", "Gross Amount:", f"{gross:,.2f}"],
-        ["", "Tax:", f"{tax:,.2f}"],
-        ["", "Total Payable:", f"{payable:,.2f}"],
-    ], colWidths=[9 * cm, 4 * cm, 4 * cm])
+    # Totals
+    totals_table = Table(
+        [
+            ["", "Gross Amount:", f"{gross:,.2f}"],
+            ["", "Tax:",          f"{tax:,.2f}"],
+            ["", "Total Payable:", f"{payable:,.2f}"],
+        ],
+        colWidths=[9 * cm, 4 * cm, 4 * cm],
+    )
     totals_table.setStyle(TableStyle([
-        ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("FONTNAME",  (1, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE",  (0, 0),  (-1, -1), 9),
+        ("ALIGN",     (1, 0),  (-1, -1), "RIGHT"),
         ("LINEABOVE", (1, -1), (-1, -1), 0.8, colors.HexColor("#1e3a5f")),
         ("TEXTCOLOR", (1, -1), (-1, -1), colors.HexColor("#1e3a5f")),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
@@ -238,18 +294,19 @@ def export_purchase_pdf(
     elements.append(totals_table)
     elements.append(Spacer(1, 1 * cm))
     elements.append(Paragraph(
-        f"Generated by STARK AI Costing Platform - {date.today().isoformat()}",
+        f"Generated by STARK AI Costing Platform — {date.today().isoformat()}",
         styles["Normal"],
     ))
+
     doc.build(elements)
     pdf_bytes = buffer.getvalue()
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
+            **CORS_HEADERS,
             "Content-Disposition": f'attachment; filename="PO-{purchase_id}.pdf"',
             "Content-Length": str(len(pdf_bytes)),
-            "Access-Control-Allow-Origin": "https://stark-costing-system.vercel.app",
-            "Access-Control-Allow-Credentials": "true",
         },
     )

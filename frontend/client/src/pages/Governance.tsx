@@ -36,7 +36,8 @@ import { apiCall } from "@/lib/api";
 type ApprovalStatus = "pending" | "approved" | "rejected";
 
 type ApprovalItem = {
-  id: string;
+  id: string;           // ALWAYS the approval_request.id — used for API calls
+  purchaseId?: number;  // purchase.id — used only for PDF export filename
   typeKey: string;
   desc: string;
   submitted_by: string;
@@ -99,6 +100,7 @@ const PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 25;
 
 export const PROCUREMENT_PO_EVENT = "procurement:po-created";
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,19 +185,24 @@ function generateToastId(): string {
 
 function purchaseToApprovalItem(po: any): ApprovalItem {
   const ingredient = po.ingredient_name ?? po.item_name ?? (po.item_id ? `Item #${po.item_id}` : "");
-  const supplier = po.supplier_name ?? (po.supplier_id ? `Supplier #${po.supplier_id}` : "");
-  const branch = po.branch_name ?? (po.branch_id ? `Branch #${po.branch_id}` : "");
-  const desc = [ingredient, supplier, branch].filter(Boolean).join(" · ");
+  const supplier   = po.supplier_name  ?? (po.supplier_id  ? `Supplier #${po.supplier_id}`  : "");
+  const branch     = po.branch_name    ?? (po.branch_id    ? `Branch #${po.branch_id}`      : "");
+  const desc       = [ingredient, supplier, branch].filter(Boolean).join(" · ");
+ 
   return {
-    id: `po-${po.id}`,
-    typeKey: "gov.approvalType.purchase",
+    // Use approval_request id if provided by the event payload, otherwise
+    // fall back to a temporary placeholder — fetchApprovals() will replace it.
+    id:           String(po.approval_request_id ?? `tmp-po-${po.id}`),
+    purchaseId:   Number(po.id),
+    typeKey:      "gov.approvalType.purchase",
     desc,
     submitted_by: po.submitted_by ?? po.user_name ?? "",
-    date: po.entry_date ?? po.created_at ?? new Date().toISOString(),
-    status: normalizeStatus(po.status),
-    amount: po.gross_amount != null ? Number(po.gross_amount) : undefined,
-    currency: po.currency ?? po.currency_code ?? undefined,
-    priority: toPriority(po),
+    date:         po.entry_date   ?? po.created_at ?? new Date().toISOString(),
+    status:       normalizeStatus(po.status),
+    amount:       po.payable_amount != null ? Number(po.payable_amount)
+                : po.gross_amount   != null ? Number(po.gross_amount) : undefined,
+    currency:     po.currency ?? undefined,
+    priority:     toPriority(po),
     fromProcurement: true,
   };
 }
@@ -880,7 +887,6 @@ export default function Governance() {
   }, []);
 
   // ── Fetch approvals ───────────────────────────────────────────────────────
-
   const fetchApprovals = useCallback(async () => {
     setApprovalsLoading(true);
     setApprovalsError(null);
@@ -889,26 +895,36 @@ export default function Governance() {
       const serverItems: ApprovalItem[] = (Array.isArray(data) ? data : []).map((row) => {
         const typeKey = toTypeKey(row);
         const desc = row.entity_type === "purchase"
-          ? [row.ingredient_name, row.supplier_name, row.branch_name, row.quantity != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null, row.unit_cost != null ? `@ ${row.unit_cost}` : null].filter(Boolean).join(" · ")
+          ? [
+              row.ingredient_name,
+              row.supplier_name,
+              row.branch_name,
+              row.quantity  != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null,
+              row.unit_cost != null ? `@ ${row.unit_cost}` : null,
+            ].filter(Boolean).join(" · ")
           : String(row.description ?? row.notes ?? "");
+  
         return {
-          id: String(row.id),
+          id:           String(row.id),          // approval_request.id — always correct
+          purchaseId:   row.entity_type === "purchase" ? Number(row.entity_id) : undefined,
           typeKey,
           desc,
           submitted_by: String(row.submitted_by ?? row.requested_by_name ?? ""),
-          date: String(row.requested_at ?? row.entry_date ?? ""),
-          status: normalizeStatus(row.status),
-          amount: row.payable_amount != null ? Number(row.payable_amount) : row.amount != null ? Number(row.amount) : undefined,
-          currency: row.currency ?? undefined,
-          priority: toPriority(row),
+          date:         String(row.requested_at  ?? row.entry_date ?? ""),
+          status:       normalizeStatus(row.status),
+          amount:       row.payable_amount != null ? Number(row.payable_amount)
+                      : row.amount         != null ? Number(row.amount) : undefined,
+          currency:     row.currency ?? undefined,
+          priority:     toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
         };
       });
-      setApprovals((prev) => {
-        const serverIds = new Set(serverItems.map((i) => i.id));
-        const retained = prev.filter((a) => a.fromProcurement && !serverIds.has(a.id));
-        return [...serverItems, ...retained];
-      });
+  
+  
+      // Always replace with fresh server data — no merging with local state.
+      // The Procurement event listener now calls fetchApprovals() instead of
+      // adding a local item, so we never have stale placeholder ids.
+      setApprovals(serverItems);
       setPage(1);
     } catch (err: any) {
       const msg = err?.message ?? t("gov.error.fetchApprovals");
@@ -918,50 +934,43 @@ export default function Governance() {
       setApprovalsLoading(false);
     }
   }, [addToast, t]);
-
-  useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
-
-  // ── Listen for new POs from Procurement ──────────────────────────────────
-
   useEffect(() => {
-    function handleNewPO(event: Event) {
-      const po = (event as CustomEvent).detail;
-      if (!po) return;
-      const newItem = purchaseToApprovalItem(po);
-      setApprovals((prev) => {
-        if (prev.some((a) => a.id === newItem.id)) return prev;
-        return [newItem, ...prev];
-      });
-      setNewPOCount((c) => c + 1);
-      addToast("warning", `New PO #${po.id} added to approval queue — review before closing the period.`);
-    }
-    window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
-    return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
-  }, [addToast]);
+  function handleNewPO(event: Event) {
+    const po = (event as CustomEvent).detail;
+    if (!po) return;
+    setNewPOCount((c) => c + 1);
+    addToast("warning", `New PO #${po.id} added to approval queue.`);
+    fetchApprovals();
+  }
+  window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
+  return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
+}, [addToast, fetchApprovals]);
 
   // ── Approve / Reject ──────────────────────────────────────────────────────
-
   const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
     setConfirmAction(null);
     setFocusedIdx(null);
     setLoadingIds((prev) => new Set(prev).add(id));
+  
     const newStatus: ApprovalStatus = action === "approve" ? "approved" : "rejected";
     setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
+  
     try {
-      const serverId = id.startsWith("po-") ? id.slice(3) : id;
-      const bodyKey = action === "approve" ? "approved_by" : "rejected_by";
-      await apiCall(`/api/approvals/${serverId}/${action}`, {
+      // id is ALWAYS the approval_request.id now — no stripping needed
+      await apiCall(`/api/approvals/${id}/${action}`, {
         method: "POST",
-        body: JSON.stringify({ [bodyKey]: currentUserId }),
+        body: JSON.stringify({ user_id: currentUserId }),
       });
       addToast("success", action === "approve" ? t("gov.toast.approved") : t("gov.toast.rejected"));
+      // Refresh so approved items disappear from pending list
+      fetchApprovals();
     } catch (err: any) {
       setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: "pending" } : a)));
       addToast("error", err?.message ?? t("gov.error.action"));
     } finally {
       setLoadingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
     }
-  }, [currentUserId, addToast, t]);
+  }, [currentUserId, addToast, t, fetchApprovals]);
 
   // ── Bulk approve ──────────────────────────────────────────────────────────
 
@@ -972,8 +981,7 @@ export default function Governance() {
     setApprovals((prev) => prev.map((a) => (a.status === "pending" ? { ...a, status: "approved" } : a)));
     try {
       await Promise.all(pendingIds.map((id) => {
-        const serverId = id.startsWith("po-") ? id.slice(3) : id;
-        return apiCall(`/api/approvals/${serverId}/approve`, { method: "POST", body: JSON.stringify({ approved_by: currentUserId }) });
+        return apiCall(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_by: currentUserId }) });
       }));
       addToast("success", t("gov.toast.bulkApproved"));
     } catch (err: any) {
@@ -1483,7 +1491,7 @@ export default function Governance() {
                               <Button size="sm" variant="outline" disabled={isPdfLoading || isLoading}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  downloadPOPdf({ id: Number(a.id.replace("po-", "")), branch_name: "", supplier_name: "", ingredient_name: a.desc, unit: "", entry_date: a.date, quantity: 0, unit_cost: 0, gross_amount: a.amount, payable_amount: a.amount, status: a.status }, addToast);
+                                  downloadPOPdf({ id: a.purchaseId?? Number(a.id.replace("po-", "")), branch_name: "", supplier_name: "", ingredient_name: a.desc, unit: "", entry_date: a.date, quantity: 0, unit_cost: 0, gross_amount: a.amount, payable_amount: a.amount, status: a.status }, addToast);
                                 }}
                                 className="gov-btn-press gov-ripple h-7 text-xs px-3 border-blue-300 text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
                                 title={`Export PO #${a.id.replace("po-", "")} as PDF`}

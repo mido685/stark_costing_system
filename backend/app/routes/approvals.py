@@ -6,6 +6,9 @@ from app.security.dependencies import get_current_user, require_roles
 router = APIRouter(tags=["approvals"])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PENDING APPROVALS
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/approvals/pending")
 def pending_approvals(current_user: dict = Depends(get_current_user)):
     conn = get_connection()
@@ -24,7 +27,6 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 ar.approved_at,
                 b.name              AS branch_name,
                 u.display_name      AS submitted_by,
-                -- Purchase details (joined when entity_type = 'purchase')
                 p.quantity          AS quantity,
                 p.unit_cost         AS unit_cost,
                 p.gross_amount      AS amount,
@@ -39,7 +41,6 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
             FROM approval_requests ar
             LEFT JOIN branches    b ON b.id = ar.branch_id
             LEFT JOIN app_users   u ON u.id = ar.requested_by
-            -- Join purchase data only when entity_type = 'purchase'
             LEFT JOIN purchases   p ON ar.entity_type = 'purchase'
                                     AND ar.entity_id = p.id
             LEFT JOIN suppliers   s ON s.id = p.supplier_id
@@ -55,6 +56,9 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
         conn.close()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# APPROVAL HISTORY
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/approvals/history")
 def approvals_history(
     branch_id: int | None = Query(None),
@@ -63,7 +67,6 @@ def approvals_history(
     limit: int = Query(200, ge=1, le=1000),
     current_user: dict = Depends(get_current_user),
 ):
-    """Full approval history — all statuses with rich PO details."""
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
@@ -122,6 +125,9 @@ def approvals_history(
         conn.close()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# APPROVE / REJECT
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("/approvals/{request_id}/approve")
 def approve_request(
     request_id: int,
@@ -140,6 +146,9 @@ def reject_request(
     return _set_approval_status(request_id, "rejected", request.client.host, current_user)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GOVERNANCE HISTORY
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/governance/history")
 def governance_history(
     branch_id: int | None = Query(None),
@@ -163,7 +172,6 @@ def governance_history(
                 gal.*,
                 b.name              AS branch_name,
                 u.display_name      AS actor_name,
-                -- Enrich with purchase details when available
                 p.quantity,
                 p.unit_cost,
                 p.gross_amount      AS po_amount,
@@ -196,84 +204,155 @@ def governance_history(
         conn.close()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CORE APPROVAL LOGIC
+# ─────────────────────────────────────────────────────────────────────────────
 def _set_approval_status(
     request_id: int, status: str, ip_address: str | None, current_user: dict
 ):
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # ── Fetch approval request with full purchase details ─────────────────
+        # ── 1. Fetch request + ALL purchase fields we need ────────────────────
+        # NOTE: pull branch_id from purchases.branch_id directly — not from
+        # approval_requests.branch_id which can be NULL or stale.
         cur.execute("""
             SELECT
-                ar.*,
-                b.company_id,
-                b.name          AS branch_name,
-                u.display_name  AS submitted_by,
-                p.gross_amount,
-                p.payable_amount,
-                p.quantity,
-                p.unit_cost,
-                p.ingredient_id,
-                p.supplier_id,
-                s.name          AS supplier_name,
-                i.name          AS ingredient_name
+                ar.id               AS ar_id,
+                ar.entity_type,
+                ar.entity_id,
+                ar.status           AS ar_status,
+                ar.requested_by,
+                b_ar.company_id     AS ar_company_id,
+                u.display_name      AS submitted_by,
+                -- Pull everything directly from purchases row
+                p.branch_id         AS branch_id,
+                p.ingredient_id     AS ingredient_id,
+                p.supplier_id       AS supplier_id,
+                p.quantity          AS quantity,
+                p.unit_cost         AS unit_cost,
+                p.gross_amount      AS gross_amount,
+                p.payable_amount    AS payable_amount,
+                p.entry_date        AS purchase_date,
+                p.notes             AS purchase_notes,
+                b_p.company_id      AS purchase_company_id,
+                s.name              AS supplier_name,
+                i.name              AS ingredient_name
             FROM approval_requests ar
-            LEFT JOIN branches    b ON b.id  = ar.branch_id
-            LEFT JOIN app_users   u ON u.id  = ar.requested_by
-            LEFT JOIN purchases   p ON ar.entity_type = 'purchase'
-                                    AND ar.entity_id = p.id
-            LEFT JOIN suppliers   s ON s.id = p.supplier_id
-            LEFT JOIN ingredients i ON i.id = p.ingredient_id
+            -- branch from the approval request (may be null)
+            LEFT JOIN branches    b_ar ON b_ar.id  = ar.branch_id
+            LEFT JOIN app_users   u    ON u.id     = ar.requested_by
+            -- the actual purchase row
+            LEFT JOIN purchases   p    ON ar.entity_type = 'purchase'
+                                       AND ar.entity_id = p.id
+            -- branch from the purchase row (always set)
+            LEFT JOIN branches    b_p  ON b_p.id   = p.branch_id
+            LEFT JOIN suppliers   s    ON s.id      = p.supplier_id
+            LEFT JOIN ingredients i    ON i.id      = p.ingredient_id
             WHERE ar.id = %s
         """, (request_id,))
         old = cur.fetchone()
 
-        if not old or (
-            old["company_id"] is not None
-            and old["company_id"] != current_user["company_id"]
-        ):
+        if not old:
             return error("Approval request not found", status=404)
 
-        # ── Update approval_requests ──────────────────────────────────────────
+        # Use purchase's company_id as the authoritative one
+        company_id = old["purchase_company_id"] or old["ar_company_id"]
+        if company_id != current_user["company_id"]:
+            return error("Approval request not found", status=404)
+
+        # ── 2. Guard: block double-processing ─────────────────────────────────
+        if old["ar_status"] != "pending":
+            return error(
+                f"This request is already {old['ar_status']} and cannot be changed",
+                status=409,
+            )
+
+        # ── 3. Update approval_requests ───────────────────────────────────────
         cur.execute("""
             UPDATE approval_requests
-            SET status = %s, approved_by = %s, approved_at = NOW()
-            WHERE id = %s
-            RETURNING *
+               SET status = %s, approved_by = %s, approved_at = NOW()
+             WHERE id = %s
+         RETURNING *
         """, (status, current_user["id"], request_id))
         row = dict(cur.fetchone())
 
-        # ── Sync status back to the source table ──────────────────────────────
+        # ── 4. Sync source table + create inventory movement ──────────────────
         if old["entity_type"] == "purchase":
-            cur.execute("""
-                UPDATE purchases SET status = %s WHERE id = %s
-            """, (status, old["entity_id"]))
+            cur.execute(
+                "UPDATE purchases SET status = %s WHERE id = %s",
+                (status, old["entity_id"]),
+            )
+
+            if status == "approved":
+                # Guard: skip if a purchase movement already exists for this PO
+                # (handles edge case where purchase was created approved in dev/testing)
+                cur.execute("""
+                    SELECT id FROM inventory_movements
+                    WHERE reference_table = 'purchases'
+                      AND reference_id    = %s
+                      AND movement_type   = 'purchase'
+                    LIMIT 1
+                """, (old["entity_id"],))
+
+                if not cur.fetchone():
+                    # Insert the movement that actually updates the balance
+                    cur.execute("""
+                        INSERT INTO inventory_movements
+                            (branch_id, ingredient_id, movement_type, entry_date,
+                             quantity_delta, unit_cost, reference_table, reference_id, notes)
+                        VALUES (%s, %s, 'purchase', %s, %s, %s, 'purchases', %s, %s)
+                    """, (
+                        old["branch_id"],       # from purchases row — always correct
+                        old["ingredient_id"],
+                        old["purchase_date"],   # original PO date, not today
+                        old["quantity"],
+                        old["unit_cost"],
+                        old["entity_id"],
+                        old["purchase_notes"],
+                    ))
+
+                # Keep ingredient unit cost current
+                cur.execute("""
+                    UPDATE ingredients
+                       SET cost_per_unit = %s, supplier_id = %s
+                     WHERE id = %s AND company_id = %s
+                """, (
+                    old["unit_cost"],
+                    old["supplier_id"],
+                    old["ingredient_id"],
+                    current_user["company_id"],
+                ))
 
         elif old["entity_type"] == "transfer":
-            cur.execute("""
-                UPDATE transfers SET status = %s WHERE id = %s
-            """, (status, old["entity_id"]))
+            cur.execute(
+                "UPDATE transfers SET status = %s WHERE id = %s",
+                (status, old["entity_id"]),
+            )
 
         elif old["entity_type"] == "expense":
-            cur.execute("""
-                UPDATE expenses SET status = %s WHERE id = %s
-            """, (status, old["entity_id"]))
+            cur.execute(
+                "UPDATE expenses SET status = %s WHERE id = %s",
+                (status, old["entity_id"]),
+            )
 
-        # ── Write rich governance log entry ───────────────────────────────────
-        description = (
-            f"{status.title()} purchase of {old.get('ingredient_name') or 'item'} "
-            f"from {old.get('supplier_name') or 'supplier'} "
-            f"— {old.get('quantity') or ''} units @ {old.get('unit_cost') or ''} "
-            f"(payable: {old.get('payable_amount') or old.get('gross_amount') or ''})"
-            if old["entity_type"] == "purchase"
-            else f"{status.title()} {old['entity_type']} #{old['entity_id']}"
-        )
+        # ── 5. Governance log ─────────────────────────────────────────────────
+        if old["entity_type"] == "purchase":
+            description = (
+                f"{status.title()} purchase of "
+                f"{old.get('ingredient_name') or 'item'} "
+                f"from {old.get('supplier_name') or 'supplier'} — "
+                f"{old.get('quantity') or ''} units "
+                f"@ {old.get('unit_cost') or ''} "
+                f"(payable: {old.get('payable_amount') or old.get('gross_amount') or ''})"
+            )
+        else:
+            description = f"{status.title()} {old['entity_type']} #{old['entity_id']}"
 
         cur.execute("""
             INSERT INTO governance_action_log
                 (item_id, entity_type, description, submitted_by, original_date,
-                 action, amount, currency, from_procurement,
-                 actor_id, branch_id)
+                 action, amount, currency, from_procurement, actor_id, branch_id)
             VALUES (%s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s)
         """, (
             str(old["entity_id"]),
@@ -283,10 +362,10 @@ def _set_approval_status(
             "approve" if status == "approved" else "reject",
             float(old["payable_amount"] or old["gross_amount"] or 0)
             if old["entity_type"] == "purchase" else None,
-            None,  # currency — add if you store it
+            None,
             old["entity_type"] == "purchase",
             current_user["id"],
-            old["branch_id"],
+            old["branch_id"],   # from purchases row — always correct
         ))
 
         conn.commit()
