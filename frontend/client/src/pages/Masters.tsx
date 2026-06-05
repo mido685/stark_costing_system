@@ -884,9 +884,18 @@ export default function Masters() {
     setSaving(true); setError("");
     try {
       await apiCall("/api/suppliers/price", { method: "POST", body: JSON.stringify(priceForm) });
+
+      // Auto-select the ingredient that was just priced so the table appears immediately
+      setSelectedIngredient(priceForm.ingredient_id);
+      const found = ingredients?.find(i => i.id === priceForm.ingredient_id);
+      setSelectedIngredientName(found?.name ?? "");
+
+      // Switch to prices tab so the history table is visible
+      setTab("prices");
+
       setModal(null);
       setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
-      refetchPrices?.();
+      await refetchPrices?.();
     } catch { setError(t("masters.err.priceSave")); }
     setSaving(false);
   }
