@@ -944,7 +944,8 @@ export default function Governance() {
   }
   window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
   return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
-}, [addToast, fetchApprovals]);
+  }, [addToast, fetchApprovals]);
+  useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
 
   // ── Approve / Reject ──────────────────────────────────────────────────────
   const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
