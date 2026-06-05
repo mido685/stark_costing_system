@@ -10,12 +10,11 @@ import { useTheme }    from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth }     from "@/contexts/AuthContext";
 import PeriodStatusControl from "@/components/PeriodStatusControl";
+import { assetUrl } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // Compile-time constant — defined at module level so it is never re-evaluated
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8085";
-
 const NAV_ITEMS = [
   { href: "/",                   labelKey: "nav.dashboard",      icon: LayoutDashboard, color: "text-violet-500"  },
   { href: "/masters",            labelKey: "nav.masters",        icon: Settings2,       color: "text-slate-500"   },
@@ -48,8 +47,7 @@ function getInitials(name: string | null | undefined): string {
  * base is prepended to avoid double-prefixing.
  */
 function resolveLogoUrl(logo: string): string {
-  if (/^(https?:\/\/|data:)/i.test(logo)) return logo;
-  return `${API_BASE}${logo}`;
+  return assetUrl(logo);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────

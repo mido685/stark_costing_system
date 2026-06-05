@@ -7,7 +7,7 @@ import {
   Activity, Ban, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { apiCall } from "@/lib/api";
+import { apiCall, assetUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,8 +46,6 @@ type ConfirmAction =
   | { type: "purge";    company: Company };
 
 const EMPTY_USER_FORM = { username: "", display_name: "", password: "", role_id: "" };
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8085";
-
 // ─── Role meta ────────────────────────────────────────────────────────────────
 
 interface RoleMeta { value: string; label: string; icon: React.ReactNode; pill: string; avatar: string; }
@@ -229,7 +227,7 @@ function CompanyRow({
         {/* Avatar */}
         <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden ring-1 ring-white/10">
           {company.logo_url ? (
-            <img src={`${API_BASE}${company.logo_url}`} alt={company.name} className="w-full h-full object-cover" />
+            <img src={assetUrl(company.logo_url)} alt={company.name} className="w-full h-full object-cover" />
           ) : (
             <div className={`w-full h-full flex items-center justify-center text-[13px] font-semibold ${isActive ? "bg-white/10 text-white" : "bg-white/5 text-[#555]"}`}>
               {initials}

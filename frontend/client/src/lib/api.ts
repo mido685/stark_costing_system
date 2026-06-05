@@ -10,11 +10,20 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to localhost:8085
-const API_BASE = "https://uneulogised-liliana-unheedfully.ngrok-free.dev";
+export const API_BASE = "https://uneulogised-liliana-unheedfully.ngrok-free.dev";
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
   if (!path) return "";
-  if (path.startsWith("http")) return path;
+  if (/^data:/i.test(path)) return path;
+  if (/^https?:\/\//i.test(path)) {
+    try {
+      const url = new URL(path);
+      if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+        return `${API_BASE}${url.pathname}${url.search}${url.hash}`;
+      }
+    } catch { /* fall through */ }
+    return path;
+  }
   return `${API_BASE}${path}`;
 }
 

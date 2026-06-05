@@ -3,12 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Loader2, Building2, User, Lock, Eye, EyeOff, ImagePlus, X } from "lucide-react";
 import { Link } from "wouter";
+import { API_BASE } from "@/lib/api";
 
 const inputClass =
   "w-full px-3 py-2.5 rounded-lg border border-input bg-background text-sm " +
   "focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground transition-colors";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8085";
 
 export default function Register() {
   const [form, setForm] = useState({
