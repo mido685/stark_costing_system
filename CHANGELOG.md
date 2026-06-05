@@ -1,3 +1,10 @@
+## [3.19.1](https://github.com/mido685/stark_costing_system/compare/v3.19.0...v3.19.1) (2026-06-05)
+
+
+### Bug Fixes
+
+* the function error ([afda385](https://github.com/mido685/stark_costing_system/commit/afda3852a5542e3cd6f0c17c2370586820819e9e))
+
 # [3.19.0](https://github.com/mido685/stark_costing_system/compare/v3.18.1...v3.19.0) (2026-06-05)
 
 
