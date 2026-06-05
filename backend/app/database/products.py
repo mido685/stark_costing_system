@@ -18,37 +18,23 @@ def list_products(company_id: int) -> list[dict[str, Any]]:
         conn.close()
 
 
-def get_product(product_id: int, company_id: int) -> dict[str, Any] | None:
-    conn = get_connection()
-    cur = dict_cursor(conn)
-    try:
-        cur.execute(
-            "SELECT * FROM products WHERE id = %s AND company_id = %s",
-            (product_id, company_id)
-        )
-        row = cur.fetchone()
-        return dict(row) if row else None
-    finally:
-        cur.close()
-        conn.close()
-
-
 def add_product(
     name: str,
     company_id: int,
     user_id: int,
     unit: str | None = None,
     sale_price: float = 0,
+    sku: str | None = None,
     ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
         cur.execute("""
-            INSERT INTO products (company_id, name, unit, sale_price)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO products (company_id, name, unit, sale_price, sku)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING *
-        """, (company_id, name, unit, sale_price))
+        """, (company_id, name, unit, sale_price, sku))
         product = dict(cur.fetchone())
 
         log_audit(
@@ -82,6 +68,7 @@ def update_product(
     name: str | None = None,
     unit: str | None = None,
     sale_price: float | None = None,
+    sku: str | None = None,
     ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
@@ -99,10 +86,11 @@ def update_product(
             UPDATE products
             SET name       = COALESCE(%s, name),
                 unit       = COALESCE(%s, unit),
-                sale_price = COALESCE(%s, sale_price)
+                sale_price = COALESCE(%s, sale_price),
+                sku        = COALESCE(%s, sku)
             WHERE id = %s AND company_id = %s
             RETURNING *
-        """, (name, unit, sale_price, product_id, company_id))
+        """, (name, unit, sale_price, sku, product_id, company_id))
         new = dict(cur.fetchone())
 
         log_audit(
@@ -134,14 +122,11 @@ def update_image(product_id: int, company_id: int, image_url: str) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        cur.execute(
-            """
+        cur.execute("""
             UPDATE products
             SET image_url = %s
             WHERE id = %s AND company_id = %s AND is_active = TRUE
-            """,
-            (image_url, product_id, company_id),
-        )
+        """, (image_url, product_id, company_id))
         if cur.rowcount == 0:
             raise ValueError("Product not found or access denied")
         conn.commit()

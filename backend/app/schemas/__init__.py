@@ -60,12 +60,14 @@ class ProductRequest(BaseModel):
     name: str
     unit: str | None = None
     sale_price: float = 0
+    sku: str | None = None
 
 
 class ProductUpdateRequest(BaseModel):
     name: str | None = None
     unit: str | None = None
     sale_price: float | None = None
+    sku: str | None = None
 
 
 # ── Ingredients ──────────────────────────────────────────────────────────────
@@ -77,6 +79,7 @@ class IngredientRequest(BaseModel):
     stock_qty: float = 0
     reorder_level: float = 0
     supplier_id: int | None = None
+    sku: str | None = None
 
 
 class IngredientUpdateRequest(BaseModel):
@@ -85,6 +88,7 @@ class IngredientUpdateRequest(BaseModel):
     cost_per_unit: float | None = None
     reorder_level: float | None = None
     supplier_id: int | None = None
+    sku: str | None = None     
 
 
 # ── Suppliers ────────────────────────────────────────────────────────────────
@@ -280,6 +284,7 @@ class ItemRequest(BaseModel):
     sale_price: float = 0          # for finished_good
     standard_cost: float = 0       # for raw_material
     reorder_level: float = 0       # for raw_material
+    sku: str | None = None          # for both
 
 
 # ── Password Change ──────────────────────────────────────────────────────────

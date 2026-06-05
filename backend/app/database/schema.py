@@ -114,6 +114,7 @@ def init_db() -> None:
                 unit       VARCHAR(40),
                 sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
                 is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+                sku        VARCHAR(80),
                 UNIQUE(company_id, name)
             )
         """)
@@ -145,6 +146,7 @@ def init_db() -> None:
                 reorder_level NUMERIC(12,3) NOT NULL DEFAULT 0,
                 supplier_id   INTEGER REFERENCES suppliers(id),
                 is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+                sku           VARCHAR(80),
                 UNIQUE(company_id, name)
             )
         """)

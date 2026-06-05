@@ -46,6 +46,7 @@ def create_ingredient(
             stock_qty=req.stock_qty,
             reorder_level=req.reorder_level,
             supplier_id=req.supplier_id,
+            sku=req.sku,  
             ip_address=request.client.host,
         )
         return success("Ingredient created", ingredient=ingredient)
@@ -70,6 +71,7 @@ def update_ingredient(
             cost_per_unit=req.cost_per_unit,
             reorder_level=req.reorder_level,
             supplier_id=req.supplier_id,
+            sku=req.sku,    
             ip_address=request.client.host,
         )
         return success("Ingredient updated", ingredient=ingredient)

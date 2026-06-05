@@ -47,6 +47,7 @@ def add_ingredient(
     stock_qty: float = 0,
     reorder_level: float = 0,
     supplier_id: int | None = None,
+    sku: str | None = None,          # ← added
     ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
@@ -54,10 +55,10 @@ def add_ingredient(
     try:
         cur.execute("""
             INSERT INTO ingredients
-                (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
-        """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id))
+        """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku))
         ingredient = dict(cur.fetchone())
 
         log_audit(
@@ -93,6 +94,7 @@ def update_ingredient(
     cost_per_unit: float | None = None,
     reorder_level: float | None = None,
     supplier_id: int | None = None,
+    sku: str | None = None,
     ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
@@ -112,10 +114,11 @@ def update_ingredient(
                 unit          = COALESCE(%s, unit),
                 cost_per_unit = COALESCE(%s, cost_per_unit),
                 reorder_level = COALESCE(%s, reorder_level),
-                supplier_id   = COALESCE(%s, supplier_id)
+                supplier_id   = COALESCE(%s, supplier_id),
+                sku           = COALESCE(%s, sku)
             WHERE id = %s AND company_id = %s
             RETURNING *
-        """, (name, unit, cost_per_unit, reorder_level, supplier_id, ingredient_id, company_id))
+        """, (name, unit, cost_per_unit, reorder_level, supplier_id, sku, ingredient_id, company_id))
         new = dict(cur.fetchone())
 
         log_audit(
@@ -207,6 +210,8 @@ def get_low_stock_alerts(company_id: int) -> list[dict[str, Any]]:
     finally:
         cur.close()
         conn.close()
+
+
 def update_image(ingredient_id: int, company_id: int, image_url: str) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)

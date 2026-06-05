@@ -80,6 +80,7 @@ def create_item(
                 user_id=current_user["id"],
                 cost_per_unit=req.standard_cost,
                 reorder_level=req.reorder_level,
+                sku=req.sku,
                 ip_address=request.client.host,
             )
         else:
@@ -89,6 +90,7 @@ def create_item(
                 sale_price=req.sale_price,
                 company_id=current_user["company_id"],
                 user_id=current_user["id"],
+                sku=req.sku,
                 ip_address=request.client.host,
             )
         return success("Item created")
@@ -158,6 +160,7 @@ def create_product(
             user_id=current_user["id"],
             unit=req.unit,
             sale_price=req.sale_price,
+            sku=req.sku,
             ip_address=request.client.host,
         )
         return success("Product created", product=product)
@@ -180,6 +183,7 @@ def update_product(
             name=req.name,
             unit=req.unit,
             sale_price=req.sale_price,
+            sku=req.sku,
             ip_address=request.client.host,
         )
         return success("Product updated", product=product)
