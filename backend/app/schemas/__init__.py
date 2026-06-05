@@ -6,7 +6,7 @@ Import from app.schemas in route files.
 from __future__ import annotations
 from pydantic import BaseModel
 from fastapi import Form, UploadFile, File
-from typing import Optional
+from typing import Optional,Literal
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -416,3 +416,8 @@ class TransferRequest(BaseModel):
     quantity: float
     notes: str = ""
     status: str = "approved"
+# ── SKU Prefixes ─────────────────────────────────────────────────────────────
+class SkuPrefixRequest(BaseModel):
+    label: str
+    prefix: str
+    item_type: Literal["raw_material", "finished_good", "both"] = "raw_material"

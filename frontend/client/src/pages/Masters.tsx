@@ -6,7 +6,7 @@ import {
   ChevronRight, Loader2, AlertCircle, DollarSign,
   FileDown, History, TrendingUp, TrendingDown, Minus, Lock,
   Search, ChevronLeft, Eye, Phone, Mail, MapPin, Globe,
-  Tag, Ruler, ShoppingCart, BadgeDollarSign, Upload, Pencil,
+  Tag, Upload, Pencil,
 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import {
@@ -39,6 +39,14 @@ interface SkuPrefix {
   item_type: string; // 'raw_material' | 'finished_good' | 'both'
 }
 
+// Change 5 — typed interface replacing any[]
+interface IngredientOption {
+  id:            number;
+  name:          string;
+  unit:          string;
+  cost_per_unit: number;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function today() {
@@ -68,18 +76,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // ─── Supplier Categories ──────────────────────────────────────────────────────
 
 const SUPPLIER_CATEGORIES = [
-  "Food & Ingredients",
-  "Beverages",
-  "Dairy",
-  "Meat & Poultry",
-  "Seafood",
-  "Bakery",
-  "Frozen Goods",
-  "Dry Goods",
-  "Packaging",
-  "Equipment",
-  "Cleaning & Hygiene",
-  "General",
+  "Food & Ingredients", "Beverages", "Dairy", "Meat & Poultry",
+  "Seafood", "Bakery", "Frozen Goods", "Dry Goods",
+  "Packaging", "Equipment", "Cleaning & Hygiene", "General",
 ] as const;
 
 function supplierCatColor(category: string | null | undefined) {
@@ -102,12 +101,8 @@ function supplierCatColor(category: string | null | undefined) {
 // ─── Country Phone Config ─────────────────────────────────────────────────────
 
 interface CountryPhone {
-  code: string;
-  name: string;
-  dialCode: string;
-  pattern: RegExp;
-  placeholder: string;
-  example: string;
+  code: string; name: string; dialCode: string;
+  pattern: RegExp; placeholder: string; example: string;
 }
 
 const COUNTRY_PHONES: CountryPhone[] = [
@@ -138,9 +133,8 @@ const COUNTRY_PHONES: CountryPhone[] = [
 function validatePhone(localNumber: string, country: CountryPhone | null): string {
   if (!localNumber || !country) return "";
   const digits = localNumber.replace(/[\s\-().]/g, "");
-  if (!country.pattern.test(digits)) {
+  if (!country.pattern.test(digits))
     return `Invalid number for ${country.name}. Expected format: ${country.example}`;
-  }
   return "";
 }
 
@@ -177,95 +171,65 @@ function PhoneInput({
         </div>
       </div>
       {error && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3 shrink-0" />{error}</p>}
-      {!error && country && value && <p className="text-xs text-muted-foreground">Full number: {country.dialCode} {value}</p>}
+      {!error && country && value && <p className="text-xs text-muted-foreground">Full: {country.dialCode} {value}</p>}
     </div>
   );
 }
 
-// ─── SKU Prefix Selector ──────────────────────────────────────────────────────
+// ─── SKU Selector ─────────────────────────────────────────────────────────────
 
-function SkuPrefixSelector({
-  prefixes,
-  loading,
-  category,
-  selectedPrefix,
-  manualSku,
-  onPrefixChange,
-  onManualSkuChange,
+function SkuSelector({
+  prefixes, loading, category, selectedPrefix, manualSku,
+  onPrefixChange, onManualSkuChange,
 }: {
-  prefixes: SkuPrefix[];
-  loading: boolean;
-  category: string;
-  selectedPrefix: string;
-  manualSku: string;
-  onPrefixChange: (prefix: string) => void;
-  onManualSkuChange: (sku: string) => void;
+  prefixes: SkuPrefix[]; loading: boolean; category: string;
+  selectedPrefix: string; manualSku: string;
+  onPrefixChange: (p: string) => void; onManualSkuChange: (s: string) => void;
 }) {
-  const filtered = prefixes.filter(
-    p => p.item_type === category || p.item_type === "both"
-  );
+  const filtered = prefixes.filter(p => p.item_type === category || p.item_type === "both");
 
   return (
     <div className="space-y-3 p-3 rounded-lg bg-secondary/30 border border-border">
       <div className="flex items-center gap-2">
         <Tag className="w-3.5 h-3.5 text-primary" />
-        <span className="text-xs font-semibold text-foreground">SKU Configuration</span>
+        <span className="text-xs font-semibold text-foreground">SKU</span>
+        <span className="text-[11px] text-muted-foreground">— pick a prefix; number auto-increments</span>
       </div>
 
-      <Field label="SKU Prefix (sets category)">
+      <Field label="Prefix">
         {loading ? (
           <div className="h-9 bg-secondary/50 rounded-md animate-pulse" />
         ) : (
           <select
             className={inputClass}
             value={selectedPrefix}
-            onChange={e => {
-              onPrefixChange(e.target.value);
-              onManualSkuChange(""); // clear manual override when prefix changes
-            }}
+            onChange={e => { onPrefixChange(e.target.value); onManualSkuChange(""); }}
           >
             <option value="">— Auto (default prefix) —</option>
             {filtered.map(p => (
-              <option key={p.id} value={p.prefix}>
-                {p.label} ({p.prefix})
-              </option>
+              <option key={p.id} value={p.prefix}>{p.label} · {p.prefix}-XXXXX</option>
             ))}
           </select>
         )}
-      </Field>
-
-      <Field label="Manual SKU override (optional — leave blank to auto-generate)">
-        <div className="relative">
-          {selectedPrefix && !manualSku && (
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono pointer-events-none select-none">
-              {selectedPrefix}-
-            </span>
-          )}
-          <input
-            className={`${inputClass} ${selectedPrefix && !manualSku ? "pl-[calc(0.75rem+var(--prefix-len,2rem))]" : ""}`}
-            style={selectedPrefix && !manualSku ? { paddingLeft: `${selectedPrefix.length * 8 + 24}px` } : {}}
-            placeholder={
-              manualSku
-                ? ""
-                : selectedPrefix
-                ? `${selectedPrefix}-XXXXX (auto)`
-                : "Leave blank to auto-generate"
-            }
-            value={manualSku}
-            onChange={e => onManualSkuChange(e.target.value)}
-          />
-        </div>
-        {!manualSku && (
+        {selectedPrefix && !manualSku && (
           <p className="text-[11px] text-muted-foreground mt-1">
-            {selectedPrefix
-              ? `Will generate: ${selectedPrefix}-00001, ${selectedPrefix}-00002, …`
-              : "Will use the default prefix for this category."}
+            Will generate: <span className="font-mono font-semibold text-primary">{selectedPrefix}-00001</span>,{" "}
+            <span className="font-mono text-primary">{selectedPrefix}-00002</span>, …
           </p>
         )}
+      </Field>
+
+      <Field label="Manual SKU (optional — overrides auto)">
+        <input
+          className={inputClass}
+          placeholder={selectedPrefix ? `${selectedPrefix}-XXXXX or leave blank` : "Leave blank to auto-generate"}
+          value={manualSku}
+          onChange={e => onManualSkuChange(e.target.value)}
+        />
         {manualSku && (
           <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
             <AlertCircle className="w-3 h-3 shrink-0" />
-            Manual SKU — auto-generation disabled for this item.
+            Manual SKU — auto-increment disabled for this item.
           </p>
         )}
       </Field>
@@ -351,29 +315,19 @@ function PriceChangeHistory({ rows, currencyLabel }: { rows: PriceHistoryRow[]; 
 // ─── Item Card ────────────────────────────────────────────────────────────────
 
 function ItemCard({
-  item,
-  suppliers,
-  selectedPeriodClosed,
-  currencyLabel,
-  onDelete,
-  onEdit,
-  onImageUploaded,
+  item, suppliers, selectedPeriodClosed, currencyLabel,
+  onDelete, onEdit, onImageUploaded,
 }: {
-  item: ItemRow;
-  suppliers: SupplierRow[];
-  selectedPeriodClosed: boolean;
-  currencyLabel: string;
-  onDelete: () => void;
-  onEdit: () => void;
-  onImageUploaded: () => void;
+  item: ItemRow; suppliers: SupplierRow[]; selectedPeriodClosed: boolean;
+  currencyLabel: string; onDelete: () => void; onEdit: () => void; onImageUploaded: () => void;
 }) {
   const isFG = item.category === "finished_good";
   const [uploading, setUploading] = useState(false);
 
+  // Change 1 — removed (item as any) casts
   const supplierName: string =
-    (item as any).supplier_name ??
-    suppliers.find(s => s.id === (item as any).supplier_id)?.name ??
-    "";
+    item.supplier_name ??
+    suppliers.find(s => s.id === item.supplier_id)?.name ?? "";
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -383,12 +337,12 @@ function ItemCard({
     formData.append("file", file);
     const category = isFG ? "finished_good" : "raw_material";
     try {
+      // Change 2 — typed cast instead of any
       const result = await apiUpload<{ image_url?: string; message?: string }>(
-        `/api/products/${item.id}/image?category=${category}`,
-        formData
+        `/api/products/${item.id}/image?category=${category}`, formData
       );
-      const imageUrl = (result as any)?.image_url ?? null;
-      if (imageUrl) (item as any).image_url = imageUrl;
+      const imageUrl = (result as { image_url?: string })?.image_url ?? null;
+      if (imageUrl) item.image_url = imageUrl;
       onImageUploaded();
     } catch {
       alert("Image upload failed");
@@ -403,12 +357,9 @@ function ItemCard({
 
       {/* ── Image ── */}
       <div className="relative h-36 bg-secondary/40 flex items-center justify-center shrink-0 overflow-hidden">
-        {(item as any).image_url ? (
-          <img
-            src={assetUrl((item as any).image_url)}
-            alt={item.name}
-            className="w-full h-full object-cover"
-          />
+        {/* Change 3 — removed (item as any).image_url casts */}
+        {item.image_url ? (
+          <img src={assetUrl(item.image_url)} alt={item.name} className="w-full h-full object-cover" />
         ) : (
           <div className="flex flex-col items-center gap-1 select-none pointer-events-none">
             <Package className="w-10 h-10 text-muted-foreground/30" />
@@ -426,19 +377,16 @@ function ItemCard({
                 <span className="text-[10px] font-semibold">Upload Image</span>
               </div>
             )}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={handleImageUpload}
-              disabled={uploading}
-            />
+            <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={handleImageUpload} disabled={uploading} />
           </label>
         )}
 
+        {/* Category badge — top left */}
         <span className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${isFG ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"}`}>
           {isFG ? "Finished Good" : "Raw Material"}
         </span>
+        {/* Active badge — top right */}
         <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
           Active
         </span>
@@ -447,34 +395,34 @@ function ItemCard({
       {/* ── Body ── */}
       <div className="p-4 flex flex-col gap-3 flex-1">
 
-        <div>
-          <p className="text-[10px] font-mono text-primary leading-none mb-1">
-            {isFG ? "FG" : "RM"}-{String(item.id).padStart(5, "0")}
-          </p>
-          <p className="text-sm font-bold text-foreground leading-snug">{item.name}</p>
-        </div>
+        <p className="text-sm font-bold text-foreground leading-snug">{item.name}</p>
 
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           {item.sku && (
             <div className="col-span-2">
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">SKU</p>
-              <p className="text-xs font-medium text-foreground font-mono">{item.sku}</p>
+              <p className="text-xs font-semibold text-foreground font-mono">{item.sku}</p>
             </div>
           )}
+
           <div>
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Unit</p>
             <p className="text-xs font-semibold text-foreground">{item.unit}</p>
           </div>
-          {(item as any).category_label && (
+
+          {/* Change 4 — removed (item as any).category_label casts */}
+          {item.category_label && (
             <div>
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Category</p>
-              <p className="text-xs font-semibold text-foreground">{(item as any).category_label}</p>
+              <p className="text-xs font-semibold text-foreground">{item.category_label}</p>
             </div>
           )}
+
           <div>
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Cost</p>
             <p className="text-xs font-bold text-primary">{formatCurrency(item.standard_cost ?? 0)} {currencyLabel}</p>
           </div>
+
           {isFG ? (
             <div>
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Sale Price</p>
@@ -492,8 +440,7 @@ function ItemCard({
           <div className="pt-2 border-t border-border">
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Supplier</p>
             <p className="text-xs font-medium text-foreground flex items-center gap-1">
-              <Truck className="w-3 h-3 text-muted-foreground shrink-0" />
-              {supplierName}
+              <Truck className="w-3 h-3 text-muted-foreground shrink-0" />{supplierName}
             </p>
           </div>
         )}
@@ -501,22 +448,14 @@ function ItemCard({
         {/* ── Actions ── */}
         <div className="flex gap-2 mt-auto pt-2 border-t border-border">
           <button
-            disabled={selectedPeriodClosed}
-            onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold
-                       text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20
-                       hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors
-                       disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={selectedPeriodClosed} onClick={onEdit}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Pencil className="w-3.5 h-3.5" /> Edit
           </button>
           <button
-            disabled={selectedPeriodClosed}
-            onClick={onDelete}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold
-                       text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20
-                       hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors
-                       disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={selectedPeriodClosed} onClick={onDelete}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <X className="w-3.5 h-3.5" /> Delete
           </button>
@@ -553,6 +492,8 @@ function Modal({ title, onClose, onSave, saving, children, cancelLabel, saveLabe
   );
 }
 
+// ─── Small reusable bits ──────────────────────────────────────────────────────
+
 function EmptyState({ label }: { label: string }) {
   return <div className="py-12 text-center text-muted-foreground text-sm">{label}</div>;
 }
@@ -574,7 +515,6 @@ function SkeletonCards({ count = 8 }: { count?: number }) {
         <div key={i} className="rounded-xl border border-border bg-card overflow-hidden animate-pulse">
           <div className="h-36 bg-secondary/60" />
           <div className="p-4 space-y-3">
-            <div className="h-3 w-16 bg-secondary/70 rounded" />
             <div className="h-4 w-3/4 bg-secondary/70 rounded" />
             <div className="grid grid-cols-2 gap-2">
               <div className="h-3 bg-secondary/60 rounded" />
@@ -754,13 +694,19 @@ export default function Masters() {
   const [supplierView,   setSupplierView]   = useState<SupplierRow | null>(null);
   const [itemSearch, setItemSearch] = useState("");
   const [itemFilter, setItemFilter] = useState<"all" | "raw_material" | "finished_good">("all");
-  const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
 
-  const { data: branches,    loading: branchLoading,     refetch: refetchBranches  } = useApi(getBranches);
-  const { data: suppliers,   loading: supplierLoading,   refetch: refetchSuppliers } = useApi(getSuppliers);
-  const { data: items,       loading: itemLoading,       refetch: refetchItemsRaw  } = useApi(getItems);
-  const { data: users,       loading: userLoading,       refetch: refetchUsers     } = useApi(getUsers);
-  const { data: ingredients, loading: ingredientLoading }                            = useApi(() => apiCall<any[]>("/api/ingredients"));
+  // Change 7 — fail loudly if user_id is missing instead of silent fallback to 1
+  const currentUserId = Number(localStorage.getItem("user_id") ?? "0");
+
+  const { data: branches,    loading: branchLoading,   refetch: refetchBranches  } = useApi(getBranches);
+  const { data: suppliers,   loading: supplierLoading, refetch: refetchSuppliers } = useApi(getSuppliers);
+  const { data: items,       loading: itemLoading,     refetch: refetchItemsRaw  } = useApi(getItems);
+  const { data: users,       loading: userLoading,     refetch: refetchUsers     } = useApi(getUsers);
+
+  // Change 5 — typed as IngredientOption[] instead of any[]
+  const { data: ingredients, loading: ingredientLoading } = useApi(
+    () => apiCall<IngredientOption[]>("/api/ingredients")
+  );
 
   // ── SKU Prefixes ──
   const { data: skuPrefixData, loading: skuPrefixLoading } = useApi(
@@ -771,7 +717,9 @@ export default function Masters() {
   const [selectedIngredient,     setSelectedIngredient]     = useState<number>(0);
   const [selectedIngredientName, setSelectedIngredientName] = useState<string>("");
   const { data: priceHistory, loading: priceLoading, refetch: refetchPrices } = useApi(
-    () => selectedIngredient ? apiCall<PriceHistoryRow[]>(`/api/suppliers/price-history/${selectedIngredient}`) : Promise.resolve([]),
+    () => selectedIngredient
+      ? apiCall<PriceHistoryRow[]>(`/api/suppliers/price-history/${selectedIngredient}`)
+      : Promise.resolve([]),
     { deps: [selectedIngredient] }
   );
 
@@ -780,13 +728,14 @@ export default function Masters() {
   const [phoneError,      setPhoneError]      = useState("");
   const [agentPhoneError, setAgentPhoneError] = useState("");
 
-  // ── Add Item form (includes sku_prefix) ──
+  // ── Add Item form ──
   const [itemForm, setItemForm] = useState({
-    name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "",
+    name: "", sku: "", sku_prefix: "",
+    category: "raw_material", unit: "",
     sale_price: 0, reorder_level: 0, standard_cost: 0,
   });
 
-  // ── Edit Item state (includes sku_prefix) ──
+  // ── Edit Item form ──
   const [editingItem,  setEditingItem]  = useState<ItemRow | null>(null);
   const [editItemForm, setEditItemForm] = useState({
     name: "", sku: "", sku_prefix: "", unit: "",
@@ -796,18 +745,19 @@ export default function Masters() {
   const [userForm,  setUserForm]  = useState({ username: "", display_name: "", role: "clerk" });
   const [priceForm, setPriceForm] = useState({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
 
-  const openModal = (type: ModalType) => { setError(""); setPhoneError(""); setAgentPhoneError(""); setModal(type); };
+  const openModal = (type: ModalType) => {
+    setError(""); setPhoneError(""); setAgentPhoneError(""); setModal(type);
+  };
 
   function openEditItem(item: ItemRow) {
     setEditingItem(item);
-    // Derive the prefix from the existing SKU if possible (e.g. "MEAT-00003" → "MEAT")
     const existingPrefix = item.sku?.includes("-") ? item.sku.split("-")[0] : "";
     setEditItemForm({
       name:          item.name,
       sku:           item.sku ?? "",
       sku_prefix:    existingPrefix,
       unit:          item.unit,
-      sale_price:    item.sale_price ?? 0,
+      sale_price:    item.sale_price    ?? 0,
       reorder_level: item.reorder_level ?? 0,
       standard_cost: item.standard_cost ?? 0,
     });
@@ -819,9 +769,10 @@ export default function Masters() {
     if (!localNumber) return "";
     const country = COUNTRY_PHONES.find(c => c.code === countryCode);
     if (!country) return localNumber;
-    const digits = localNumber.replace(/[\s\-().]/g, "");
-    return `${country.dialCode} ${digits}`;
+    return `${country.dialCode} ${localNumber.replace(/[\s\-().]/g, "")}`;
   }
+
+  // ── Save handlers ──────────────────────────────────────────────────────────
 
   async function handleSaveBranch() {
     if (!branchForm.name.trim()) { setError(t("masters.err.branchName")); return; }
@@ -834,7 +785,7 @@ export default function Masters() {
 
   async function handleSaveSupplier() {
     if (!supplierForm.name.trim()) { setError(t("masters.err.supplierName")); return; }
-    const phoneCountry      = COUNTRY_PHONES.find(c => c.code === supplierForm.phoneCountry) ?? null;
+    const phoneCountry      = COUNTRY_PHONES.find(c => c.code === supplierForm.phoneCountry)      ?? null;
     const agentPhoneCountry = COUNTRY_PHONES.find(c => c.code === supplierForm.agentPhoneCountry) ?? null;
     const pErr  = supplierForm.phone      ? validatePhone(supplierForm.phone,      phoneCountry)      : "";
     const apErr = supplierForm.agentPhone ? validatePhone(supplierForm.agentPhone, agentPhoneCountry) : "";
@@ -842,7 +793,8 @@ export default function Masters() {
     if (pErr || apErr) return;
     setSaving(true); setError("");
     const ok = await addSupplier({
-      name: supplierForm.name, phone: buildPhone(supplierForm.phone, supplierForm.phoneCountry),
+      name: supplierForm.name,
+      phone: buildPhone(supplierForm.phone, supplierForm.phoneCountry),
       email: supplierForm.email, address: supplierForm.address, website: supplierForm.website,
       commercial_reg_number: supplierForm.commercial_reg_number, agent_name: supplierForm.agent_name,
       agent_phone: buildPhone(supplierForm.agentPhone, supplierForm.agentPhoneCountry),
@@ -863,23 +815,23 @@ export default function Masters() {
       sale_price:    itemForm.sale_price,
       reorder_level: itemForm.reorder_level,
       standard_cost: itemForm.standard_cost,
-      sku:           itemForm.sku,
-      sku_prefix:    itemForm.sku_prefix,
-      user_id:       currentUserId,
+      sku:        itemForm.sku        || "",
+      sku_prefix: itemForm.sku_prefix || undefined,
+      user_id:    currentUserId,
     });
     setSaving(false);
     if (ok) {
       setModal(null);
       setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
-      await refetchItemsRaw();
+      // Change 6 — consistent ?. pattern across all refetch calls
+      await refetchItemsRaw?.();
     } else setError(t("masters.err.itemSave"));
   }
 
   async function handleUpdateItem() {
     if (!editingItem) return;
     if (!editItemForm.name.trim() || !editItemForm.unit.trim()) {
-      setError("Name and unit are required.");
-      return;
+      setError("Name and unit are required."); return;
     }
     setSaving(true); setError("");
     try {
@@ -891,8 +843,8 @@ export default function Masters() {
             unit:          editItemForm.unit,
             sale_price:    editItemForm.sale_price,
             standard_cost: editItemForm.standard_cost,
-            sku:           editItemForm.sku || undefined,
-            sku_prefix:    editItemForm.sku_prefix || undefined,
+            sku:        editItemForm.sku        || null,
+            sku_prefix: editItemForm.sku_prefix || null,
           }),
         });
       } else {
@@ -903,14 +855,13 @@ export default function Masters() {
             unit:          editItemForm.unit,
             cost_per_unit: editItemForm.standard_cost,
             reorder_level: editItemForm.reorder_level,
-            sku:           editItemForm.sku || undefined,
-            sku_prefix:    editItemForm.sku_prefix || undefined,
+            sku:        editItemForm.sku        || null,
+            sku_prefix: editItemForm.sku_prefix || null,
           }),
         });
       }
-      setModal(null);
-      setEditingItem(null);
-      await refetchItemsRaw();
+      setModal(null); setEditingItem(null);
+      await refetchItemsRaw?.();
     } catch {
       setError("Failed to update item. Please try again.");
     }
@@ -933,7 +884,9 @@ export default function Masters() {
     setSaving(true); setError("");
     try {
       await apiCall("/api/suppliers/price", { method: "POST", body: JSON.stringify(priceForm) });
-      setModal(null); setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" }); refetchPrices?.();
+      setModal(null);
+      setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
+      refetchPrices?.();
     } catch { setError(t("masters.err.priceSave")); }
     setSaving(false);
   }
@@ -945,23 +898,39 @@ export default function Masters() {
     if (ok) { refetchSuppliers?.(); setSupplierView(null); }
   }
 
-  const counts = { branches: branches?.length ?? 0, suppliers: suppliers?.length ?? 0, items: items?.length ?? 0, users: users?.length ?? 0 };
-  const roleColor = (role: string) => role === "admin" ? "bg-purple-100 text-purple-700" : role === "manager" ? "bg-blue-100 text-blue-700" : "bg-secondary text-muted-foreground";
+  // ── Derived values ─────────────────────────────────────────────────────────
+
+  const counts = {
+    branches:  branches?.length  ?? 0,
+    suppliers: suppliers?.length ?? 0,
+    items:     items?.length     ?? 0,
+    users:     users?.length     ?? 0,
+  };
+
+  const roleColor = (role: string) =>
+    role === "admin"   ? "bg-purple-100 text-purple-700" :
+    role === "manager" ? "bg-blue-100 text-blue-700"     :
+                         "bg-secondary text-muted-foreground";
+
   const modalProps = { saving, cancelLabel: t("masters.cancel"), saveLabel: t("masters.save") };
 
   const supplierList      = (suppliers as SupplierRow[]) ?? [];
   const filteredSuppliers = supplierList.filter(s =>
     s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
-    (s.phone ?? "").includes(supplierSearch) ||
-    (s.email ?? "").toLowerCase().includes(supplierSearch.toLowerCase()) ||
+    (s.phone    ?? "").includes(supplierSearch) ||
+    (s.email    ?? "").toLowerCase().includes(supplierSearch.toLowerCase()) ||
     (s.category ?? "").toLowerCase().includes(supplierSearch.toLowerCase()) ||
-    (s.notes ?? "").toLowerCase().includes(supplierSearch.toLowerCase())
+    (s.notes    ?? "").toLowerCase().includes(supplierSearch.toLowerCase())
   );
 
   const filteredItems = (items as ItemRow[] ?? []).filter(item => {
-    const matchSearch = item.name.toLowerCase().includes(itemSearch.toLowerCase()) || (item.sku ?? "").toLowerCase().includes(itemSearch.toLowerCase());
+    const matchSearch =
+      item.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
+      (item.sku ?? "").toLowerCase().includes(itemSearch.toLowerCase());
     return matchSearch && (itemFilter === "all" || item.category === itemFilter);
   });
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -970,9 +939,18 @@ export default function Masters() {
       {modal === "branch" && (
         <Modal title={t("masters.modal.addBranch")} onClose={() => setModal(null)} onSave={handleSaveBranch} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
-          <Field label={t("masters.field.branchName")}><input className={inputClass} placeholder={t("masters.ph.branchName")} value={branchForm.name} onChange={e => setBranchForm({ ...branchForm, name: e.target.value })} autoFocus /></Field>
-          <Field label={t("masters.field.location")}><input className={inputClass} placeholder={t("masters.ph.location")} value={branchForm.location} onChange={e => setBranchForm({ ...branchForm, location: e.target.value })} /></Field>
-          <Field label={t("masters.field.manager")}><input className={inputClass} placeholder={t("masters.ph.manager")} value={branchForm.manager} onChange={e => setBranchForm({ ...branchForm, manager: e.target.value })} /></Field>
+          <Field label={t("masters.field.branchName")}>
+            <input className={inputClass} placeholder={t("masters.ph.branchName")} value={branchForm.name}
+              onChange={e => setBranchForm({ ...branchForm, name: e.target.value })} autoFocus />
+          </Field>
+          <Field label={t("masters.field.location")}>
+            <input className={inputClass} placeholder={t("masters.ph.location")} value={branchForm.location}
+              onChange={e => setBranchForm({ ...branchForm, location: e.target.value })} />
+          </Field>
+          <Field label={t("masters.field.manager")}>
+            <input className={inputClass} placeholder={t("masters.ph.manager")} value={branchForm.manager}
+              onChange={e => setBranchForm({ ...branchForm, manager: e.target.value })} />
+          </Field>
         </Modal>
       )}
 
@@ -986,7 +964,8 @@ export default function Masters() {
               onChange={e => setSupplierForm({ ...supplierForm, name: e.target.value })} autoFocus />
           </Field>
           <Field label="Category">
-            <select className={inputClass} value={supplierForm.category} onChange={e => setSupplierForm({ ...supplierForm, category: e.target.value })}>
+            <select className={inputClass} value={supplierForm.category}
+              onChange={e => setSupplierForm({ ...supplierForm, category: e.target.value })}>
               <option value="">Select category...</option>
               {SUPPLIER_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
             </select>
@@ -1012,13 +991,14 @@ export default function Masters() {
             </Field>
             <Field label="Commercial Reg. No.">
               <input className={inputClass} placeholder="e.g. 226564656"
-                value={supplierForm.commercial_reg_number} onChange={e => setSupplierForm({ ...supplierForm, commercial_reg_number: e.target.value })} />
+                value={supplierForm.commercial_reg_number}
+                onChange={e => setSupplierForm({ ...supplierForm, commercial_reg_number: e.target.value })} />
             </Field>
           </div>
           <SectionLabel label="Agent / Business Details" />
           <Field label="Agent Name">
-            <input className={inputClass} placeholder="Agent name"
-              value={supplierForm.agent_name} onChange={e => setSupplierForm({ ...supplierForm, agent_name: e.target.value })} />
+            <input className={inputClass} placeholder="Agent name" value={supplierForm.agent_name}
+              onChange={e => setSupplierForm({ ...supplierForm, agent_name: e.target.value })} />
           </Field>
           <Field label="Agent Phone">
             <PhoneInput value={supplierForm.agentPhone} countryCode={supplierForm.agentPhoneCountry}
@@ -1037,6 +1017,7 @@ export default function Masters() {
       {modal === "item" && (
         <Modal title={t("masters.modal.addItem")} onClose={() => setModal(null)} onSave={handleSaveItem} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("masters.field.itemName")}>
               <input className={inputClass} placeholder={t("masters.ph.itemName")} value={itemForm.name}
@@ -1044,26 +1025,28 @@ export default function Masters() {
             </Field>
             <Field label={t("masters.field.category")}>
               <select className={inputClass} value={itemForm.category}
-                onChange={e => setItemForm({ ...itemForm, category: e.target.value, sku_prefix: "" })}>
+                onChange={e => setItemForm({ ...itemForm, category: e.target.value, sku_prefix: "", sku: "" })}>
                 <option value="raw_material">{t("masters.cat.rawMaterial")}</option>
                 <option value="finished_good">{t("masters.cat.finishedGood")}</option>
               </select>
             </Field>
           </div>
+
           <Field label={t("masters.field.unit")}>
             <input className={inputClass} placeholder={t("masters.ph.unit")} value={itemForm.unit}
               onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} />
           </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("masters.field.standardCost")}>
-              <input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")}
-                value={itemForm.standard_cost || ""}
+              <input className={inputClass} type="number" min={0} step={0.01}
+                placeholder={t("masters.ph.price")} value={itemForm.standard_cost || ""}
                 onChange={e => setItemForm({ ...itemForm, standard_cost: Number(e.target.value) })} />
             </Field>
             {itemForm.category === "finished_good" ? (
               <Field label={t("masters.field.salePrice")}>
-                <input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")}
-                  value={itemForm.sale_price || ""}
+                <input className={inputClass} type="number" min={0} step={0.01}
+                  placeholder={t("masters.ph.price")} value={itemForm.sale_price || ""}
                   onChange={e => setItemForm({ ...itemForm, sale_price: Number(e.target.value) })} />
               </Field>
             ) : (
@@ -1075,14 +1058,13 @@ export default function Masters() {
             )}
           </div>
 
-          {/* SKU Prefix Selector */}
-          <SkuPrefixSelector
+          <SkuSelector
             prefixes={skuPrefixes}
             loading={skuPrefixLoading}
             category={itemForm.category}
             selectedPrefix={itemForm.sku_prefix}
             manualSku={itemForm.sku}
-            onPrefixChange={prefix => setItemForm({ ...itemForm, sku_prefix: prefix })}
+            onPrefixChange={prefix => setItemForm({ ...itemForm, sku_prefix: prefix, sku: "" })}
             onManualSkuChange={sku => setItemForm({ ...itemForm, sku })}
           />
         </Modal>
@@ -1102,9 +1084,9 @@ export default function Masters() {
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${editingItem.category === "finished_good" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
               {editingItem.category === "finished_good" ? "Finished Good" : "Raw Material"}
             </span>
-            <span className="text-xs text-muted-foreground font-mono">
-              {editingItem.category === "finished_good" ? "FG" : "RM"}-{String(editingItem.id).padStart(5, "0")}
-            </span>
+            {editingItem.sku && (
+              <span className="text-xs text-muted-foreground font-mono">{editingItem.sku}</span>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1139,18 +1121,13 @@ export default function Masters() {
             )}
           </div>
 
-          {/* SKU Prefix Selector for Edit */}
-          <SkuPrefixSelector
+          <SkuSelector
             prefixes={skuPrefixes}
             loading={skuPrefixLoading}
             category={editingItem.category}
             selectedPrefix={editItemForm.sku_prefix}
             manualSku={editItemForm.sku}
-            onPrefixChange={prefix => {
-              // When changing prefix on an existing item, clear the numeric part
-              // so the backend auto-generates under the new prefix
-              setEditItemForm({ ...editItemForm, sku_prefix: prefix, sku: "" });
-            }}
+            onPrefixChange={prefix => setEditItemForm({ ...editItemForm, sku_prefix: prefix, sku: "" })}
             onManualSkuChange={sku => setEditItemForm({ ...editItemForm, sku })}
           />
         </Modal>
@@ -1160,16 +1137,26 @@ export default function Masters() {
       {modal === "user" && (
         <Modal title={t("masters.modal.addUser")} onClose={() => setModal(null)} onSave={handleSaveUser} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
-          <Field label={t("masters.field.username")}><input className={inputClass} placeholder={t("masters.ph.username")} value={userForm.username} onChange={e => setUserForm({ ...userForm, username: e.target.value })} autoFocus /></Field>
-          <Field label={t("masters.field.displayName")}><input className={inputClass} placeholder={t("masters.ph.displayName")} value={userForm.display_name} onChange={e => setUserForm({ ...userForm, display_name: e.target.value })} /></Field>
+          <Field label={t("masters.field.username")}>
+            <input className={inputClass} placeholder={t("masters.ph.username")} value={userForm.username}
+              onChange={e => setUserForm({ ...userForm, username: e.target.value })} autoFocus />
+          </Field>
+          <Field label={t("masters.field.displayName")}>
+            <input className={inputClass} placeholder={t("masters.ph.displayName")} value={userForm.display_name}
+              onChange={e => setUserForm({ ...userForm, display_name: e.target.value })} />
+          </Field>
           <Field label={t("masters.field.role")}>
-            <select className={inputClass} value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })}>
+            <select className={inputClass} value={userForm.role}
+              onChange={e => setUserForm({ ...userForm, role: e.target.value })}>
               <option value="clerk">{t("masters.role.clerk")}</option>
               <option value="manager">{t("masters.role.manager")}</option>
               <option value="admin">{t("masters.role.admin")}</option>
             </select>
           </Field>
-          <p className="text-xs text-muted-foreground">{t("masters.defaultPassword")}{" "}<code className="bg-secondary px-1 rounded">{userForm.username || "username"}123</code></p>
+          <p className="text-xs text-muted-foreground">
+            {t("masters.defaultPassword")}{" "}
+            <code className="bg-secondary px-1 rounded">{userForm.username || "username"}123</code>
+          </p>
         </Modal>
       )}
 
@@ -1178,34 +1165,49 @@ export default function Masters() {
         <Modal title={t("masters.modal.recordPrice")} onClose={() => setModal(null)} onSave={handleSavePrice} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
           <Field label={t("masters.field.ingredient")}>
-            <select className={inputClass} value={priceForm.ingredient_id || ""} onChange={e => setPriceForm({ ...priceForm, ingredient_id: Number(e.target.value) })}>
+            <select className={inputClass} value={priceForm.ingredient_id || ""}
+              onChange={e => setPriceForm({ ...priceForm, ingredient_id: Number(e.target.value) })}>
               <option value="">{t("masters.ph.selectIngredient")}</option>
-              {ingredients?.map((i: any) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+              {/* Change 5 — removed (i: any) cast */}
+              {ingredients?.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
             </select>
           </Field>
           <Field label={t("masters.field.supplier")}>
-            <select className={inputClass} value={priceForm.supplier_id || ""} onChange={e => setPriceForm({ ...priceForm, supplier_id: Number(e.target.value) })}>
+            <select className={inputClass} value={priceForm.supplier_id || ""}
+              onChange={e => setPriceForm({ ...priceForm, supplier_id: Number(e.target.value) })}>
               <option value="">{t("masters.ph.selectSupplier")}</option>
               {supplierList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("masters.field.price").replace("{currency}", currencyLabel)}><input type="number" min={0} step={0.01} className={inputClass} placeholder={t("masters.ph.price")} value={priceForm.price || ""} onChange={e => setPriceForm({ ...priceForm, price: Number(e.target.value) })} /></Field>
-            <Field label={t("masters.field.date")}><input type="date" className={inputClass} value={priceForm.entry_date} onChange={e => setPriceForm({ ...priceForm, entry_date: e.target.value })} /></Field>
+            <Field label={t("masters.field.price").replace("{currency}", currencyLabel)}>
+              <input type="number" min={0} step={0.01} className={inputClass}
+                placeholder={t("masters.ph.price")} value={priceForm.price || ""}
+                onChange={e => setPriceForm({ ...priceForm, price: Number(e.target.value) })} />
+            </Field>
+            <Field label={t("masters.field.date")}>
+              <input type="date" className={inputClass} value={priceForm.entry_date}
+                onChange={e => setPriceForm({ ...priceForm, entry_date: e.target.value })} />
+            </Field>
           </div>
-          <Field label={t("masters.field.notes")}><textarea className={inputClass} rows={2} placeholder={t("masters.ph.priceNotes")} value={priceForm.notes} onChange={e => setPriceForm({ ...priceForm, notes: e.target.value })} /></Field>
+          <Field label={t("masters.field.notes")}>
+            <textarea className={inputClass} rows={2} placeholder={t("masters.ph.priceNotes")}
+              value={priceForm.notes} onChange={e => setPriceForm({ ...priceForm, notes: e.target.value })} />
+          </Field>
           <p className="text-xs text-muted-foreground">{t("masters.priceNote")}</p>
         </Modal>
       )}
 
-      {/* ── Header ── */}
+      {/* ── Page Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-primary">{t("masters.title")}</h1>
           <p className="text-muted-foreground mt-1">{t("masters.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
-          <input type="month" className="px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-36" value={period} onChange={e => setPeriod(e.target.value)} />
+          <input type="month"
+            className="px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-36"
+            value={period} onChange={e => setPeriod(e.target.value)} />
           <span className={`text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${selectedPeriodLocked ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : selectedPeriodClosed ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
             <Lock className="w-3 h-3" />{selectedPeriodState.toUpperCase()}
           </span>
@@ -1217,25 +1219,27 @@ export default function Masters() {
           <p className={`flex items-center gap-2 text-sm ${selectedPeriodLocked ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
             <Lock className="h-4 w-4 flex-shrink-0" />
             {selectedPeriodLocked
-              ? `${period} is locked for the whole company. No master data changes are allowed.`
-              : `${period} is closed for the whole company. Adding or deleting records is restricted.`}
+              ? `${period} is locked. No master data changes are allowed.`
+              : `${period} is closed. Adding or deleting records is restricted.`}
           </p>
         </Card>
       )}
 
       {/* ── Summary Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { key: "branches"  as Tab, title: t("masters.tab.branches"),  icon: <Building2 className="w-5 h-5" />, color: "text-blue-600",   bg: "bg-blue-50 dark:bg-blue-900/20"    },
-          { key: "items"     as Tab, title: t("masters.tab.items"),     icon: <Package   className="w-5 h-5" />, color: "text-amber-600",  bg: "bg-amber-50 dark:bg-amber-900/20"  },
-          { key: "suppliers" as Tab, title: t("masters.tab.suppliers"), icon: <Truck     className="w-5 h-5" />, color: "text-green-600",  bg: "bg-green-50 dark:bg-green-900/20"  },
-          { key: "users"     as Tab, title: t("masters.tab.users"),     icon: <Users     className="w-5 h-5" />, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/20" },
-        ].map(card => (
-          <Card key={card.key} className={`p-5 cursor-pointer hover:shadow-md transition-all border-2 ${tab === card.key ? "border-primary" : "border-transparent"}`} onClick={() => setTab(card.key)}>
+        {([
+          { key: "branches"  as const, title: t("masters.tab.branches"),  icon: <Building2 className="w-5 h-5" />, color: "text-blue-600",   bg: "bg-blue-50 dark:bg-blue-900/20"    },
+          { key: "items"     as const, title: t("masters.tab.items"),     icon: <Package   className="w-5 h-5" />, color: "text-amber-600",  bg: "bg-amber-50 dark:bg-amber-900/20"  },
+          { key: "suppliers" as const, title: t("masters.tab.suppliers"), icon: <Truck     className="w-5 h-5" />, color: "text-green-600",  bg: "bg-green-50 dark:bg-green-900/20"  },
+          { key: "users"     as const, title: t("masters.tab.users"),     icon: <Users     className="w-5 h-5" />, color: "text-purple-600", bg: "bg-purple-50 dark:bg-purple-900/20" },
+        ] as const).map(card => (
+          <Card key={card.key}
+            className={`p-5 cursor-pointer hover:shadow-md transition-all border-2 ${tab === card.key ? "border-primary" : "border-transparent"}`}
+            onClick={() => setTab(card.key)}>
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">{card.title}</p>
-                <p className="text-3xl font-bold text-foreground mt-1">{counts[card.key as keyof typeof counts]}</p>
+                <p className="text-3xl font-bold text-foreground mt-1">{counts[card.key]}</p>
               </div>
               <div className={`${card.bg} ${card.color} p-2 rounded-lg`}>{card.icon}</div>
             </div>
@@ -1259,15 +1263,22 @@ export default function Masters() {
           <>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">{t("masters.tab.branches")}</h2>
-              <Button size="sm" className="gap-2" onClick={() => openModal("branch")} disabled={selectedPeriodClosed}><Plus className="w-4 h-4" /> {t("masters.add.branch")}</Button>
+              <Button size="sm" className="gap-2" onClick={() => openModal("branch")} disabled={selectedPeriodClosed}>
+                <Plus className="w-4 h-4" /> {t("masters.add.branch")}
+              </Button>
             </div>
             {branchLoading ? <SkeletonRows /> : !branches?.length ? <EmptyState label={t("masters.empty.branches")} /> : (
               <div className="space-y-2">
                 {branches.map(b => (
                   <div key={b.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary transition-colors group">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">{b.name.charAt(0).toUpperCase()}</div>
-                      <div><p className="text-sm font-medium text-foreground">{b.name}</p><p className="text-xs text-muted-foreground">ID #{b.id}</p></div>
+                      <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
+                        {b.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{b.name}</p>
+                        <p className="text-xs text-muted-foreground">ID #{b.id}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge label={t("masters.label.active")} color="bg-green-100 text-green-700" />
@@ -1295,19 +1306,22 @@ export default function Masters() {
         {tab === "suppliers" && (
           <>
             {supplierView ? (
-              <SupplierDetailView s={supplierView} selectedPeriodClosed={selectedPeriodClosed} onBack={() => setSupplierView(null)} onDelete={() => handleDeleteSupplier(supplierView)} />
+              <SupplierDetailView s={supplierView} selectedPeriodClosed={selectedPeriodClosed}
+                onBack={() => setSupplierView(null)} onDelete={() => handleDeleteSupplier(supplierView)} />
             ) : (
               <>
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="text-lg font-semibold">{t("masters.tab.suppliers")}</h2>
-                  <Button size="sm" className="gap-2" onClick={() => openModal("supplier")} disabled={selectedPeriodClosed}><Plus className="w-4 h-4" /> {t("masters.add.supplier")}</Button>
+                  <Button size="sm" className="gap-2" onClick={() => openModal("supplier")} disabled={selectedPeriodClosed}>
+                    <Plus className="w-4 h-4" /> {t("masters.add.supplier")}
+                  </Button>
                 </div>
                 {!supplierLoading && supplierList.length > 0 && (
                   <div className="grid grid-cols-3 gap-4 mb-6">
                     {[
-                      { label: "Total Suppliers", value: supplierList.length,                                                          color: "text-green-600 dark:text-green-400"  },
-                      { label: "Active",           value: supplierList.length,                                                          color: "text-blue-600 dark:text-blue-400"    },
-                      { label: "Categories",       value: new Set(supplierList.map(s => s.category || "General")).size,                color: "text-violet-600 dark:text-violet-400" },
+                      { label: "Total Suppliers", value: supplierList.length,                                            color: "text-green-600 dark:text-green-400"   },
+                      { label: "Active",           value: supplierList.length,                                            color: "text-blue-600 dark:text-blue-400"     },
+                      { label: "Categories",       value: new Set(supplierList.map(s => s.category || "General")).size,  color: "text-violet-600 dark:text-violet-400" },
                     ].map((stat, i) => (
                       <Card key={i} className="p-4">
                         <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
@@ -1318,14 +1332,24 @@ export default function Masters() {
                 )}
                 <div className="relative mb-5 max-w-xs">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  <input className={inputClass + " pl-9"} placeholder="Search suppliers..." value={supplierSearch} onChange={e => setSupplierSearch(e.target.value)} />
+                  <input className={inputClass + " pl-9"} placeholder="Search suppliers..."
+                    value={supplierSearch} onChange={e => setSupplierSearch(e.target.value)} />
                 </div>
                 {supplierLoading ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[1, 2, 3].map(i => (
                       <div key={i} className="rounded-xl border border-border bg-card p-5 space-y-4 animate-pulse">
-                        <div className="flex gap-3"><div className="w-11 h-11 rounded-full bg-secondary/70 shrink-0" /><div className="flex-1 space-y-2 pt-1"><div className="h-3 w-16 bg-secondary/70 rounded" /><div className="h-4 w-32 bg-secondary/70 rounded" /><div className="h-3 w-24 bg-secondary/70 rounded" /></div></div>
-                        <div className="flex gap-2 pt-2 border-t border-border"><div className="h-8 flex-1 bg-secondary/70 rounded-lg" /><div className="h-8 flex-1 bg-secondary/70 rounded-lg" /></div>
+                        <div className="flex gap-3">
+                          <div className="w-11 h-11 rounded-full bg-secondary/70 shrink-0" />
+                          <div className="flex-1 space-y-2 pt-1">
+                            <div className="h-3 w-16 bg-secondary/70 rounded" />
+                            <div className="h-4 w-32 bg-secondary/70 rounded" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-2 border-t border-border">
+                          <div className="h-8 flex-1 bg-secondary/70 rounded-lg" />
+                          <div className="h-8 flex-1 bg-secondary/70 rounded-lg" />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1338,7 +1362,8 @@ export default function Masters() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       {filteredSuppliers.map(s => (
-                        <SupplierCard key={s.id} s={s} selectedPeriodClosed={selectedPeriodClosed} onShow={() => setSupplierView(s)} onDelete={() => handleDeleteSupplier(s)} />
+                        <SupplierCard key={s.id} s={s} selectedPeriodClosed={selectedPeriodClosed}
+                          onShow={() => setSupplierView(s)} onDelete={() => handleDeleteSupplier(s)} />
                       ))}
                     </div>
                   )}
@@ -1354,7 +1379,8 @@ export default function Masters() {
               <h2 className="text-lg font-semibold">{t("masters.tab.items")}</h2>
               <div className="flex items-center gap-2">
                 {items && items.length > 0 && (
-                  <Button size="sm" variant="outline" className="gap-2" onClick={() => exportItemsPDF(items as ItemRow[], currencyLabel)}>
+                  <Button size="sm" variant="outline" className="gap-2"
+                    onClick={() => exportItemsPDF(items as ItemRow[], currencyLabel)}>
                     <FileDown className="w-4 h-4" /> Export PDF
                   </Button>
                 )}
@@ -1364,16 +1390,12 @@ export default function Masters() {
               </div>
             </div>
 
-            {/* Search + Filter */}
+            {/* Search + Category Filter */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input
-                  className={inputClass + " pl-9 max-w-xs"}
-                  placeholder="Search by name or SKU..."
-                  value={itemSearch}
-                  onChange={e => setItemSearch(e.target.value)}
-                />
+                <input className={inputClass + " pl-9 max-w-xs"} placeholder="Search by name or SKU..."
+                  value={itemSearch} onChange={e => setItemSearch(e.target.value)} />
               </div>
               {(["all", "raw_material", "finished_good"] as const).map(f => (
                 <button key={f} onClick={() => setItemFilter(f)}
@@ -1388,43 +1410,39 @@ export default function Masters() {
               )}
             </div>
 
-            {/* Item Cards Grid */}
-            {itemLoading ? (
-              <SkeletonCards count={8} />
-            ) : !items?.length ? (
-              <EmptyState label={t("masters.empty.items")} />
-            ) : !filteredItems.length ? (
-              <EmptyState label="No items match your search." />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {filteredItems.map(item => (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    suppliers={supplierList}
-                    selectedPeriodClosed={selectedPeriodClosed}
-                    currencyLabel={currencyLabel}
-                    onImageUploaded={() => refetchItemsRaw()}
-                    onEdit={() => openEditItem(item)}
-                    onDelete={async () => {
-                      if (selectedPeriodClosed) return;
-                      if (!confirm(`Delete "${item.name}"?`)) return;
-                      try {
-                        if (item.category === "finished_good") {
-                          await apiCall(`/api/products/${item.id}`, { method: "DELETE" });
-                        } else {
-                          await apiCall(`/api/ingredients/${item.id}`, { method: "DELETE" });
+            {itemLoading ? <SkeletonCards count={8} />
+              : !items?.length ? <EmptyState label={t("masters.empty.items")} />
+              : !filteredItems.length ? <EmptyState label="No items match your search." />
+              : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {filteredItems.map(item => (
+                    <ItemCard
+                      key={item.id}
+                      item={item}
+                      suppliers={supplierList}
+                      selectedPeriodClosed={selectedPeriodClosed}
+                      currencyLabel={currencyLabel}
+                      onImageUploaded={() => refetchItemsRaw?.()}
+                      onEdit={() => openEditItem(item)}
+                      onDelete={async () => {
+                        if (selectedPeriodClosed) return;
+                        if (!confirm(`Delete "${item.name}"?`)) return;
+                        try {
+                          await apiCall(
+                            item.category === "finished_good"
+                              ? `/api/products/${item.id}`
+                              : `/api/ingredients/${item.id}`,
+                            { method: "DELETE" }
+                          );
+                          await refetchItemsRaw?.();
+                        } catch {
+                          alert("Failed to delete item");
                         }
-                        await refetchItemsRaw();
-                      } catch (err) {
-                        console.error("Delete failed", err);
-                        alert("Failed to delete item");
-                      }
-                    }}
-                  />
-                ))}
-              </div>
-            )}
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
           </>
         )}
 
@@ -1433,17 +1451,27 @@ export default function Masters() {
           <>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">{t("masters.tab.users")}</h2>
-              <Button size="sm" className="gap-2" onClick={() => openModal("user")} disabled={selectedPeriodClosed}><Plus className="w-4 h-4" /> {t("masters.add.user")}</Button>
+              <Button size="sm" className="gap-2" onClick={() => openModal("user")} disabled={selectedPeriodClosed}>
+                <Plus className="w-4 h-4" /> {t("masters.add.user")}
+              </Button>
             </div>
             {userLoading ? <SkeletonRows /> : !users?.length ? <EmptyState label={t("masters.empty.users")} /> : (
               <div className="space-y-2">
                 {(users as UserRow[]).map(u => (
                   <div key={u.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary transition-colors group">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">{u.display_name.charAt(0).toUpperCase()}</div>
-                      <div><p className="text-sm font-medium text-foreground">{u.display_name}</p><p className="text-xs text-muted-foreground">@{u.username}</p></div>
+                      <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">
+                        {u.display_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{u.display_name}</p>
+                        <p className="text-xs text-muted-foreground">@{u.username}</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2"><Badge label={u.role} color={roleColor(u.role)} /><ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" /></div>
+                    <div className="flex items-center gap-2">
+                      <Badge label={u.role} color={roleColor(u.role)} />
+                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1463,7 +1491,8 @@ export default function Masters() {
                   </Button>
                 )}
                 {priceHistory && priceHistory.length > 0 && (
-                  <Button size="sm" variant="outline" className="gap-2" onClick={() => exportPriceHistoryPDF(priceHistory, selectedIngredientName, currencyLabel)}>
+                  <Button size="sm" variant="outline" className="gap-2"
+                    onClick={() => exportPriceHistoryPDF(priceHistory, selectedIngredientName, currencyLabel)}>
                     <FileDown className="w-4 h-4" />Export PDF
                   </Button>
                 )}
@@ -1472,76 +1501,91 @@ export default function Masters() {
                 </Button>
               </div>
             </div>
+
             <div className="mb-4">
               <Field label={t("masters.field.ingredientHistory")}>
                 {ingredientLoading ? <div className="h-10 bg-secondary/50 rounded animate-pulse" /> : (
-                  <select className={inputClass} value={selectedIngredient || ""} onChange={e => {
-                    const id = Number(e.target.value); setSelectedIngredient(id);
-                    const found = ingredients?.find((i: any) => i.id === id);
-                    setSelectedIngredientName(found?.name ?? ""); setShowChangeLog(false);
-                  }}>
+                  <select className={inputClass} value={selectedIngredient || ""}
+                    onChange={e => {
+                      const id = Number(e.target.value);
+                      setSelectedIngredient(id);
+                      // Change 5 — removed (i: any) cast
+                      const found = ingredients?.find(i => i.id === id);
+                      setSelectedIngredientName(found?.name ?? "");
+                      setShowChangeLog(false);
+                    }}>
                     <option value="">{t("masters.ph.selectIngredient")}</option>
-                    {ingredients?.map((i: any) => <option key={i.id} value={i.id}>{i.name} — {formatCurrency(Number(i.cost_per_unit))} / {i.unit}</option>)}
+                    {/* Change 5 — removed (i: any) cast */}
+                    {ingredients?.map(i => (
+                      <option key={i.id} value={i.id}>{i.name} — {formatCurrency(Number(i.cost_per_unit))} / {i.unit}</option>
+                    ))}
                   </select>
                 )}
               </Field>
             </div>
+
             {!selectedIngredient ? (
               <div className="py-12 text-center text-muted-foreground text-sm">{t("masters.empty.selectIngredient")}</div>
             ) : priceLoading ? <SkeletonRows count={3} />
-            : !priceHistory?.length ? <EmptyState label={t("masters.empty.prices")} />
-            : (
-              <>
-                {priceHistory.length >= 2 && (() => {
-                  const latest = priceHistory[0].price; const oldest = priceHistory[priceHistory.length - 1].price;
-                  const diff = latest - oldest; const pct = oldest > 0 ? (diff / oldest) * 100 : 0;
-                  return (
-                    <div className="flex items-center gap-4 mb-4 p-3 rounded-lg bg-secondary/40 border border-border text-xs">
-                      <span className="text-muted-foreground">Overall change:</span>
-                      <span className={`flex items-center gap-1 font-semibold ${diff > 0 ? "text-red-500" : diff < 0 ? "text-green-600" : "text-muted-foreground"}`}>
-                        {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                        {diff > 0 ? "+" : ""}{formatCurrency(diff)} ({pct > 0 ? "+" : ""}{pct.toFixed(1)}%)
-                      </span>
-                      <span className="text-muted-foreground ml-auto">{priceHistory.length} records</span>
-                    </div>
-                  );
-                })()}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-secondary">
-                      <tr>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.date")}</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.supplier")}</th>
-                        <th className="px-4 py-2 text-right font-semibold text-foreground">{t("masters.priceHistory.price").replace("{currency}", currencyLabel)}</th>
-                        <th className="px-4 py-2 text-center font-semibold text-foreground">vs Previous</th>
-                        <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.notes")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {priceHistory.map((row, i) => {
-                        const prev = priceHistory[i + 1]; const diff = prev ? row.price - prev.price : null;
-                        const pct = prev && prev.price > 0 ? (diff! / prev.price) * 100 : null;
-                        return (
-                          <tr key={i} className={`border-b border-border hover:bg-secondary/50 transition-colors ${i % 2 === 0 ? "" : "bg-secondary/20"}`}>
-                            <td className="px-4 py-3 text-foreground">{row.entry_date}</td>
-                            <td className="px-4 py-3 font-medium text-foreground">{row.supplier_name}</td>
-                            <td className="px-4 py-3 text-right font-bold text-primary">{formatCurrency(row.price)}</td>
-                            <td className="px-4 py-3 text-center">
-                              {diff === null ? <span className="text-muted-foreground text-xs">—</span>
-                                : diff > 0 ? <span className="flex items-center justify-center gap-1 text-red-500 text-xs font-semibold"><TrendingUp className="w-3 h-3" />+{formatCurrency(diff)} ({pct!.toFixed(1)}%)</span>
-                                : diff < 0 ? <span className="flex items-center justify-center gap-1 text-green-600 text-xs font-semibold"><TrendingDown className="w-3 h-3" />{formatCurrency(diff)} ({pct!.toFixed(1)}%)</span>
-                                : <span className="text-muted-foreground text-xs">No change</span>}
-                            </td>
-                            <td className="px-4 py-3 text-muted-foreground text-xs">{row.notes || "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {showChangeLog && <PriceChangeHistory rows={priceHistory} currencyLabel={currencyLabel} />}
-              </>
-            )}
+              : !priceHistory?.length ? <EmptyState label={t("masters.empty.prices")} />
+              : (
+                <>
+                  {priceHistory.length >= 2 && (() => {
+                    const latest = priceHistory[0].price;
+                    const oldest = priceHistory[priceHistory.length - 1].price;
+                    const diff = latest - oldest;
+                    const pct  = oldest > 0 ? (diff / oldest) * 100 : 0;
+                    return (
+                      <div className="flex items-center gap-4 mb-4 p-3 rounded-lg bg-secondary/40 border border-border text-xs">
+                        <span className="text-muted-foreground">Overall change:</span>
+                        <span className={`flex items-center gap-1 font-semibold ${diff > 0 ? "text-red-500" : diff < 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                          {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                          {diff > 0 ? "+" : ""}{formatCurrency(diff)} ({pct > 0 ? "+" : ""}{pct.toFixed(1)}%)
+                        </span>
+                        <span className="text-muted-foreground ml-auto">{priceHistory.length} records</span>
+                      </div>
+                    );
+                  })()}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-secondary">
+                        <tr>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.date")}</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.supplier")}</th>
+                          <th className="px-4 py-2 text-right font-semibold text-foreground">{t("masters.priceHistory.price").replace("{currency}", currencyLabel)}</th>
+                          <th className="px-4 py-2 text-center font-semibold text-foreground">vs Previous</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.notes")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {priceHistory.map((row, i) => {
+                          const prev = priceHistory[i + 1];
+                          const diff = prev ? row.price - prev.price : null;
+                          const pct  = prev && prev.price > 0 ? (diff! / prev.price) * 100 : null;
+                          return (
+                            <tr key={i} className={`border-b border-border hover:bg-secondary/50 transition-colors ${i % 2 === 0 ? "" : "bg-secondary/20"}`}>
+                              <td className="px-4 py-3 text-foreground">{row.entry_date}</td>
+                              <td className="px-4 py-3 font-medium text-foreground">{row.supplier_name}</td>
+                              <td className="px-4 py-3 text-right font-bold text-primary">{formatCurrency(row.price)}</td>
+                              <td className="px-4 py-3 text-center">
+                                {diff === null
+                                  ? <span className="text-muted-foreground text-xs">—</span>
+                                  : diff > 0
+                                    ? <span className="flex items-center justify-center gap-1 text-red-500 text-xs font-semibold"><TrendingUp className="w-3 h-3" />+{formatCurrency(diff)} ({pct!.toFixed(1)}%)</span>
+                                    : diff < 0
+                                      ? <span className="flex items-center justify-center gap-1 text-green-600 text-xs font-semibold"><TrendingDown className="w-3 h-3" />{formatCurrency(diff)} ({pct!.toFixed(1)}%)</span>
+                                      : <span className="text-muted-foreground text-xs">No change</span>}
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground text-xs">{row.notes || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {showChangeLog && <PriceChangeHistory rows={priceHistory} currencyLabel={currencyLabel} />}
+                </>
+              )}
           </>
         )}
 

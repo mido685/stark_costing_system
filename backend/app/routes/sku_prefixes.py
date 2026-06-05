@@ -1,17 +1,10 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 from app.api.responses import success, error
 from app.database import sku_prefixes as sku_db
 from app.security.dependencies import get_current_user, require_roles
+from app.schemas import SkuPrefixRequest 
 
 router = APIRouter(prefix="/sku-prefixes", tags=["sku-prefixes"])
-
-
-class SkuPrefixRequest(BaseModel):
-    label: str
-    prefix: str
-    item_type: str = "raw_material"  # 'raw_material' or 'finished_good'
-
 
 @router.get("")
 def list_prefixes(

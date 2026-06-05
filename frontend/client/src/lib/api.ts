@@ -88,6 +88,8 @@ const UNWRAP_KEYS = new Set([
   "users",
   "waste",
   "inventory_movements",
+  "prefix",
+  "prefixes"
 ]);
 
 export async function apiUpload<T>(endpoint: string, formData: FormData): Promise<T> {
@@ -315,7 +317,10 @@ export interface ItemRow {
   sale_price: number;
   reorder_level: number;
   standard_cost: number;
-  image_url?: string | null;
+  image_url:       string | null;  // always present, null if no image
+  supplier_id?:    number;         // optional — joined from API
+  supplier_name?:  string;         // optional — joined from API
+  category_label?: string;         // optional — human-readable category
 }
 
 export interface SupplierRow {

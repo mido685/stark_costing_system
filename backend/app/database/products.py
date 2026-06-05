@@ -92,10 +92,10 @@ def update_product(
             SET name       = COALESCE(%s, name),
                 unit       = COALESCE(%s, unit),
                 sale_price = COALESCE(%s, sale_price),
-                sku        = COALESCE(%s, sku)
+                sku        = CASE WHEN %s IS NOT NULL THEN %s ELSE sku END
             WHERE id = %s AND company_id = %s
             RETURNING *
-        """, (name, unit, sale_price, sku, product_id, company_id))
+        """, (name, unit, sale_price, sku, sku, product_id, company_id))
         new = dict(cur.fetchone())
 
         log_audit(
@@ -123,7 +123,7 @@ def update_product(
         conn.close()
 
 
-def update_image(product_id: int, company_id: int, image_url: int) -> None:
+def update_image(product_id: int, company_id: int, image_url: str) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:

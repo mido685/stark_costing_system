@@ -115,6 +115,7 @@ def init_db() -> None:
                 sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
                 is_active  BOOLEAN NOT NULL DEFAULT TRUE,
                 sku        VARCHAR(80),
+                image_url  TEXT,    
                 UNIQUE(company_id, name)
             )
         """)
@@ -137,9 +138,15 @@ def init_db() -> None:
                 name       VARCHAR(120) NOT NULL,
                 contact    VARCHAR(120),
                 phone      VARCHAR(40),
-                category   VARCHAR(80),
-                notes      TEXT,
-                is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+                email                 VARCHAR(120),
+                address               VARCHAR(200),
+                website               VARCHAR(200),
+                commercial_reg_number VARCHAR(100),
+                agent_name            VARCHAR(120),
+                agent_phone           VARCHAR(40),
+                category              VARCHAR(80),
+                notes                 TEXT,
+                is_active             BOOLEAN NOT NULL DEFAULT TRUE,
                 UNIQUE(company_id, name)
             )
         """)
@@ -157,6 +164,7 @@ def init_db() -> None:
                 supplier_id   INTEGER REFERENCES suppliers(id),
                 is_active     BOOLEAN NOT NULL DEFAULT TRUE,
                 sku           VARCHAR(80),
+                image_url      TEXT,
                 UNIQUE(company_id, name)
             )
         """)

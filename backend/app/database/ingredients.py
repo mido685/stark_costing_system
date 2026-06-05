@@ -120,10 +120,10 @@ def update_ingredient(
                 cost_per_unit = COALESCE(%s, cost_per_unit),
                 reorder_level = COALESCE(%s, reorder_level),
                 supplier_id   = COALESCE(%s, supplier_id),
-                sku           = COALESCE(%s, sku)
+                sku           = CASE WHEN %s IS NOT NULL THEN %s ELSE sku END
             WHERE id = %s AND company_id = %s
             RETURNING *
-        """, (name, unit, cost_per_unit, reorder_level, supplier_id, sku, ingredient_id, company_id))
+        """, (name, unit, cost_per_unit, reorder_level, supplier_id, sku, sku, ingredient_id, company_id))
         new = dict(cur.fetchone())
 
         log_audit(
