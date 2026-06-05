@@ -1,3 +1,10 @@
+# [3.23.0](https://github.com/mido685/stark_costing_system/compare/v3.22.0...v3.23.0) (2026-06-05)
+
+
+### Features
+
+* checking for compelete update ([7f4926d](https://github.com/mido685/stark_costing_system/commit/7f4926dcd4bf9ffad14666c4d9367c43cb936c90))
+
 # [3.22.0](https://github.com/mido685/stark_costing_system/compare/v3.21.0...v3.22.0) (2026-06-05)
 
 
