@@ -1,3 +1,15 @@
+# [3.20.0](https://github.com/mido685/stark_costing_system/compare/v3.19.2...v3.20.0) (2026-06-05)
+
+
+### Bug Fixes
+
+* the last fixing today ([15886e8](https://github.com/mido685/stark_costing_system/commit/15886e8b65a22949e6e75df61db104ac2c2b9d19))
+
+
+### Features
+
+* your change description ([c731285](https://github.com/mido685/stark_costing_system/commit/c7312858382ee596ffca59d15e1a81c145578b96))
+
 ## [3.19.2](https://github.com/mido685/stark_costing_system/compare/v3.19.1...v3.19.2) (2026-06-05)
 
 
