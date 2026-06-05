@@ -61,6 +61,7 @@ class ProductRequest(BaseModel):
     unit: str | None = None
     sale_price: float = 0
     sku: str | None = None
+    sku_prefix: str | None = None
 
 
 class ProductUpdateRequest(BaseModel):
@@ -80,6 +81,7 @@ class IngredientRequest(BaseModel):
     reorder_level: float = 0
     supplier_id: int | None = None
     sku: str | None = None
+    sku_prefix: str | None = None
 
 
 class IngredientUpdateRequest(BaseModel):
@@ -88,14 +90,10 @@ class IngredientUpdateRequest(BaseModel):
     cost_per_unit: float | None = None
     reorder_level: float | None = None
     supplier_id: int | None = None
-    sku: str | None = None     
+    sku: str | None = None
 
 
 # ── Suppliers ────────────────────────────────────────────────────────────────
-
-# ── Suppliers ────────────────────────────────────────────────────────────────
-# Replace the existing SupplierRequest and SupplierUpdateRequest classes
-# in your app/schemas.py with these two classes.
 
 class SupplierRequest(BaseModel):
     name: str
@@ -123,6 +121,7 @@ class SupplierUpdateRequest(BaseModel):
     agent_phone: str | None = None
     category: str | None = None
     notes: str | None = None
+
 
 class SupplierPriceRequest(BaseModel):
     supplier_id: int
@@ -190,7 +189,7 @@ class PurchaseReturnRequest(BaseModel):
     status: str = "pending"
 
 
-# ── Expenses & Periods ──────────────────────────────────────────────────────
+# ── Expenses & Periods ───────────────────────────────────────────────────────
 
 class ExpenseRequest(BaseModel):
     branch_id: int
@@ -284,7 +283,7 @@ class ItemRequest(BaseModel):
     sale_price: float = 0          # for finished_good
     standard_cost: float = 0       # for raw_material
     reorder_level: float = 0       # for raw_material
-    sku: str | None = None          # for both
+    sku: str | None = None         # for both
 
 
 # ── Password Change ──────────────────────────────────────────────────────────
@@ -293,14 +292,16 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
-# ── Recipes ────────────────────────────────────────────────────────────────
+
+# ── Recipes ──────────────────────────────────────────────────────────────────
 
 class RecipeRequest(BaseModel):
     yield_pct: float = 100
     portion_size: float = 1
     portion_unit: str = "plate"
     notes: str = ""
-#-- recipe ingredients are sent as a separate list in the request body, not nested in RecipeRequest --
+
+# Recipe ingredients are sent as a separate list in the request body, not nested in RecipeRequest
 class RecipeIngredientRequest(BaseModel):
     ingredient_id: int
     qty_required: float
@@ -316,7 +317,9 @@ class ProductionRequest(BaseModel):
     overhead_cost: float = 0
     notes: str = ""
 
-#-- revenue request --
+
+# ── Revenue ──────────────────────────────────────────────────────────────────
+
 class RevenueRequest(BaseModel):
     branch_id: int
     entry_date: str
@@ -326,7 +329,7 @@ class RevenueRequest(BaseModel):
     notes: str = ""
 
 
-# ── Sales ───────────────────────────────────────────────────────────────────
+# ── Sales ────────────────────────────────────────────────────────────────────
 
 class SaleRequest(BaseModel):
     branch_id: int
@@ -345,7 +348,7 @@ class SaleRequest(BaseModel):
     status: str = "approved"
 
 
-# ── Waste & Damage ──────────────────────────────────────────────────────────
+# ── Waste & Damage ───────────────────────────────────────────────────────────
 
 class WasteRequest(BaseModel):
     branch_id: int
@@ -369,7 +372,7 @@ class DamageRequest(BaseModel):
     notes: str = ""
 
 
-# ── Inventory ───────────────────────────────────────────────────────────────
+# ── Inventory ────────────────────────────────────────────────────────────────
 
 class StockIssueRequest(BaseModel):
     branch_id: int

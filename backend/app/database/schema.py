@@ -118,6 +118,16 @@ def init_db() -> None:
                 UNIQUE(company_id, name)
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sku_prefixes (
+                id         SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL REFERENCES companies(id),
+                label      VARCHAR(50) NOT NULL,   -- e.g. "Beverage"
+                prefix     VARCHAR(20) NOT NULL,   -- e.g. "BEV"
+                item_type  VARCHAR(20) NOT NULL,   -- 'raw_material' or 'finished_good' or 'both'
+                UNIQUE(company_id, prefix)
+            )
+        """)
 
         # ── 10. Suppliers ─────────────────────────────────────────────────────
         cur.execute("""

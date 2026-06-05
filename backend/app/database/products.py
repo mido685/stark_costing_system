@@ -2,6 +2,7 @@ import psycopg2
 from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .sku_prefixes import next_sku
 
 
 def list_products(company_id: int) -> list[dict[str, Any]]:
@@ -18,16 +19,6 @@ def list_products(company_id: int) -> list[dict[str, Any]]:
         conn.close()
 
 
-def _next_fg_sku(cur, company_id: int) -> str:
-    """Generate next FG SKU for this company based on total count."""
-    cur.execute(
-        "SELECT COUNT(*) FROM products WHERE company_id = %s",
-        (company_id,)
-    )
-    count = cur.fetchone()[0] + 1
-    return f"FG-{str(count).zfill(5)}"
-
-
 def add_product(
     name: str,
     company_id: int,
@@ -35,12 +26,14 @@ def add_product(
     unit: str | None = None,
     sale_price: float = 0,
     sku: str | None = None,
+    sku_prefix: str | None = None,
     ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        auto_sku = sku or _next_fg_sku(cur, company_id)
+        # Priority: manual sku → picked prefix → default DISH prefix
+        auto_sku = sku or next_sku(company_id, sku_prefix or "DISH", "products")
 
         cur.execute("""
             INSERT INTO products (company_id, name, unit, sale_price, sku)
@@ -130,7 +123,7 @@ def update_product(
         conn.close()
 
 
-def update_image(product_id: int, company_id: int, image_url: str) -> None:
+def update_image(product_id: int, company_id: int, image_url: int) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:

@@ -80,6 +80,43 @@ def seed():
                     ON CONFLICT (role_id, permission_id) DO NOTHING
                 """, (admin_role["id"], permission["id"]))
 
+        # ── 7. SKU Prefixes ───────────────────────────────────────────────────
+        for company in companies:
+            prefixes = [
+                # Raw Materials
+                ("General Ingredient", "ING",   "raw_material"),
+                ("Dairy",              "DAIRY", "raw_material"),
+                ("Meat & Poultry",     "MEAT",  "raw_material"),
+                ("Produce",            "PRD",   "raw_material"),
+                ("Dry Goods",          "DRY",   "raw_material"),
+                ("Frozen Items",       "FRZ",   "raw_material"),
+                ("Beverages Supply",   "BEVS",  "raw_material"),
+                ("Seafood",            "SEA",   "raw_material"),
+                ("Oils & Fats",        "OIL",   "raw_material"),
+                ("Spices & Herbs",     "SPICE", "raw_material"),
+                ("Bakery Supply",      "BAKS",  "raw_material"),
+                ("Packaging",          "PKG",   "raw_material"),
+                # Finished Goods
+                ("Main Dish",          "DISH",  "finished_good"),
+                ("Appetizer",          "APP",   "finished_good"),
+                ("Dessert",            "DES",   "finished_good"),
+                ("Beverage",           "BEV",   "finished_good"),
+                ("Breakfast",          "BRK",   "finished_good"),
+                ("Sandwich",           "SAND",  "finished_good"),
+                ("Cake & Pastry",      "CAKE",  "finished_good"),
+                ("Salad",              "SAL",   "finished_good"),
+                ("Soup",               "SOUP",  "finished_good"),
+                ("Pizza",              "PIZ",   "finished_good"),
+                ("Grill",              "GRL",   "finished_good"),
+                ("Kids Meal",          "KIDS",  "finished_good"),
+            ]
+            for label, prefix, item_type in prefixes:
+                cur.execute("""
+                    INSERT INTO sku_prefixes (company_id, label, prefix, item_type)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (company_id, prefix) DO NOTHING
+                """, (company["id"], label, prefix, item_type))
+
         conn.commit()
         print("✅ Seeded successfully")
 
