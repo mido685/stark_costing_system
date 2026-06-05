@@ -506,6 +506,7 @@ export async function getItems(category?: string): Promise<ItemRow[]> {
 export async function addItem(data: {
   name: string;
   sku: string;
+  sku_prefix?: string;
   category: string;
   unit: string;
   sale_price: number;

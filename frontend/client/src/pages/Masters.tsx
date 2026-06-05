@@ -32,6 +32,13 @@ interface PriceHistoryRow {
   notes:         string;
 }
 
+interface SkuPrefix {
+  id:        number;
+  label:     string;
+  prefix:    string;
+  item_type: string; // 'raw_material' | 'finished_good' | 'both'
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function today() {
@@ -171,6 +178,97 @@ function PhoneInput({
       </div>
       {error && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3 shrink-0" />{error}</p>}
       {!error && country && value && <p className="text-xs text-muted-foreground">Full number: {country.dialCode} {value}</p>}
+    </div>
+  );
+}
+
+// ─── SKU Prefix Selector ──────────────────────────────────────────────────────
+
+function SkuPrefixSelector({
+  prefixes,
+  loading,
+  category,
+  selectedPrefix,
+  manualSku,
+  onPrefixChange,
+  onManualSkuChange,
+}: {
+  prefixes: SkuPrefix[];
+  loading: boolean;
+  category: string;
+  selectedPrefix: string;
+  manualSku: string;
+  onPrefixChange: (prefix: string) => void;
+  onManualSkuChange: (sku: string) => void;
+}) {
+  const filtered = prefixes.filter(
+    p => p.item_type === category || p.item_type === "both"
+  );
+
+  return (
+    <div className="space-y-3 p-3 rounded-lg bg-secondary/30 border border-border">
+      <div className="flex items-center gap-2">
+        <Tag className="w-3.5 h-3.5 text-primary" />
+        <span className="text-xs font-semibold text-foreground">SKU Configuration</span>
+      </div>
+
+      <Field label="SKU Prefix (sets category)">
+        {loading ? (
+          <div className="h-9 bg-secondary/50 rounded-md animate-pulse" />
+        ) : (
+          <select
+            className={inputClass}
+            value={selectedPrefix}
+            onChange={e => {
+              onPrefixChange(e.target.value);
+              onManualSkuChange(""); // clear manual override when prefix changes
+            }}
+          >
+            <option value="">— Auto (default prefix) —</option>
+            {filtered.map(p => (
+              <option key={p.id} value={p.prefix}>
+                {p.label} ({p.prefix})
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+
+      <Field label="Manual SKU override (optional — leave blank to auto-generate)">
+        <div className="relative">
+          {selectedPrefix && !manualSku && (
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-mono pointer-events-none select-none">
+              {selectedPrefix}-
+            </span>
+          )}
+          <input
+            className={`${inputClass} ${selectedPrefix && !manualSku ? "pl-[calc(0.75rem+var(--prefix-len,2rem))]" : ""}`}
+            style={selectedPrefix && !manualSku ? { paddingLeft: `${selectedPrefix.length * 8 + 24}px` } : {}}
+            placeholder={
+              manualSku
+                ? ""
+                : selectedPrefix
+                ? `${selectedPrefix}-XXXXX (auto)`
+                : "Leave blank to auto-generate"
+            }
+            value={manualSku}
+            onChange={e => onManualSkuChange(e.target.value)}
+          />
+        </div>
+        {!manualSku && (
+          <p className="text-[11px] text-muted-foreground mt-1">
+            {selectedPrefix
+              ? `Will generate: ${selectedPrefix}-00001, ${selectedPrefix}-00002, …`
+              : "Will use the default prefix for this category."}
+          </p>
+        )}
+        {manualSku && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3 shrink-0" />
+            Manual SKU — auto-generation disabled for this item.
+          </p>
+        )}
+      </Field>
     </div>
   );
 }
@@ -664,6 +762,12 @@ export default function Masters() {
   const { data: users,       loading: userLoading,       refetch: refetchUsers     } = useApi(getUsers);
   const { data: ingredients, loading: ingredientLoading }                            = useApi(() => apiCall<any[]>("/api/ingredients"));
 
+  // ── SKU Prefixes ──
+  const { data: skuPrefixData, loading: skuPrefixLoading } = useApi(
+    () => apiCall<SkuPrefix[]>("/api/sku-prefixes")
+  );
+  const skuPrefixes: SkuPrefix[] = skuPrefixData ?? [];
+
   const [selectedIngredient,     setSelectedIngredient]     = useState<number>(0);
   const [selectedIngredientName, setSelectedIngredientName] = useState<string>("");
   const { data: priceHistory, loading: priceLoading, refetch: refetchPrices } = useApi(
@@ -676,15 +780,17 @@ export default function Masters() {
   const [phoneError,      setPhoneError]      = useState("");
   const [agentPhoneError, setAgentPhoneError] = useState("");
 
+  // ── Add Item form (includes sku_prefix) ──
   const [itemForm, setItemForm] = useState({
-    name: "", sku: "", category: "raw_material", unit: "",
+    name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "",
     sale_price: 0, reorder_level: 0, standard_cost: 0,
   });
 
-  // ── Edit Item state ──
-  const [editingItem,   setEditingItem]   = useState<ItemRow | null>(null);
-  const [editItemForm,  setEditItemForm]  = useState({
-    name: "", sku: "", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0,
+  // ── Edit Item state (includes sku_prefix) ──
+  const [editingItem,  setEditingItem]  = useState<ItemRow | null>(null);
+  const [editItemForm, setEditItemForm] = useState({
+    name: "", sku: "", sku_prefix: "", unit: "",
+    sale_price: 0, reorder_level: 0, standard_cost: 0,
   });
 
   const [userForm,  setUserForm]  = useState({ username: "", display_name: "", role: "clerk" });
@@ -694,9 +800,12 @@ export default function Masters() {
 
   function openEditItem(item: ItemRow) {
     setEditingItem(item);
+    // Derive the prefix from the existing SKU if possible (e.g. "MEAT-00003" → "MEAT")
+    const existingPrefix = item.sku?.includes("-") ? item.sku.split("-")[0] : "";
     setEditItemForm({
       name:          item.name,
       sku:           item.sku ?? "",
+      sku_prefix:    existingPrefix,
       unit:          item.unit,
       sale_price:    item.sale_price ?? 0,
       reorder_level: item.reorder_level ?? 0,
@@ -747,11 +856,21 @@ export default function Masters() {
   async function handleSaveItem() {
     if (!itemForm.name.trim() || !itemForm.unit.trim()) { setError(t("masters.err.itemRequired")); return; }
     setSaving(true); setError("");
-    const ok = await addItem({ ...itemForm, user_id: currentUserId });
+    const ok = await addItem({
+      name:          itemForm.name,
+      unit:          itemForm.unit,
+      category:      itemForm.category,
+      sale_price:    itemForm.sale_price,
+      reorder_level: itemForm.reorder_level,
+      standard_cost: itemForm.standard_cost,
+      sku:           itemForm.sku,
+      sku_prefix:    itemForm.sku_prefix,
+      user_id:       currentUserId,
+    });
     setSaving(false);
     if (ok) {
       setModal(null);
-      setItemForm({ name: "", sku: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
+      setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
       await refetchItemsRaw();
     } else setError(t("masters.err.itemSave"));
   }
@@ -772,7 +891,8 @@ export default function Masters() {
             unit:          editItemForm.unit,
             sale_price:    editItemForm.sale_price,
             standard_cost: editItemForm.standard_cost,
-            sku:           editItemForm.sku,
+            sku:           editItemForm.sku || undefined,
+            sku_prefix:    editItemForm.sku_prefix || undefined,
           }),
         });
       } else {
@@ -783,7 +903,8 @@ export default function Masters() {
             unit:          editItemForm.unit,
             cost_per_unit: editItemForm.standard_cost,
             reorder_level: editItemForm.reorder_level,
-            sku:           editItemForm.sku,
+            sku:           editItemForm.sku || undefined,
+            sku_prefix:    editItemForm.sku_prefix || undefined,
           }),
         });
       }
@@ -917,26 +1038,53 @@ export default function Masters() {
         <Modal title={t("masters.modal.addItem")} onClose={() => setModal(null)} onSave={handleSaveItem} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("masters.field.itemName")}><input className={inputClass} placeholder={t("masters.ph.itemName")} value={itemForm.name} onChange={e => setItemForm({ ...itemForm, name: e.target.value })} autoFocus /></Field>
-            <Field label={t("masters.field.sku")}><input className={inputClass} placeholder={t("masters.ph.sku")} value={itemForm.sku} onChange={e => setItemForm({ ...itemForm, sku: e.target.value })} /></Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("masters.field.itemName")}>
+              <input className={inputClass} placeholder={t("masters.ph.itemName")} value={itemForm.name}
+                onChange={e => setItemForm({ ...itemForm, name: e.target.value })} autoFocus />
+            </Field>
             <Field label={t("masters.field.category")}>
-              <select className={inputClass} value={itemForm.category} onChange={e => setItemForm({ ...itemForm, category: e.target.value })}>
+              <select className={inputClass} value={itemForm.category}
+                onChange={e => setItemForm({ ...itemForm, category: e.target.value, sku_prefix: "" })}>
                 <option value="raw_material">{t("masters.cat.rawMaterial")}</option>
                 <option value="finished_good">{t("masters.cat.finishedGood")}</option>
               </select>
             </Field>
-            <Field label={t("masters.field.unit")}><input className={inputClass} placeholder={t("masters.ph.unit")} value={itemForm.unit} onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} /></Field>
           </div>
+          <Field label={t("masters.field.unit")}>
+            <input className={inputClass} placeholder={t("masters.ph.unit")} value={itemForm.unit}
+              onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("masters.field.standardCost")}><input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")} value={itemForm.standard_cost || ""} onChange={e => setItemForm({ ...itemForm, standard_cost: Number(e.target.value) })} /></Field>
+            <Field label={t("masters.field.standardCost")}>
+              <input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")}
+                value={itemForm.standard_cost || ""}
+                onChange={e => setItemForm({ ...itemForm, standard_cost: Number(e.target.value) })} />
+            </Field>
             {itemForm.category === "finished_good" ? (
-              <Field label={t("masters.field.salePrice")}><input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")} value={itemForm.sale_price || ""} onChange={e => setItemForm({ ...itemForm, sale_price: Number(e.target.value) })} /></Field>
+              <Field label={t("masters.field.salePrice")}>
+                <input className={inputClass} type="number" min={0} step={0.01} placeholder={t("masters.ph.price")}
+                  value={itemForm.sale_price || ""}
+                  onChange={e => setItemForm({ ...itemForm, sale_price: Number(e.target.value) })} />
+              </Field>
             ) : (
-              <Field label={t("masters.field.reorderLevel")}><input className={inputClass} type="number" min={0} placeholder="0" value={itemForm.reorder_level || ""} onChange={e => setItemForm({ ...itemForm, reorder_level: Number(e.target.value) })} /></Field>
+              <Field label={t("masters.field.reorderLevel")}>
+                <input className={inputClass} type="number" min={0} placeholder="0"
+                  value={itemForm.reorder_level || ""}
+                  onChange={e => setItemForm({ ...itemForm, reorder_level: Number(e.target.value) })} />
+              </Field>
             )}
           </div>
+
+          {/* SKU Prefix Selector */}
+          <SkuPrefixSelector
+            prefixes={skuPrefixes}
+            loading={skuPrefixLoading}
+            category={itemForm.category}
+            selectedPrefix={itemForm.sku_prefix}
+            manualSku={itemForm.sku}
+            onPrefixChange={prefix => setItemForm({ ...itemForm, sku_prefix: prefix })}
+            onManualSkuChange={sku => setItemForm({ ...itemForm, sku })}
+          />
         </Modal>
       )}
 
@@ -949,6 +1097,7 @@ export default function Masters() {
           {...modalProps}
         >
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+
           <div className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${editingItem.category === "finished_good" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
               {editingItem.category === "finished_good" ? "Finished Good" : "Raw Material"}
@@ -957,20 +1106,18 @@ export default function Masters() {
               {editingItem.category === "finished_good" ? "FG" : "RM"}-{String(editingItem.id).padStart(5, "0")}
             </span>
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label="Item Name">
               <input className={inputClass} placeholder="Item name" value={editItemForm.name}
                 onChange={e => setEditItemForm({ ...editItemForm, name: e.target.value })} autoFocus />
             </Field>
-            <Field label="SKU">
-              <input className={inputClass} placeholder="SKU" value={editItemForm.sku}
-                onChange={e => setEditItemForm({ ...editItemForm, sku: e.target.value })} />
+            <Field label="Unit">
+              <input className={inputClass} placeholder="kg / pcs / L" value={editItemForm.unit}
+                onChange={e => setEditItemForm({ ...editItemForm, unit: e.target.value })} />
             </Field>
           </div>
-          <Field label="Unit">
-            <input className={inputClass} placeholder="kg / pcs / L" value={editItemForm.unit}
-              onChange={e => setEditItemForm({ ...editItemForm, unit: e.target.value })} />
-          </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Standard Cost (${currencyLabel})`}>
               <input className={inputClass} type="number" min={0} step={0.01}
@@ -991,6 +1138,21 @@ export default function Masters() {
               </Field>
             )}
           </div>
+
+          {/* SKU Prefix Selector for Edit */}
+          <SkuPrefixSelector
+            prefixes={skuPrefixes}
+            loading={skuPrefixLoading}
+            category={editingItem.category}
+            selectedPrefix={editItemForm.sku_prefix}
+            manualSku={editItemForm.sku}
+            onPrefixChange={prefix => {
+              // When changing prefix on an existing item, clear the numeric part
+              // so the backend auto-generates under the new prefix
+              setEditItemForm({ ...editItemForm, sku_prefix: prefix, sku: "" });
+            }}
+            onManualSkuChange={sku => setEditItemForm({ ...editItemForm, sku })}
+          />
         </Modal>
       )}
 
