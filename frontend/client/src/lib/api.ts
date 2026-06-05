@@ -36,6 +36,7 @@ const UNWRAP_KEYS = new Set([
   "closure",
   "cost",
   "damage",
+  "data",
   "dashboard",
   "depreciation",
   "expense",
