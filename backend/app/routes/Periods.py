@@ -19,7 +19,7 @@ from app.database.periods import (
 from app.security.dependencies import get_current_user, require_roles
 from app.api.responses import error, success
 
-router = APIRouter(prefix="/api/period", tags=["periods"])
+router = APIRouter(prefix="/period", tags=["periods"])
 
 
 # ─── GET /api/period/status?period=YYYY-MM ────────────────────────────────────
