@@ -222,7 +222,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 17. Purchases (PO) ───────────────────────────────────────────────
+        # ── 17. Purchases (PO) ────────────────────────────────────────────────
         # PO approval does NOT affect stock. Stock increases only via GRN (table 18).
         cur.execute("""
             CREATE TABLE IF NOT EXISTS purchases (
@@ -245,9 +245,9 @@ def init_db() -> None:
             )
         """)
 
-        # ── 18. Goods Receipts (GRN) ─────────────────────────────────────────
+        # ── 18. Goods Receipts (GRN) ──────────────────────────────────────────
         # THIS is when stock physically arrives and inventory increases.
-        # received_qty may differ from the PO quantity (partial deliveries allowed).
+        # received_qty may differ from PO quantity (partial deliveries allowed).
         cur.execute("""
             CREATE TABLE IF NOT EXISTS goods_receipts (
                 id            SERIAL PRIMARY KEY,
@@ -333,7 +333,6 @@ def init_db() -> None:
 
         # ── 23. Inventory Movements (ledger) ──────────────────────────────────
         # Append-only ledger. Stock balance = SUM(quantity_delta) per ingredient/branch.
-        # movement_type 'grn' replaces the old 'purchase' type.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS inventory_movements (
                 id              SERIAL PRIMARY KEY,
@@ -342,15 +341,15 @@ def init_db() -> None:
                 movement_type   VARCHAR(30) NOT NULL
                     CHECK (movement_type IN (
                         'opening_stock',
-                        'grn',              -- goods received against an approved PO
+                        'grn',
                         'purchase_return',
                         'transfer_in',
                         'transfer_out',
                         'issue',
                         'waste',
                         'damage',
-                        'adjustment',       -- inserted only after stock_adjustment is approved
-                        'stock_count',      -- inserted when a stock count delta is confirmed
+                        'adjustment',
+                        'stock_count',
                         'customer_return'
                     )),
                 entry_date      DATE    NOT NULL,
@@ -696,37 +695,9 @@ def init_db() -> None:
             )
         """)
 
-        # ── 43. Period Snapshots ──────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS period_snapshots (
-                id              SERIAL PRIMARY KEY,
-                branch_id       INTEGER NOT NULL REFERENCES branches(id),
-                period_label    VARCHAR(80) NOT NULL,
-                entry_date      DATE    NOT NULL DEFAULT CURRENT_DATE,
-                notes           TEXT,
-                locked_by       VARCHAR(120) NOT NULL DEFAULT '',
-                opening_value   NUMERIC(14,2) NOT NULL DEFAULT 0,
-                closing_value   NUMERIC(14,2) NOT NULL DEFAULT 0,
-                purchases_value NUMERIC(14,2) NOT NULL DEFAULT 0,
-                cogs            NUMERIC(14,2) NOT NULL DEFAULT 0,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        """)
-
-        # ── 44. Period Closures ───────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS period_closures (
-                id         SERIAL PRIMARY KEY,
-                branch_id  INTEGER NOT NULL REFERENCES branches(id),
-                closed_to  DATE    NOT NULL,
-                notes      TEXT,
-                closed_by  INTEGER REFERENCES app_users(id),
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                UNIQUE(branch_id, closed_to)
-            )
-        """)
-
-        # ── 45. Company Period Statuses ───────────────────────────────────────
+        # ── 43. Company Period Statuses ───────────────────────────────────────
+        # Single source of truth for period state. Controls all write access
+        # across every module system-wide for a given company + month.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS company_period_statuses (
                 id         SERIAL PRIMARY KEY,
@@ -741,25 +712,79 @@ def init_db() -> None:
             )
         """)
 
-        # ── 46. Period Backups ────────────────────────────────────────────────
+        # ── 44. Company Period Status History ─────────────────────────────────
+        # Immutable audit trail. One row per transition — never updated, only appended.
+        # Answers: who changed what, from which state, to which state, and why.
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS period_backups (
-                id           SERIAL PRIMARY KEY,
-                company_id   INTEGER NOT NULL REFERENCES companies(id),
-                branch_id    INTEGER NOT NULL REFERENCES branches(id),
-                period       VARCHAR(7) NOT NULL,
-                period_start DATE NOT NULL,
-                period_end   DATE NOT NULL,
-                backup_data  JSONB NOT NULL DEFAULT '{}'::jsonb,
-                locked_by    VARCHAR(120) NOT NULL DEFAULT '',
-                notes        TEXT,
-                created_by   INTEGER REFERENCES app_users(id),
-                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                UNIQUE(company_id, branch_id, period)
+            CREATE TABLE IF NOT EXISTS company_period_status_history (
+                id          SERIAL PRIMARY KEY,
+                company_id  INTEGER NOT NULL REFERENCES companies(id),
+                period      VARCHAR(7)  NOT NULL,
+                from_status VARCHAR(20) NOT NULL,
+                to_status   VARCHAR(20) NOT NULL,
+                changed_by  INTEGER NOT NULL REFERENCES app_users(id),
+                note        TEXT,
+                changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 47. Approval Requests ─────────────────────────────────────────────
+        # ── 45. Period Snapshots ──────────────────────────────────────────────
+        # Frozen financial summary captured automatically at hard-lock time.
+        # Company-scoped (not branch) because the period status is company-wide.
+        # Used for stable past-period review — unaffected by future adjusting entries.
+        # Replaces the old branch-scoped period_snapshots (table 43 in prior schema)
+        # and period_backups (table 46 in prior schema), which are now removed.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS period_snapshots (
+                id              SERIAL PRIMARY KEY,
+                company_id      INTEGER NOT NULL REFERENCES companies(id),
+                period          VARCHAR(7) NOT NULL,
+                total_sales     NUMERIC(18,2) NOT NULL DEFAULT 0,
+                total_expenses  NUMERIC(18,2) NOT NULL DEFAULT 0,
+                total_purchases NUMERIC(18,2) NOT NULL DEFAULT 0,
+                cogs            NUMERIC(18,2) NOT NULL DEFAULT 0,
+                gross_profit    NUMERIC(18,2) NOT NULL DEFAULT 0,
+                inventory_value NUMERIC(18,2) NOT NULL DEFAULT 0,
+                snapped_at      TIMESTAMPTZ   NOT NULL,
+                UNIQUE(company_id, period)
+            )
+        """)
+
+        # ── 46. Period Closures ───────────────────────────────────────────────
+        # Kept for backward compatibility with existing branch-level close records.
+        # New code should use company_period_statuses (table 43) instead.
+        # Do not write new rows here — read-only going forward.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS period_closures (
+                id         SERIAL PRIMARY KEY,
+                branch_id  INTEGER NOT NULL REFERENCES branches(id),
+                closed_to  DATE    NOT NULL,
+                notes      TEXT,
+                closed_by  INTEGER REFERENCES app_users(id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(branch_id, closed_to)
+            )
+        """)
+
+        # ── 47. Adjusting Entries ─────────────────────────────────────────────
+        # Corrections posted in the current open period that reference a past
+        # locked period. The locked period's snapshot is never touched.
+        # is_adjustment flag and references_period link back to the original month.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS adjusting_entries (
+                id                 SERIAL PRIMARY KEY,
+                company_id         INTEGER NOT NULL REFERENCES companies(id),
+                branch_id          INTEGER NOT NULL REFERENCES branches(id),
+                entry_date         DATE    NOT NULL DEFAULT CURRENT_DATE,
+                amount             NUMERIC(12,2) NOT NULL,
+                description        TEXT    NOT NULL,
+                references_period  VARCHAR(7) NOT NULL,
+                created_by         INTEGER REFERENCES app_users(id),
+                created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 48. Approval Requests ─────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS approval_requests (
                 id           SERIAL PRIMARY KEY,
@@ -775,7 +800,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 48. Governance Action Log ─────────────────────────────────────────
+        # ── 49. Governance Action Log ─────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS governance_action_log (
                 id               SERIAL PRIMARY KEY,
@@ -795,7 +820,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 49. Audit Log ─────────────────────────────────────────────────────
+        # ── 50. Audit Log ─────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id         SERIAL PRIMARY KEY,
@@ -813,20 +838,26 @@ def init_db() -> None:
         """)
 
         # ── Indexes ───────────────────────────────────────────────────────────
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch   ON inventory_movements(branch_id, entry_date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_type     ON inventory_movements(movement_type)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch     ON inventory_movements(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_type       ON inventory_movements(movement_type)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_ingredient ON inventory_movements(ingredient_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_branch        ON goods_receipts(branch_id, entry_date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_purchase      ON goods_receipts(purchase_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_adjustments_branch     ON stock_adjustments(branch_id, status)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchases_branch             ON purchases(branch_id, entry_date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_branch                 ON sales(branch_id, entry_date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_branch        ON cash_purchases(branch_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_company       ON cash_purchases(company_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_petty_cash_branch            ON petty_cash_ledger(branch_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_ref                 ON purchase_invoices(ref_table, ref_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_company            ON audit_log(company_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_table_record       ON audit_log(table_name, record_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_branch          ON goods_receipts(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_purchase        ON goods_receipts(purchase_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_adjustments_branch       ON stock_adjustments(branch_id, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchases_branch               ON purchases(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_branch                   ON sales(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_branch          ON cash_purchases(branch_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_company         ON cash_purchases(company_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petty_cash_branch              ON petty_cash_ledger(branch_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_ref                   ON purchase_invoices(ref_table, ref_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_company              ON audit_log(company_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_table_record         ON audit_log(table_name, record_id)")
+
+        # Period system indexes — critical for dashboard filtering performance
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_period_statuses_company        ON company_period_statuses(company_id, period)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_period_history_company_period  ON company_period_status_history(company_id, period)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_period_snapshots_company       ON period_snapshots(company_id, period)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_adjusting_entries_company      ON adjusting_entries(company_id, references_period)")
 
         conn.commit()
         print("✅ Database initialized successfully.")

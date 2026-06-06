@@ -3,7 +3,7 @@ from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
 from .recipes import get_recipe
-from .periods import is_period_closed
+from .periods import is_period_frozen
 
 
 def list_production_costs(company_id: int, branch_id: int | None = None) -> list[dict[str, Any]]:
@@ -65,7 +65,7 @@ def add_production_cost(
     notes: str = "",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -156,7 +156,7 @@ def delete_production_cost(
         if not old:
             raise ValueError("Production cost not found or access denied")
 
-        if is_period_closed(old["branch_id"], str(old["entry_date"])):
+        if is_period_frozen(old["branch_id"], str(old["entry_date"])):
             raise ValueError("Cannot delete — accounting period is closed")
 
         # ── Reverse inventory movements ───────────────────────────────────────

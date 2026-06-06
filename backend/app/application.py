@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
         rbac as rbac_router,
         system as system_router,
         sku_prefixes as sku_prefixes_router,
+        periods as periods_router,
     )
     application.include_router(system_router.router, prefix="/api")
     application.include_router(approvals_router.router, prefix="/api")
@@ -90,4 +91,5 @@ def create_app() -> FastAPI:
     application.include_router(user_router.router, prefix="/api")
     application.include_router(rbac_router.router, prefix="/api")
     application.include_router(sku_prefixes_router.router, prefix="/api")
+    application.include_router(periods_router.router, prefix="/api")
     return application

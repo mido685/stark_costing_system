@@ -17,7 +17,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_closed
+from .periods import is_period_frozen
 from .waste import (
     _ensure_single_item,
     _get_finished_good_unit_cost,
@@ -175,7 +175,7 @@ def add_damage(
         raise ValueError(
             f"reason must be one of: {', '.join(sorted(DAMAGE_REASONS))}"
         )
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -287,7 +287,7 @@ def delete_damage(
             raise ValueError("Damage record not found or access denied")
         old = dict(old)
 
-        if is_period_closed(old["branch_id"], str(old["entry_date"])):
+        if is_period_frozen(old["branch_id"], str(old["entry_date"])):
             raise ValueError(
                 "Cannot delete — the accounting period for this entry is closed"
             )

@@ -17,7 +17,7 @@ import psycopg2.extras
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_closed, set_period_status
+from .periods import is_period_frozen, set_period_status
 from .reports import compute_kpis
 
 
@@ -134,8 +134,8 @@ def _add_simple_amount(
         raise ValueError(f"Table '{table}' is not permitted for generic inserts")
     if amount <= 0:
         raise ValueError("amount must be greater than zero")
-    if is_period_closed(branch_id, entry_date):
-        raise ValueError("This accounting period is closed for the selected branch")
+    if is_period_frozen(branch_id, entry_date):
+        raise ValueError("This accounting period is frozen for the selected branch")
 
     label_col = _ALLOWED_SIMPLE_TABLES[table]
 
@@ -199,8 +199,8 @@ def _delete_entry(
             raise ValueError("Record not found or access denied")
         old = dict(old)
 
-        if is_period_closed(old["branch_id"], str(old["entry_date"])):
-            raise ValueError("Cannot delete — accounting period is closed")
+        if is_period_frozen(old["branch_id"], str(old["entry_date"])):
+            raise ValueError("Cannot delete — accounting period is frozen")
 
         cur.execute(f"DELETE FROM {table} WHERE id = %s", (entry_id,))
         log_audit(
@@ -252,8 +252,8 @@ def add_expense(
         raise ValueError("amount must be greater than zero")
     if not category or not category.strip():
         raise ValueError("category cannot be empty")
-    if is_period_closed(branch_id, entry_date):
-        raise ValueError("This accounting period is closed for the selected branch")
+    if is_period_frozen(branch_id, entry_date):
+        raise ValueError("This accounting period is frozen for the selected branch")
 
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -326,8 +326,8 @@ def add_payroll(
         raise ValueError("Total payroll amount must be greater than zero")
     if not employee_group or not employee_group.strip():
         raise ValueError("employee_group cannot be empty")
-    if is_period_closed(branch_id, entry_date):
-        raise ValueError("This accounting period is closed for the selected branch")
+    if is_period_frozen(branch_id, entry_date):
+        raise ValueError("This accounting period is frozen for the selected branch")
 
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -485,8 +485,8 @@ def add_prepayment(
         raise ValueError("amount must be greater than zero")
     if months <= 0:
         raise ValueError("months must be greater than zero")
-    if is_period_closed(branch_id, entry_date):
-        raise ValueError("This accounting period is closed for the selected branch")
+    if is_period_frozen(branch_id, entry_date):
+        raise ValueError("This accounting period is frozen for the selected branch")
 
     conn = get_connection()
     cur = dict_cursor(conn)

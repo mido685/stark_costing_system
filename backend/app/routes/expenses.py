@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.responses import error, success
 from app.database import expenses as expenses_db
-from app.database.periods import get_period_status, is_period_closed
+from app.database.periods import get_period_status, is_period_frozen
 from app.schemas import (
     AccrualRequest, BudgetRequest, ClosePeriodRequest, DepreciationRequest,
     ExpenseRequest, PayrollRequest, PeriodBackupRequest, PeriodSnapshotRequest,
@@ -158,7 +158,7 @@ def close_period(req: ClosePeriodRequest, current_user: dict = Depends(require_r
 @router.get("/period/is-closed")
 def is_period_closed_api(branch_id: int = Query(...), entry_date: str = Query(...), current_user: dict = Depends(get_current_user)):
     status = get_period_status(current_user["company_id"], entry_date[:7])
-    return success("Period closure checked", is_closed=is_period_closed(branch_id, entry_date), is_locked=status["status"] == "locked", status=status["status"])
+    return success("Period closure checked", is_closed=is_period_frozen(branch_id, entry_date), is_locked=status["status"] == "locked", status=status["status"])
 # ─── Expense Categories ───────────────────────────────────────────────────────
 
 @router.get("/expense-categories")

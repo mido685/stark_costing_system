@@ -2,7 +2,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_closed
+from .periods import is_period_frozen
 
 
 def _ensure_single_item(ingredient_id: int | None, product_id: int | None) -> None:
@@ -111,7 +111,7 @@ def add_waste(
     ip_address: str | None = None,
 ) -> dict:
     _ensure_single_item(ingredient_id, product_id)
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -187,7 +187,7 @@ def delete_waste(
         old = cur.fetchone()
         if not old:
             raise ValueError("Waste record not found or access denied")
-        if is_period_closed(old["branch_id"], str(old["entry_date"])):
+        if is_period_frozen(old["branch_id"], str(old["entry_date"])):
             raise ValueError("Cannot delete — accounting period is closed")
 
         cur.execute("""

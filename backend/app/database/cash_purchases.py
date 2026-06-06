@@ -13,7 +13,7 @@ import psycopg2.extras
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_closed
+from .periods import is_period_frozen, is_period_frozen_with_cur
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -210,8 +210,9 @@ def add_cash_purchase(
         raise ValueError("Provide exactly one of ingredient_id or category_id")
     if purchase_type not in _VALID_PURCHASE_TYPES:
         raise ValueError(f"purchase_type must be one of {_VALID_PURCHASE_TYPES}")
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
+ 
 
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -314,7 +315,7 @@ def approve_cash_purchase(
             raise ValueError("Rejected purchases cannot be approved")
 
         # Period must still be open at approval time
-        if is_period_closed(purchase["branch_id"], str(purchase["entry_date"])):
+        if is_period_frozen_with_cur(cur, company_id, str(purchase["entry_date"])):
             raise ValueError("This accounting period is closed for the selected branch")
 
         category_type = purchase.get("category_type")
@@ -517,7 +518,7 @@ def top_up_petty_cash(
     """
     if amount <= 0:
         raise ValueError("Top-up amount must be greater than zero")
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()

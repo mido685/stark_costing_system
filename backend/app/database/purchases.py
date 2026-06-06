@@ -2,7 +2,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_closed
+from .periods import is_period_frozen
 
 
 def _ensure_purchase_access(cur, branch_id: int, supplier_id: int, ingredient_id: int, company_id: int) -> None:
@@ -102,7 +102,7 @@ def add_purchase(
     status: str = "pending",   # ignored — always stored as pending
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -363,7 +363,7 @@ def add_purchase_return(
     status: str = "approved",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()

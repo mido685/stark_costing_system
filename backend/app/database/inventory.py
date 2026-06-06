@@ -4,7 +4,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_closed
+from .periods import is_period_frozen
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def create_grn(
     Record physical receipt of goods.
     Stock increases HERE — not at PO creation or PO approval.
     """
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -316,7 +316,7 @@ def add_stock_issue(
     notes: str = "",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -420,7 +420,7 @@ def add_stock_count(
     notes: str = "",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -526,7 +526,7 @@ def add_adjustment(
     Create a pending adjustment. Stock does NOT change yet.
     Stock only changes once the adjustment is approved via approve_adjustment().
     """
-    if is_period_closed(branch_id, entry_date):
+    if is_period_frozen(branch_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -734,7 +734,7 @@ def add_transfer(
     status: str = "approved",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_closed(from_branch_id, entry_date) or is_period_closed(to_branch_id, entry_date):
+    if is_period_frozen(from_branch_id, entry_date) or is_period_frozen(to_branch_id, entry_date):
         raise ValueError("This accounting period is closed for one of the selected branches")
 
     conn = get_connection()
