@@ -178,15 +178,17 @@ def create_grn(
     cur = dict_cursor(conn)
     try:
         _verify_branch(cur, branch_id, company_id)
-
-        # Verify the purchase belongs to this company
+        # Verify the purchase belongs to this company (purchases has no company_id; join via branches)
         cur.execute(
-            "SELECT id FROM purchases WHERE id = %s AND company_id = %s AND status = 'approved'",
+            """
+            SELECT p.id FROM purchases p
+            JOIN branches b ON b.id = p.branch_id
+            WHERE p.id = %s AND b.company_id = %s AND p.status = 'approved'
+            """,
             (purchase_id, company_id),
         )
         if not cur.fetchone():
             raise ValueError("Purchase not found, not approved, or access denied")
-
         # Insert GRN record
         cur.execute(
             """
