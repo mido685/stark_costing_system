@@ -1,3 +1,10 @@
+# [3.28.0](https://github.com/mido685/stark_costing_system/compare/v3.27.0...v3.28.0) (2026-06-06)
+
+
+### Features
+
+* updating the po approch ([85865fd](https://github.com/mido685/stark_costing_system/commit/85865fd177f3b2c207bcac7ee332278ad67958bd))
+
 # [3.27.0](https://github.com/mido685/stark_costing_system/compare/v3.26.0...v3.27.0) (2026-06-06)
 
 
