@@ -210,3 +210,30 @@ def add_purchase_return(
     finally:
         cur.close()
         conn.close()
+# app/database/purchases.py
+def update_purchase(purchase_id: int, company_id: int, quantity: float, unit_cost: float, notes: str) -> dict:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            UPDATE purchases
+            SET quantity = %s, unit_cost = %s,
+                gross_amount = %s * %s,
+                payable_amount = %s * %s,
+                notes = %s
+            WHERE id = %s
+              AND company_id = (SELECT company_id FROM branches WHERE id = branch_id)
+              AND status = 'pending'
+            RETURNING *
+        """, (quantity, unit_cost, quantity, unit_cost, quantity, unit_cost, notes, purchase_id))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("PO not found or already approved — cannot edit")
+        conn.commit()
+        return dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()

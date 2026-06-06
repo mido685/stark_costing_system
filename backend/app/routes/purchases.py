@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from app.api.responses import success, error
 from app.database import purchases as purchases_db
 from app.database import inventory as inventory_db
-from app.schemas import PurchaseRequest, PurchaseReturnRequest
+from app.schemas import PurchaseRequest, PurchaseReturnRequest, PurchaseUpdateRequest
 from app.security.dependencies import get_current_user, require_roles, check_period_open
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
@@ -325,3 +325,20 @@ def export_purchase_pdf(
             "Content-Length": str(len(pdf_bytes)),
         },
     )
+@router.put("/{purchase_id}")
+def update_purchase(
+    purchase_id: int,
+    req: PurchaseUpdateRequest,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        row = purchases_db.update_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            quantity=req.quantity,
+            unit_cost=req.unit_cost,
+            notes=req.notes,
+        )
+        return success("Purchase updated", purchase=row)
+    except ValueError as e:
+        return error(str(e))
