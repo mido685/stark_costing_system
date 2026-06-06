@@ -22,6 +22,10 @@ def _ensure_purchase_access(cur, branch_id: int, supplier_id: int, ingredient_id
         raise ValueError("Branch, supplier, or ingredient not found or access denied")
 
 
+# ---------------------------------------------------------------------------
+# List / Get
+# ---------------------------------------------------------------------------
+
 def list_purchases(
     company_id: int,
     branch_id: int | None = None,
@@ -79,6 +83,10 @@ def get_purchase(purchase_id: int, company_id: int) -> dict[str, Any] | None:
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Create  —  always created as pending, NO stock movement here
+# ---------------------------------------------------------------------------
+
 def add_purchase(
     branch_id: int,
     supplier_id: int,
@@ -91,7 +99,7 @@ def add_purchase(
     tax_amount: float = 0,
     payable_amount: float = 0,
     notes: str = "",
-    status: str = "approved",
+    status: str = "pending",   # ignored — always stored as pending
     ip_address: str | None = None,
 ) -> dict:
     if is_period_closed(branch_id, entry_date):
@@ -109,24 +117,14 @@ def add_purchase(
                 (branch_id, supplier_id, ingredient_id, entry_date, quantity,
                  unit_cost, gross_amount, tax_amount, payable_amount,
                  notes, status, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
             RETURNING *
         """, (branch_id, supplier_id, ingredient_id, entry_date, quantity,
-              unit_cost, gross_amount, tax_amount, payable, notes, status, user_id))
+              unit_cost, gross_amount, tax_amount, payable, notes, user_id))
         purchase = dict(cur.fetchone())
 
-        if status == "approved":
-            cur.execute("""
-                INSERT INTO inventory_movements
-                    (branch_id, ingredient_id, movement_type, entry_date,
-                     quantity_delta, unit_cost, reference_table, reference_id, notes)
-                VALUES (%s, %s, 'purchase', %s, %s, %s, 'purchases', %s, %s)
-            """, (branch_id, ingredient_id, entry_date, quantity, unit_cost, purchase["id"], notes))
-            cur.execute("""
-                UPDATE ingredients
-                SET cost_per_unit = %s, supplier_id = %s
-                WHERE id = %s AND company_id = %s
-            """, (unit_cost, supplier_id, ingredient_id, company_id))
+        # ✅ No inventory_movements insert here.
+        # Stock only increases when a GRN is recorded against this PO.
 
         log_audit(
             conn,
@@ -148,6 +146,208 @@ def add_purchase(
         cur.close()
         conn.close()
 
+
+# ---------------------------------------------------------------------------
+# Approve  —  status changes to approved, NO stock movement here
+# ---------------------------------------------------------------------------
+
+def approve_purchase(
+    purchase_id: int,
+    company_id: int,
+    user_id: int,
+    ip_address: str | None = None,
+) -> dict:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT p.*, b.company_id
+            FROM purchases p
+            JOIN branches b ON b.id = p.branch_id
+            WHERE p.id = %s AND b.company_id = %s AND p.status = 'pending'
+        """, (purchase_id, company_id))
+        purchase = cur.fetchone()
+        if not purchase:
+            raise ValueError("Purchase not found, already approved, or access denied")
+        purchase = dict(purchase)
+
+        cur.execute("""
+            UPDATE purchases
+            SET status = 'approved', approved_by = %s
+            WHERE id = %s
+            RETURNING *
+        """, (user_id, purchase_id))
+        updated = dict(cur.fetchone())
+
+        # ✅ No inventory_movements insert here.
+        # Stock only increases when a GRN is recorded against this PO.
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="APPROVE",
+            table_name="purchases",
+            record_id=purchase_id,
+            old_data={"status": "pending"},
+            new_data={"status": "approved"},
+            ip_address=ip_address,
+        )
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Reject
+# ---------------------------------------------------------------------------
+
+def reject_purchase(
+    purchase_id: int,
+    company_id: int,
+    user_id: int,
+    ip_address: str | None = None,
+) -> dict:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT p.*, b.company_id
+            FROM purchases p
+            JOIN branches b ON b.id = p.branch_id
+            WHERE p.id = %s AND b.company_id = %s AND p.status = 'pending'
+        """, (purchase_id, company_id))
+        purchase = cur.fetchone()
+        if not purchase:
+            raise ValueError("Purchase not found, already processed, or access denied")
+        purchase = dict(purchase)
+
+        cur.execute("""
+            UPDATE purchases SET status = 'rejected' WHERE id = %s RETURNING *
+        """, (purchase_id,))
+        updated = dict(cur.fetchone())
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="REJECT",
+            table_name="purchases",
+            record_id=purchase_id,
+            old_data={"status": "pending"},
+            new_data={"status": "rejected"},
+            ip_address=ip_address,
+        )
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Edit  —  only allowed while still pending
+# ---------------------------------------------------------------------------
+
+def update_purchase(
+    purchase_id: int,
+    company_id: int,
+    quantity: float,
+    unit_cost: float,
+    notes: str,
+) -> dict:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            UPDATE purchases
+            SET quantity       = %s,
+                unit_cost      = %s,
+                gross_amount   = %s * %s,
+                payable_amount = %s * %s,
+                notes          = %s
+            WHERE id = %s
+              AND (SELECT company_id FROM branches WHERE id = branch_id) = %s
+              AND status = 'pending'
+            RETURNING *
+        """, (quantity, unit_cost,
+              quantity, unit_cost,
+              quantity, unit_cost,
+              notes, purchase_id, company_id))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("PO not found, already approved, or access denied")
+        conn.commit()
+        return dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Delete  —  cascades to GRNs and their inventory movements
+# ---------------------------------------------------------------------------
+
+def delete_purchase(
+    purchase_id: int,
+    company_id: int,
+    ip_address: str | None = None,
+) -> None:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT p.id, p.branch_id FROM purchases p
+            JOIN branches b ON b.id = p.branch_id
+            WHERE p.id = %s AND b.company_id = %s
+        """, (purchase_id, company_id))
+        purchase = cur.fetchone()
+        if not purchase:
+            raise ValueError("Purchase not found or access denied")
+
+        # 1 — remove inventory movements linked to GRNs of this PO
+        cur.execute("""
+            DELETE FROM inventory_movements
+            WHERE reference_table = 'goods_receipts'
+              AND reference_id IN (
+                SELECT id FROM goods_receipts WHERE purchase_id = %s
+              )
+        """, (purchase_id,))
+
+        # 2 — remove the GRN records
+        cur.execute("DELETE FROM goods_receipts WHERE purchase_id = %s", (purchase_id,))
+
+        # 3 — remove purchase invoices if any
+        cur.execute("DELETE FROM purchase_invoices WHERE purchase_id = %s", (purchase_id,))
+
+        # 4 — remove the purchase itself
+        cur.execute("DELETE FROM purchases WHERE id = %s", (purchase_id,))
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Purchase returns  —  stock decreases immediately on creation
+# ---------------------------------------------------------------------------
 
 def add_purchase_return(
     branch_id: int,
@@ -204,33 +404,6 @@ def add_purchase_return(
         )
         conn.commit()
         return purchase_return
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
-# app/database/purchases.py
-def update_purchase(purchase_id: int, company_id: int, quantity: float, unit_cost: float, notes: str) -> dict:
-    conn = get_connection()
-    cur = dict_cursor(conn)
-    try:
-        cur.execute("""
-            UPDATE purchases
-            SET quantity = %s, unit_cost = %s,
-                gross_amount = %s * %s,
-                payable_amount = %s * %s,
-                notes = %s
-            WHERE id = %s
-              AND company_id = (SELECT company_id FROM branches WHERE id = branch_id)
-              AND status = 'pending'
-            RETURNING *
-        """, (quantity, unit_cost, quantity, unit_cost, quantity, unit_cost, notes, purchase_id))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError("PO not found or already approved — cannot edit")
-        conn.commit()
-        return dict(row)
     except Exception:
         conn.rollback()
         raise

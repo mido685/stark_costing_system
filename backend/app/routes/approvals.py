@@ -213,9 +213,6 @@ def _set_approval_status(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # ── 1. Fetch request + ALL purchase fields we need ────────────────────
-        # NOTE: pull branch_id from purchases.branch_id directly — not from
-        # approval_requests.branch_id which can be NULL or stale.
         cur.execute("""
             SELECT
                 ar.id               AS ar_id,
@@ -225,7 +222,6 @@ def _set_approval_status(
                 ar.requested_by,
                 b_ar.company_id     AS ar_company_id,
                 u.display_name      AS submitted_by,
-                -- Pull everything directly from purchases row
                 p.branch_id         AS branch_id,
                 p.ingredient_id     AS ingredient_id,
                 p.supplier_id       AS supplier_id,
@@ -239,13 +235,10 @@ def _set_approval_status(
                 s.name              AS supplier_name,
                 i.name              AS ingredient_name
             FROM approval_requests ar
-            -- branch from the approval request (may be null)
             LEFT JOIN branches    b_ar ON b_ar.id  = ar.branch_id
             LEFT JOIN app_users   u    ON u.id     = ar.requested_by
-            -- the actual purchase row
             LEFT JOIN purchases   p    ON ar.entity_type = 'purchase'
                                        AND ar.entity_id = p.id
-            -- branch from the purchase row (always set)
             LEFT JOIN branches    b_p  ON b_p.id   = p.branch_id
             LEFT JOIN suppliers   s    ON s.id      = p.supplier_id
             LEFT JOIN ingredients i    ON i.id      = p.ingredient_id
@@ -256,19 +249,17 @@ def _set_approval_status(
         if not old:
             return error("Approval request not found", status=404)
 
-        # Use purchase's company_id as the authoritative one
         company_id = old["purchase_company_id"] or old["ar_company_id"]
         if company_id != current_user["company_id"]:
             return error("Approval request not found", status=404)
 
-        # ── 2. Guard: block double-processing ─────────────────────────────────
         if old["ar_status"] != "pending":
             return error(
                 f"This request is already {old['ar_status']} and cannot be changed",
                 status=409,
             )
 
-        # ── 3. Update approval_requests ───────────────────────────────────────
+        # ── Update approval_requests ──────────────────────────────────────────
         cur.execute("""
             UPDATE approval_requests
                SET status = %s, approved_by = %s, approved_at = NOW()
@@ -277,52 +268,15 @@ def _set_approval_status(
         """, (status, current_user["id"], request_id))
         row = dict(cur.fetchone())
 
-        # ── 4. Sync source table + create inventory movement ──────────────────
+        # ── Sync source table status ONLY — no inventory movement here ────────
+        # Stock only increases when a GRN is recorded against this PO.
         if old["entity_type"] == "purchase":
             cur.execute(
                 "UPDATE purchases SET status = %s WHERE id = %s",
                 (status, old["entity_id"]),
             )
-
-            if status == "approved":
-                # Guard: skip if a purchase movement already exists for this PO
-                # (handles edge case where purchase was created approved in dev/testing)
-                cur.execute("""
-                    SELECT id FROM inventory_movements
-                    WHERE reference_table = 'purchases'
-                      AND reference_id    = %s
-                      AND movement_type   = 'purchase'
-                    LIMIT 1
-                """, (old["entity_id"],))
-
-                if not cur.fetchone():
-                    # Insert the movement that actually updates the balance
-                    cur.execute("""
-                        INSERT INTO inventory_movements
-                            (branch_id, ingredient_id, movement_type, entry_date,
-                             quantity_delta, unit_cost, reference_table, reference_id, notes)
-                        VALUES (%s, %s, 'purchase', %s, %s, %s, 'purchases', %s, %s)
-                    """, (
-                        old["branch_id"],       # from purchases row — always correct
-                        old["ingredient_id"],
-                        old["purchase_date"],   # original PO date, not today
-                        old["quantity"],
-                        old["unit_cost"],
-                        old["entity_id"],
-                        old["purchase_notes"],
-                    ))
-
-                # Keep ingredient unit cost current
-                cur.execute("""
-                    UPDATE ingredients
-                       SET cost_per_unit = %s, supplier_id = %s
-                     WHERE id = %s AND company_id = %s
-                """, (
-                    old["unit_cost"],
-                    old["supplier_id"],
-                    old["ingredient_id"],
-                    current_user["company_id"],
-                ))
+            # ✅ No inventory_movements insert here.
+            # ✅ No cost_per_unit update here (cost is set at GRN time).
 
         elif old["entity_type"] == "transfer":
             cur.execute(
@@ -336,7 +290,7 @@ def _set_approval_status(
                 (status, old["entity_id"]),
             )
 
-        # ── 5. Governance log ─────────────────────────────────────────────────
+        # ── Governance log ────────────────────────────────────────────────────
         if old["entity_type"] == "purchase":
             description = (
                 f"{status.title()} purchase of "
@@ -365,7 +319,7 @@ def _set_approval_status(
             None,
             old["entity_type"] == "purchase",
             current_user["id"],
-            old["branch_id"],   # from purchases row — always correct
+            old["branch_id"],
         ))
 
         conn.commit()

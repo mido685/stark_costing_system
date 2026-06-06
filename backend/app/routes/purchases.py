@@ -14,7 +14,7 @@ router = APIRouter(prefix="/purchases", tags=["purchases"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LIST  (all statuses — used by admin views)
+# LIST
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("")
 def list_purchases(
@@ -31,24 +31,25 @@ def list_purchases(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BY-BRANCH  (used by Inventory Controls to build purchaseMap)
-# Returns ALL statuses so pending purchases still show in stock table.
-# Stock balance is controlled by the DB function, not this filter.
+# BY-BRANCH
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("/by-branch")
 def purchases_by_branch(
     branch_id: int | None = Query(None),
-    limit: int = Query(200, ge=1, le=1000),   # raised default — stock table needs all
+    limit: int = Query(200, ge=1, le=1000),
     current_user: dict = Depends(get_current_user),
 ):
     purchases = purchases_db.list_purchases(
         company_id=current_user["company_id"],
         branch_id=branch_id,
-        # ← removed status="approved" filter so every purchase is visible
         limit=limit,
     )
     return success("Purchases retrieved", purchases=purchases)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PO FULFILLMENT
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/fulfillment")
 def po_fulfillment(
     branch_id: int | None = Query(None),
@@ -63,6 +64,7 @@ def po_fulfillment(
         limit,
     )
     return success("PO fulfillment retrieved", fulfillment=rows)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SINGLE
@@ -79,7 +81,7 @@ def get_purchase(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CREATE
+# CREATE  —  always pending, no stock movement
 # ─────────────────────────────────────────────────────────────────────────────
 @router.post("")
 def create_purchase(
@@ -106,7 +108,6 @@ def create_purchase(
             tax_amount=req.tax_amount,
             payable_amount=req.payable_amount,
             notes=req.notes,
-            status="pending",   # always pending — approval flow updates stock
             ip_address=request.client.host,
         )
 
@@ -130,6 +131,90 @@ def create_purchase(
 
         return success("Purchase recorded", purchase=purchase)
 
+    except ValueError as e:
+        return error(str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# APPROVE  —  status → approved, NO stock movement (stock moves at GRN)
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/{purchase_id}/approve")
+def approve_purchase(
+    purchase_id: int,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        updated = purchases_db.approve_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            ip_address=request.client.host,
+        )
+        return success("Purchase approved", purchase=updated)
+    except ValueError as e:
+        return error(str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REJECT
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/{purchase_id}/reject")
+def reject_purchase(
+    purchase_id: int,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        updated = purchases_db.reject_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            ip_address=request.client.host,
+        )
+        return success("Purchase rejected", purchase=updated)
+    except ValueError as e:
+        return error(str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EDIT  —  only pending POs
+# ─────────────────────────────────────────────────────────────────────────────
+@router.put("/{purchase_id}")
+def update_purchase(
+    purchase_id: int,
+    req: PurchaseUpdateRequest,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        row = purchases_db.update_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            quantity=req.quantity,
+            unit_cost=req.unit_cost,
+            notes=req.notes,
+        )
+        return success("Purchase updated", purchase=row)
+    except ValueError as e:
+        return error(str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DELETE  —  cascades to GRNs and inventory movements
+# ─────────────────────────────────────────────────────────────────────────────
+@router.delete("/{purchase_id}")
+def delete_purchase(
+    purchase_id: int,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        purchases_db.delete_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            ip_address=request.client.host,
+        )
+        return success("Purchase and all related records deleted")
     except ValueError as e:
         return error(str(e))
 
@@ -165,7 +250,6 @@ def create_purchase_return(
             ip_address=request.client.host,
         )
         return success("Purchase return recorded", purchase_return=purchase_return)
-
     except ValueError as e:
         return error(str(e))
 
@@ -211,7 +295,6 @@ def export_purchase_pdf(
     if not purchase:
         return error("Purchase order not found", status=404)
 
-    # ── Build PDF in memory ───────────────────────────────────────────────────
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -224,7 +307,6 @@ def export_purchase_pdf(
     styles = getSampleStyleSheet()
     elements = []
 
-    # Title
     elements.append(Paragraph("STARK AI — Purchase Order", styles["Title"]))
     elements.append(Spacer(1, 0.4 * cm))
     elements.append(Paragraph(
@@ -235,7 +317,6 @@ def export_purchase_pdf(
     ))
     elements.append(Spacer(1, 0.6 * cm))
 
-    # Info block
     info_table = Table(
         [
             ["Branch",   purchase.get("branch_name")   or "—"],
@@ -254,14 +335,12 @@ def export_purchase_pdf(
     elements.append(info_table)
     elements.append(Spacer(1, 0.8 * cm))
 
-    # Amounts
-    qty      = float(purchase.get("quantity")       or 0)
-    unit_cost = float(purchase.get("unit_cost")     or 0)
-    gross    = qty * unit_cost
-    tax      = float(purchase.get("tax_amount")     or 0)
-    payable  = float(purchase.get("payable_amount") or gross + tax)
+    qty       = float(purchase.get("quantity")       or 0)
+    unit_cost = float(purchase.get("unit_cost")      or 0)
+    gross     = qty * unit_cost
+    tax       = float(purchase.get("tax_amount")     or 0)
+    payable   = float(purchase.get("payable_amount") or gross + tax)
 
-    # Line items table
     items_table = Table(
         [
             ["Item", "Unit", "Qty", "Unit Cost", "Gross Amount"],
@@ -289,22 +368,21 @@ def export_purchase_pdf(
     elements.append(items_table)
     elements.append(Spacer(1, 0.4 * cm))
 
-    # Totals
     totals_table = Table(
         [
-            ["", "Gross Amount:", f"{gross:,.2f}"],
-            ["", "Tax:",          f"{tax:,.2f}"],
+            ["", "Gross Amount:",  f"{gross:,.2f}"],
+            ["", "Tax:",           f"{tax:,.2f}"],
             ["", "Total Payable:", f"{payable:,.2f}"],
         ],
         colWidths=[9 * cm, 4 * cm, 4 * cm],
     )
     totals_table.setStyle(TableStyle([
-        ("FONTNAME",  (1, -1), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE",  (0, 0),  (-1, -1), 9),
-        ("ALIGN",     (1, 0),  (-1, -1), "RIGHT"),
-        ("LINEABOVE", (1, -1), (-1, -1), 0.8, colors.HexColor("#1e3a5f")),
-        ("TEXTCOLOR", (1, -1), (-1, -1), colors.HexColor("#1e3a5f")),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("FONTNAME",      (1, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0),  (-1, -1), 9),
+        ("ALIGN",         (1, 0),  (-1, -1), "RIGHT"),
+        ("LINEABOVE",     (1, -1), (-1, -1), 0.8, colors.HexColor("#1e3a5f")),
+        ("TEXTCOLOR",     (1, -1), (-1, -1), colors.HexColor("#1e3a5f")),
+        ("BOTTOMPADDING", (0, 0),  (-1, -1), 4),
     ]))
     elements.append(totals_table)
     elements.append(Spacer(1, 1 * cm))
@@ -325,20 +403,3 @@ def export_purchase_pdf(
             "Content-Length": str(len(pdf_bytes)),
         },
     )
-@router.put("/{purchase_id}")
-def update_purchase(
-    purchase_id: int,
-    req: PurchaseUpdateRequest,
-    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
-):
-    try:
-        row = purchases_db.update_purchase(
-            purchase_id=purchase_id,
-            company_id=current_user["company_id"],
-            quantity=req.quantity,
-            unit_cost=req.unit_cost,
-            notes=req.notes,
-        )
-        return success("Purchase updated", purchase=row)
-    except ValueError as e:
-        return error(str(e))
