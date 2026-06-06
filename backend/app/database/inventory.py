@@ -841,11 +841,11 @@ def get_po_fulfillment(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        where = ["p.company_id = %s", "p.status = 'approved'"]
+        where = ["b.company_id = %s", "p.status = 'approved'"]
         params: list[Any] = [company_id]
 
         if branch_id:
-            where.append("p.branch_id = %s")
+            where.append("b.id = %s")
             params.append(branch_id)
         if ingredient_id:
             where.append("p.ingredient_id = %s")
