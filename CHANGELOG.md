@@ -1,3 +1,10 @@
+# [3.31.0](https://github.com/mido685/stark_costing_system/compare/v3.30.0...v3.31.0) (2026-06-06)
+
+
+### Features
+
+* the next version of the periods ([5884932](https://github.com/mido685/stark_costing_system/commit/588493299e7911be0db0da287c002dd3ab619927))
+
 # [3.30.0](https://github.com/mido685/stark_costing_system/compare/v3.29.0...v3.30.0) (2026-06-06)
 
 
