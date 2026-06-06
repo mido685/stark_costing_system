@@ -1,3 +1,10 @@
+# [3.30.0](https://github.com/mido685/stark_costing_system/compare/v3.29.0...v3.30.0) (2026-06-06)
+
+
+### Features
+
+* update periods version ([17f0caf](https://github.com/mido685/stark_costing_system/commit/17f0caf1617a523776376d180c4e1721de975f00))
+
 # [3.29.0](https://github.com/mido685/stark_costing_system/compare/v3.28.0...v3.29.0) (2026-06-06)
 
 
