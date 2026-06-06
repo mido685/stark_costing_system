@@ -1,3 +1,10 @@
+# [3.25.0](https://github.com/mido685/stark_costing_system/compare/v3.24.0...v3.25.0) (2026-06-06)
+
+
+### Features
+
+* fixing the error of get po fulfillment ([be5383e](https://github.com/mido685/stark_costing_system/commit/be5383ebe086d17efe3536900bdb58a282a07a9a))
+
 # [3.24.0](https://github.com/mido685/stark_costing_system/compare/v3.23.0...v3.24.0) (2026-06-06)
 
 
