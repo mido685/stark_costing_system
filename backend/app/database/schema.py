@@ -14,7 +14,7 @@ def init_db() -> None:
                 id           SERIAL PRIMARY KEY,
                 name         VARCHAR(120) UNIQUE NOT NULL,
                 slug         VARCHAR(80)  UNIQUE NOT NULL,
-                logo_url     VARCHAR(500),                    -- ← add this
+                logo_url     VARCHAR(500),
                 plan         VARCHAR(20)  NOT NULL DEFAULT 'starter'
                     CHECK (plan IN ('starter','professional','enterprise')),
                 is_active    BOOLEAN NOT NULL DEFAULT TRUE,
@@ -23,6 +23,7 @@ def init_db() -> None:
                 max_users    INTEGER NOT NULL DEFAULT 10
             )
         """)
+
         # ── 2. Roles ──────────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS roles (
@@ -115,29 +116,32 @@ def init_db() -> None:
                 sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
                 is_active  BOOLEAN NOT NULL DEFAULT TRUE,
                 sku        VARCHAR(80),
-                image_url  TEXT,    
+                image_url  TEXT,
                 UNIQUE(company_id, name)
             )
         """)
+
+        # ── 10. SKU Prefixes ──────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS sku_prefixes (
                 id         SERIAL PRIMARY KEY,
                 company_id INTEGER NOT NULL REFERENCES companies(id),
-                label      VARCHAR(50) NOT NULL,   -- e.g. "Beverage"
-                prefix     VARCHAR(20) NOT NULL,   -- e.g. "BEV"
-                item_type  VARCHAR(20) NOT NULL,   -- 'raw_material' or 'finished_good' or 'both'
+                label      VARCHAR(50) NOT NULL,
+                prefix     VARCHAR(20) NOT NULL,
+                item_type  VARCHAR(20) NOT NULL
+                    CHECK (item_type IN ('raw_material','finished_good','both')),
                 UNIQUE(company_id, prefix)
             )
         """)
 
-        # ── 10. Suppliers ─────────────────────────────────────────────────────
+        # ── 11. Suppliers ─────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS suppliers (
-                id         SERIAL PRIMARY KEY,
-                company_id INTEGER NOT NULL REFERENCES companies(id),
-                name       VARCHAR(120) NOT NULL,
-                contact    VARCHAR(120),
-                phone      VARCHAR(40),
+                id                    SERIAL PRIMARY KEY,
+                company_id            INTEGER NOT NULL REFERENCES companies(id),
+                name                  VARCHAR(120) NOT NULL,
+                contact               VARCHAR(120),
+                phone                 VARCHAR(40),
                 email                 VARCHAR(120),
                 address               VARCHAR(200),
                 website               VARCHAR(200),
@@ -151,7 +155,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 11. Ingredients ───────────────────────────────────────────────────
+        # ── 12. Ingredients ───────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ingredients (
                 id            SERIAL PRIMARY KEY,
@@ -164,12 +168,12 @@ def init_db() -> None:
                 supplier_id   INTEGER REFERENCES suppliers(id),
                 is_active     BOOLEAN NOT NULL DEFAULT TRUE,
                 sku           VARCHAR(80),
-                image_url      TEXT,
+                image_url     TEXT,
                 UNIQUE(company_id, name)
             )
         """)
 
-        # ── 12. Expense Categories ────────────────────────────────────────────
+        # ── 13. Expense Categories ────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS expense_categories (
                 id         SERIAL PRIMARY KEY,
@@ -183,7 +187,116 @@ def init_db() -> None:
             )
         """)
 
-        # ── 13. Stock Counts ──────────────────────────────────────────────────
+        # ── 14. Supplier Price History ────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS supplier_price_history (
+                id            SERIAL PRIMARY KEY,
+                supplier_id   INTEGER NOT NULL REFERENCES suppliers(id),
+                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+                price         NUMERIC(12,4) NOT NULL,
+                entry_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+                notes         TEXT
+            )
+        """)
+
+        # ── 15. Recipes ───────────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS recipes (
+                id           SERIAL PRIMARY KEY,
+                product_id   INTEGER NOT NULL UNIQUE REFERENCES products(id),
+                yield_pct    NUMERIC(5,2)  NOT NULL DEFAULT 100,
+                portion_size NUMERIC(10,3) NOT NULL DEFAULT 1,
+                portion_unit VARCHAR(40)   NOT NULL DEFAULT 'plate',
+                notes        TEXT
+            )
+        """)
+
+        # ── 16. Recipe Ingredients ────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS recipe_ingredients (
+                id            SERIAL PRIMARY KEY,
+                recipe_id     INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+                qty_required  NUMERIC(12,4) NOT NULL,
+                UNIQUE(recipe_id, ingredient_id)
+            )
+        """)
+
+        # ── 17. Purchases (PO) ───────────────────────────────────────────────
+        # PO approval does NOT affect stock. Stock increases only via GRN (table 18).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS purchases (
+                id             SERIAL PRIMARY KEY,
+                company_id     INTEGER NOT NULL REFERENCES companies(id),
+                branch_id      INTEGER NOT NULL REFERENCES branches(id),
+                supplier_id    INTEGER NOT NULL REFERENCES suppliers(id),
+                ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
+                entry_date     DATE    NOT NULL,
+                quantity       NUMERIC(12,3) NOT NULL,
+                unit_cost      NUMERIC(12,4) NOT NULL,
+                gross_amount   NUMERIC(12,2) NOT NULL DEFAULT 0,
+                tax_amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
+                payable_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                notes          TEXT,
+                status         VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','approved','rejected')),
+                created_by     INTEGER REFERENCES app_users(id),
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 18. Goods Receipts (GRN) ─────────────────────────────────────────
+        # THIS is when stock physically arrives and inventory increases.
+        # received_qty may differ from the PO quantity (partial deliveries allowed).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS goods_receipts (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                purchase_id   INTEGER NOT NULL REFERENCES purchases(id),
+                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
+                received_qty  NUMERIC(12,3) NOT NULL,
+                unit_cost     NUMERIC(12,4) NOT NULL,
+                notes         TEXT,
+                created_by    INTEGER REFERENCES app_users(id),
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 19. Purchase Returns ──────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_returns (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                supplier_id   INTEGER NOT NULL REFERENCES suppliers(id),
+                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+                entry_date    DATE    NOT NULL,
+                quantity      NUMERIC(12,3) NOT NULL,
+                unit_cost     NUMERIC(12,4) NOT NULL,
+                refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+                notes         TEXT,
+                status        VARCHAR(20) NOT NULL DEFAULT 'approved'
+                    CHECK (status IN ('pending','approved','rejected')),
+                created_by    INTEGER REFERENCES app_users(id),
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 20. Stock Issues ──────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_issues (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
+                qty_issued    NUMERIC(12,3) NOT NULL,
+                issued_to     VARCHAR(120),
+                notes         TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 21. Stock Counts ──────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS stock_counts (
                 id            SERIAL PRIMARY KEY,
@@ -199,236 +312,96 @@ def init_db() -> None:
             )
         """)
 
-        # ── 14. Production Costs ──────────────────────────────────────────────
+        # ── 22. Stock Adjustments ─────────────────────────────────────────────
+        # Pending until approved. Inventory movement inserted only on approval.
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS production_costs (
-                id            SERIAL PRIMARY KEY,
-                branch_id     INTEGER NOT NULL REFERENCES branches(id),
-                product_id    INTEGER NOT NULL REFERENCES products(id),
-                entry_date    DATE    NOT NULL,
-                quantity      NUMERIC(12,3) NOT NULL DEFAULT 0,
-                material_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
-                labor_cost    NUMERIC(12,2) NOT NULL DEFAULT 0,
-                overhead_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes         TEXT
-            )
-        """)
-
-        # ── 15. Revenues ──────────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS revenues (
-                id         SERIAL PRIMARY KEY,
-                branch_id  INTEGER NOT NULL REFERENCES branches(id),
-                product_id INTEGER REFERENCES products(id),
-                entry_date DATE    NOT NULL,
-                quantity   NUMERIC(12,3) NOT NULL DEFAULT 0,
-                amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes      TEXT
-            )
-        """)
-
-        # ── 16. Expenses ──────────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS expenses (
-                id            SERIAL PRIMARY KEY,
-                branch_id     INTEGER NOT NULL REFERENCES branches(id),
-                entry_date    DATE    NOT NULL,
-                category      VARCHAR(100),
-                category_id   INTEGER REFERENCES expense_categories(id),
-                expense_group VARCHAR(50)  NOT NULL DEFAULT 'operating',
-                subtype       VARCHAR(100) NOT NULL DEFAULT 'admin',
-                amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
-                reference_id  INTEGER,
-                notes         TEXT
-            )
-        """)
-
-        # ── 17. Assets ────────────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS assets (
-                id           SERIAL PRIMARY KEY,
-                branch_id    INTEGER NOT NULL REFERENCES branches(id),
-                category_id  INTEGER REFERENCES expense_categories(id),
-                entry_date   DATE    NOT NULL DEFAULT CURRENT_DATE,
-                cost         NUMERIC(12,2) NOT NULL DEFAULT 0,
-                reference_id INTEGER,
-                notes        TEXT,
-                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-        """)
-
-        # ── 18. Supplier Price History ────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS supplier_price_history (
-                id            SERIAL PRIMARY KEY,
-                supplier_id   INTEGER NOT NULL REFERENCES suppliers(id),
-                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
-                price         NUMERIC(12,4) NOT NULL,
-                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
-                notes         TEXT
-            )
-        """)
-
-        # ── 19. Recipes ───────────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS recipes (
-                id           SERIAL PRIMARY KEY,
-                product_id   INTEGER NOT NULL UNIQUE REFERENCES products(id),
-                yield_pct    NUMERIC(5,2)  NOT NULL DEFAULT 100,
-                portion_size NUMERIC(10,3) NOT NULL DEFAULT 1,
-                portion_unit VARCHAR(40)   NOT NULL DEFAULT 'plate',
-                notes        TEXT
-            )
-        """)
-
-        # ── 20. Recipe Ingredients ────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS recipe_ingredients (
-                id            SERIAL PRIMARY KEY,
-                recipe_id     INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
-                qty_required  NUMERIC(12,4) NOT NULL,
-                UNIQUE(recipe_id, ingredient_id)
-            )
-        """)
-
-        # ── 21. Waste Log ─────────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS waste_log (
-                id            SERIAL PRIMARY KEY,
-                branch_id     INTEGER NOT NULL REFERENCES branches(id),
-                ingredient_id INTEGER REFERENCES ingredients(id),
-                product_id    INTEGER REFERENCES products(id),
-                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
-                quantity      NUMERIC(12,3) NOT NULL,
-                reason        VARCHAR(60)   NOT NULL
-                    CHECK (reason IN ('kitchen','expiry','overproduction',
-                                      'customer_return','damage','other')),
-                cost_value    NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes         TEXT
-            )
-        """)
-
-        # ── 22. Damage Log ────────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS damage_log (
-                id            SERIAL PRIMARY KEY,
-                branch_id     INTEGER NOT NULL REFERENCES branches(id),
-                ingredient_id INTEGER REFERENCES ingredients(id),
-                product_id    INTEGER REFERENCES products(id),
-                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
-                quantity      NUMERIC(12,3) NOT NULL,
-                reason        VARCHAR(80)   NOT NULL DEFAULT 'damage',
-                cost_value    NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes         TEXT
-            )
-        """)
-
-        # ── 23. Stock Issues ──────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS stock_issues (
-                id            SERIAL PRIMARY KEY,
-                branch_id     INTEGER NOT NULL REFERENCES branches(id),
-                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
-                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
-                qty_issued    NUMERIC(12,3) NOT NULL,
-                issued_to     VARCHAR(120),
-                notes         TEXT
-            )
-        """)
-
-        # ── 24. Inventory Movements ───────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS inventory_movements (
+            CREATE TABLE IF NOT EXISTS stock_adjustments (
                 id             SERIAL PRIMARY KEY,
                 branch_id      INTEGER NOT NULL REFERENCES branches(id),
                 ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
-                movement_type  VARCHAR(30) NOT NULL
-                    CHECK (movement_type IN (
-                        'opening_stock','purchase','purchase_return','transfer_in',
-                        'transfer_out','issue','waste','damage','adjustment',
-                        'count','customer_return'
-                    )),
-                entry_date     DATE    NOT NULL,
+                entry_date     DATE    NOT NULL DEFAULT CURRENT_DATE,
                 quantity_delta NUMERIC(12,3) NOT NULL,
-                unit_cost      NUMERIC(12,4) NOT NULL DEFAULT 0,
-                reference_table VARCHAR(80),
-                reference_id   INTEGER,
-                notes          TEXT
+                notes          TEXT,
+                status         VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','approved','rejected')),
+                approval_notes TEXT,
+                created_by     INTEGER REFERENCES app_users(id),
+                approved_by    INTEGER REFERENCES app_users(id),
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 25. Finished Goods Movements ──────────────────────────────────────
+        # ── 23. Inventory Movements (ledger) ──────────────────────────────────
+        # Append-only ledger. Stock balance = SUM(quantity_delta) per ingredient/branch.
+        # movement_type 'grn' replaces the old 'purchase' type.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS inventory_movements (
+                id              SERIAL PRIMARY KEY,
+                branch_id       INTEGER NOT NULL REFERENCES branches(id),
+                ingredient_id   INTEGER NOT NULL REFERENCES ingredients(id),
+                movement_type   VARCHAR(30) NOT NULL
+                    CHECK (movement_type IN (
+                        'opening_stock',
+                        'grn',              -- goods received against an approved PO
+                        'purchase_return',
+                        'transfer_in',
+                        'transfer_out',
+                        'issue',
+                        'waste',
+                        'damage',
+                        'adjustment',       -- inserted only after stock_adjustment is approved
+                        'stock_count',      -- inserted when a stock count delta is confirmed
+                        'customer_return'
+                    )),
+                entry_date      DATE    NOT NULL,
+                quantity_delta  NUMERIC(12,3) NOT NULL,
+                unit_cost       NUMERIC(12,4) NOT NULL DEFAULT 0,
+                reference_table VARCHAR(80),
+                reference_id    INTEGER,
+                notes           TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 24. Finished Goods Movements ──────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS finished_goods_movements (
-                id             SERIAL PRIMARY KEY,
-                branch_id      INTEGER NOT NULL REFERENCES branches(id),
-                product_id     INTEGER NOT NULL REFERENCES products(id),
-                movement_type  VARCHAR(30) NOT NULL
+                id              SERIAL PRIMARY KEY,
+                branch_id       INTEGER NOT NULL REFERENCES branches(id),
+                product_id      INTEGER NOT NULL REFERENCES products(id),
+                movement_type   VARCHAR(30) NOT NULL
                     CHECK (movement_type IN (
                         'production','sale','customer_return','waste','damage',
                         'transfer_in','transfer_out','adjustment'
                     )),
-                entry_date     DATE    NOT NULL,
-                quantity_delta NUMERIC(12,3) NOT NULL,
-                unit_cost      NUMERIC(12,4) NOT NULL DEFAULT 0,
+                entry_date      DATE    NOT NULL,
+                quantity_delta  NUMERIC(12,3) NOT NULL,
+                unit_cost       NUMERIC(12,4) NOT NULL DEFAULT 0,
                 reference_table VARCHAR(80),
-                reference_id   INTEGER,
-                notes          TEXT
+                reference_id    INTEGER,
+                notes           TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
-        cur.execute("""
-            ALTER TABLE finished_goods_movements
-            DROP CONSTRAINT IF EXISTS finished_goods_movements_movement_type_check
-        """)
-        cur.execute("""
-            ALTER TABLE finished_goods_movements
-            ADD CONSTRAINT finished_goods_movements_movement_type_check
-            CHECK (movement_type IN (
-                'production','sale','customer_return','waste','damage',
-                'transfer_in','transfer_out','adjustment'
-            ))
-        """)
 
-        # ── 26. Purchases ─────────────────────────────────────────────────────
+        # ── 25. Transfers ─────────────────────────────────────────────────────
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS purchases (
+            CREATE TABLE IF NOT EXISTS transfers (
                 id             SERIAL PRIMARY KEY,
-                branch_id      INTEGER NOT NULL REFERENCES branches(id),
-                supplier_id    INTEGER NOT NULL REFERENCES suppliers(id),
+                from_branch_id INTEGER NOT NULL REFERENCES branches(id),
+                to_branch_id   INTEGER NOT NULL REFERENCES branches(id),
                 ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
                 entry_date     DATE    NOT NULL,
                 quantity       NUMERIC(12,3) NOT NULL,
-                unit_cost      NUMERIC(12,4) NOT NULL,
-                gross_amount   NUMERIC(12,2) NOT NULL DEFAULT 0,
-                tax_amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
-                payable_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
                 notes          TEXT,
-                status         VARCHAR(20) NOT NULL DEFAULT 'pending'
+                status         VARCHAR(20) NOT NULL DEFAULT 'approved'
                     CHECK (status IN ('pending','approved','rejected')),
-                created_by     INTEGER REFERENCES app_users(id)
+                created_by     INTEGER REFERENCES app_users(id),
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 27. Purchase Returns ──────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS purchase_returns (
-                id            SERIAL PRIMARY KEY,
-                branch_id     INTEGER NOT NULL REFERENCES branches(id),
-                supplier_id   INTEGER NOT NULL REFERENCES suppliers(id),
-                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
-                entry_date    DATE    NOT NULL,
-                quantity      NUMERIC(12,3) NOT NULL,
-                unit_cost     NUMERIC(12,4) NOT NULL,
-                refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes         TEXT,
-                status        VARCHAR(20) NOT NULL DEFAULT 'approved'
-                    CHECK (status IN ('pending','approved','rejected')),
-                created_by    INTEGER REFERENCES app_users(id)
-            )
-        """)
-
-        # ── 28. Sales ─────────────────────────────────────────────────────────
+        # ── 26. Sales ─────────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS sales (
                 id               SERIAL PRIMARY KEY,
@@ -448,11 +421,12 @@ def init_db() -> None:
                 notes            TEXT,
                 status           VARCHAR(20) NOT NULL DEFAULT 'approved'
                     CHECK (status IN ('pending','approved','rejected')),
-                created_by       INTEGER REFERENCES app_users(id)
+                created_by       INTEGER REFERENCES app_users(id),
+                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 29. Customer Returns ──────────────────────────────────────────────
+        # ── 27. Customer Returns ──────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS customer_returns (
                 id            SERIAL PRIMARY KEY,
@@ -464,27 +438,93 @@ def init_db() -> None:
                 notes         TEXT,
                 status        VARCHAR(20) NOT NULL DEFAULT 'approved'
                     CHECK (status IN ('pending','approved','rejected')),
-                created_by    INTEGER REFERENCES app_users(id)
+                created_by    INTEGER REFERENCES app_users(id),
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 30. Transfers ─────────────────────────────────────────────────────
+        # ── 28. Waste Log ─────────────────────────────────────────────────────
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS transfers (
-                id             SERIAL PRIMARY KEY,
-                from_branch_id INTEGER NOT NULL REFERENCES branches(id),
-                to_branch_id   INTEGER NOT NULL REFERENCES branches(id),
-                ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
-                entry_date     DATE    NOT NULL,
-                quantity       NUMERIC(12,3) NOT NULL,
-                notes          TEXT,
-                status         VARCHAR(20) NOT NULL DEFAULT 'approved'
-                    CHECK (status IN ('pending','approved','rejected')),
-                created_by     INTEGER REFERENCES app_users(id)
+            CREATE TABLE IF NOT EXISTS waste_log (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                ingredient_id INTEGER REFERENCES ingredients(id),
+                product_id    INTEGER REFERENCES products(id),
+                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
+                quantity      NUMERIC(12,3) NOT NULL,
+                reason        VARCHAR(60)   NOT NULL
+                    CHECK (reason IN ('kitchen','expiry','overproduction',
+                                      'customer_return','damage','other')),
+                cost_value    NUMERIC(12,2) NOT NULL DEFAULT 0,
+                notes         TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 31. Payroll Entries ───────────────────────────────────────────────
+        # ── 29. Damage Log ────────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS damage_log (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                ingredient_id INTEGER REFERENCES ingredients(id),
+                product_id    INTEGER REFERENCES products(id),
+                entry_date    DATE    NOT NULL DEFAULT CURRENT_DATE,
+                quantity      NUMERIC(12,3) NOT NULL,
+                reason        VARCHAR(80)   NOT NULL DEFAULT 'damage',
+                cost_value    NUMERIC(12,2) NOT NULL DEFAULT 0,
+                notes         TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 30. Revenues ──────────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS revenues (
+                id         SERIAL PRIMARY KEY,
+                branch_id  INTEGER NOT NULL REFERENCES branches(id),
+                product_id INTEGER REFERENCES products(id),
+                entry_date DATE    NOT NULL,
+                quantity   NUMERIC(12,3) NOT NULL DEFAULT 0,
+                amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
+                notes      TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 31. Production Costs ──────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS production_costs (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                product_id    INTEGER NOT NULL REFERENCES products(id),
+                entry_date    DATE    NOT NULL,
+                quantity      NUMERIC(12,3) NOT NULL DEFAULT 0,
+                material_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+                labor_cost    NUMERIC(12,2) NOT NULL DEFAULT 0,
+                overhead_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+                notes         TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 32. Expenses ──────────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS expenses (
+                id            SERIAL PRIMARY KEY,
+                branch_id     INTEGER NOT NULL REFERENCES branches(id),
+                entry_date    DATE    NOT NULL,
+                category      VARCHAR(100),
+                category_id   INTEGER REFERENCES expense_categories(id),
+                expense_group VARCHAR(50)  NOT NULL DEFAULT 'operating',
+                subtype       VARCHAR(100) NOT NULL DEFAULT 'admin',
+                amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
+                reference_id  INTEGER,
+                notes         TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        # ── 33. Payroll Entries ───────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS payroll_entries (
                 id              SERIAL PRIMARY KEY,
@@ -494,11 +534,12 @@ def init_db() -> None:
                 base_salary     NUMERIC(12,2) NOT NULL DEFAULT 0,
                 employer_burden NUMERIC(12,2) NOT NULL DEFAULT 0,
                 total_amount    NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes           TEXT
+                notes           TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 32. Depreciation Entries ──────────────────────────────────────────
+        # ── 34. Depreciation Entries ──────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS depreciation_entries (
                 id         SERIAL PRIMARY KEY,
@@ -506,11 +547,12 @@ def init_db() -> None:
                 entry_date DATE    NOT NULL,
                 asset_name VARCHAR(120) NOT NULL,
                 amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes      TEXT
+                notes      TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 33. Accrual Entries ───────────────────────────────────────────────
+        # ── 35. Accrual Entries ───────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS accrual_entries (
                 id         SERIAL PRIMARY KEY,
@@ -518,11 +560,12 @@ def init_db() -> None:
                 entry_date DATE    NOT NULL,
                 category   VARCHAR(100) NOT NULL,
                 amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes      TEXT
+                notes      TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 34. Prepayment Entries ────────────────────────────────────────────
+        # ── 36. Prepayment Entries ────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS prepayment_entries (
                 id              SERIAL PRIMARY KEY,
@@ -532,80 +575,26 @@ def init_db() -> None:
                 amount          NUMERIC(12,2) NOT NULL DEFAULT 0,
                 months          INTEGER NOT NULL DEFAULT 1,
                 monthly_expense NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes           TEXT
+                notes           TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 35. Budgets ───────────────────────────────────────────────────────
+        # ── 37. Assets ────────────────────────────────────────────────────────
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS budgets (
-                id        SERIAL PRIMARY KEY,
-                branch_id INTEGER NOT NULL REFERENCES branches(id),
-                period    VARCHAR(7) NOT NULL,
-                category  VARCHAR(80) NOT NULL
-                    CHECK (category IN ('food_cost','labor','rent',
-                                        'utilities','marketing','other')),
-                amount    NUMERIC(12,2) NOT NULL DEFAULT 0,
-                UNIQUE(branch_id, period, category)
-            )
-        """)
-
-        # ── 36. KPI Snapshots ─────────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS kpi_snapshots (
-                id             SERIAL PRIMARY KEY,
-                branch_id      INTEGER NOT NULL REFERENCES branches(id),
-                period         VARCHAR(7) NOT NULL,
-                revenue        NUMERIC(14,2) NOT NULL DEFAULT 0,
-                food_cost      NUMERIC(14,2) NOT NULL DEFAULT 0,
-                labor_cost     NUMERIC(14,2) NOT NULL DEFAULT 0,
-                food_cost_pct  NUMERIC(6,2)  NOT NULL DEFAULT 0,
-                labor_cost_pct NUMERIC(6,2)  NOT NULL DEFAULT 0,
-                waste_cost     NUMERIC(14,2) NOT NULL DEFAULT 0,
-                gross_profit   NUMERIC(14,2) NOT NULL DEFAULT 0,
-                net_profit     NUMERIC(14,2) NOT NULL DEFAULT 0,
-                computed_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-                UNIQUE(branch_id, period)
-            )
-        """)
-
-        # ── 37. Approval Requests ─────────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS approval_requests (
+            CREATE TABLE IF NOT EXISTS assets (
                 id           SERIAL PRIMARY KEY,
-                entity_type  VARCHAR(80) NOT NULL,
-                entity_id    INTEGER     NOT NULL,
-                branch_id    INTEGER REFERENCES branches(id),
-                requested_by INTEGER REFERENCES app_users(id),
-                status       VARCHAR(20) NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending','approved','rejected')),
-                approved_by  INTEGER REFERENCES app_users(id),
-                requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                approved_at  TIMESTAMPTZ
+                branch_id    INTEGER NOT NULL REFERENCES branches(id),
+                category_id  INTEGER REFERENCES expense_categories(id),
+                entry_date   DATE    NOT NULL DEFAULT CURRENT_DATE,
+                cost         NUMERIC(12,2) NOT NULL DEFAULT 0,
+                reference_id INTEGER,
+                notes        TEXT,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 38. Governance Action Log ─────────────────────────────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS governance_action_log (
-                id               SERIAL PRIMARY KEY,
-                item_id          VARCHAR(80)  NOT NULL,
-                entity_type      VARCHAR(80)  NOT NULL,
-                description      TEXT,
-                submitted_by     VARCHAR(120),
-                original_date    DATE,
-                action           VARCHAR(20)  NOT NULL
-                    CHECK (action IN ('approve','reject')),
-                action_date      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-                amount           NUMERIC(14,2),
-                currency         VARCHAR(10),
-                from_procurement BOOLEAN      NOT NULL DEFAULT FALSE,
-                actor_id         INTEGER REFERENCES app_users(id),
-                branch_id        INTEGER REFERENCES branches(id)
-            )
-        """)
-
-        # ── 39. Cash Purchases ────────────────────────────────────────────────
+        # ── 38. Cash Purchases ────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cash_purchases (
                 id              SERIAL PRIMARY KEY,
@@ -633,7 +622,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 40. Petty Cash Ledger ─────────────────────────────────────────────
+        # ── 39. Petty Cash Ledger ─────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS petty_cash_ledger (
                 id            SERIAL PRIMARY KEY,
@@ -652,29 +641,62 @@ def init_db() -> None:
             )
         """)
 
-        # ── 41. Purchase Invoices ─────────────────────────────────────────────
+        # ── 40. Purchase Invoices ─────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS purchase_invoices (
-                id           SERIAL PRIMARY KEY,
-                company_id   INTEGER NOT NULL REFERENCES companies(id),
-                ref_table    VARCHAR(50)  NOT NULL,
-                ref_id       INTEGER      NOT NULL,
-                file_name    VARCHAR(255) NOT NULL,
-                file_path    VARCHAR(500) NOT NULL,
-                mime_type    VARCHAR(100) NOT NULL,
-                file_size_kb INTEGER,
-                notes        TEXT DEFAULT '',
-                uploaded_by  INTEGER REFERENCES app_users(id),
-                uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                supplier_id   INTEGER REFERENCES suppliers(id),
-                invoice_number  VARCHAR(100),
+                id             SERIAL PRIMARY KEY,
+                company_id     INTEGER NOT NULL REFERENCES companies(id),
+                branch_id      INTEGER REFERENCES branches(id),
+                supplier_id    INTEGER REFERENCES suppliers(id),
+                ref_table      VARCHAR(50)  NOT NULL,
+                ref_id         INTEGER      NOT NULL,
+                invoice_number VARCHAR(100),
                 invoice_date   DATE,
                 amount         NUMERIC(12,2),
-                branch_id       INTEGER REFERENCES branches(id)
+                file_name      VARCHAR(255) NOT NULL,
+                file_path      VARCHAR(500) NOT NULL,
+                mime_type      VARCHAR(100) NOT NULL,
+                file_size_kb   INTEGER,
+                notes          TEXT DEFAULT '',
+                uploaded_by    INTEGER REFERENCES app_users(id),
+                uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
-        # ── 42. Period Snapshots ──────────────────────────────────────────────
+        # ── 41. Budgets ───────────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS budgets (
+                id        SERIAL PRIMARY KEY,
+                branch_id INTEGER NOT NULL REFERENCES branches(id),
+                period    VARCHAR(7) NOT NULL,
+                category  VARCHAR(80) NOT NULL
+                    CHECK (category IN ('food_cost','labor','rent',
+                                        'utilities','marketing','other')),
+                amount    NUMERIC(12,2) NOT NULL DEFAULT 0,
+                UNIQUE(branch_id, period, category)
+            )
+        """)
+
+        # ── 42. KPI Snapshots ─────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS kpi_snapshots (
+                id             SERIAL PRIMARY KEY,
+                branch_id      INTEGER NOT NULL REFERENCES branches(id),
+                period         VARCHAR(7) NOT NULL,
+                revenue        NUMERIC(14,2) NOT NULL DEFAULT 0,
+                food_cost      NUMERIC(14,2) NOT NULL DEFAULT 0,
+                labor_cost     NUMERIC(14,2) NOT NULL DEFAULT 0,
+                food_cost_pct  NUMERIC(6,2)  NOT NULL DEFAULT 0,
+                labor_cost_pct NUMERIC(6,2)  NOT NULL DEFAULT 0,
+                waste_cost     NUMERIC(14,2) NOT NULL DEFAULT 0,
+                gross_profit   NUMERIC(14,2) NOT NULL DEFAULT 0,
+                net_profit     NUMERIC(14,2) NOT NULL DEFAULT 0,
+                computed_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+                UNIQUE(branch_id, period)
+            )
+        """)
+
+        # ── 43. Period Snapshots ──────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS period_snapshots (
                 id              SERIAL PRIMARY KEY,
@@ -691,7 +713,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 43. Period Closures ───────────────────────────────────────────────
+        # ── 44. Period Closures ───────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS period_closures (
                 id         SERIAL PRIMARY KEY,
@@ -704,7 +726,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 44. Company Period Statuses ───────────────────────────────────────
+        # ── 45. Company Period Statuses ───────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS company_period_statuses (
                 id         SERIAL PRIMARY KEY,
@@ -719,7 +741,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 45. Period Backups ────────────────────────────────────────────────
+        # ── 46. Period Backups ────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS period_backups (
                 id           SERIAL PRIMARY KEY,
@@ -737,7 +759,43 @@ def init_db() -> None:
             )
         """)
 
-        # ── 46. Audit Log ─────────────────────────────────────────────────────
+        # ── 47. Approval Requests ─────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS approval_requests (
+                id           SERIAL PRIMARY KEY,
+                entity_type  VARCHAR(80) NOT NULL,
+                entity_id    INTEGER     NOT NULL,
+                branch_id    INTEGER REFERENCES branches(id),
+                requested_by INTEGER REFERENCES app_users(id),
+                status       VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','approved','rejected')),
+                approved_by  INTEGER REFERENCES app_users(id),
+                requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                approved_at  TIMESTAMPTZ
+            )
+        """)
+
+        # ── 48. Governance Action Log ─────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS governance_action_log (
+                id               SERIAL PRIMARY KEY,
+                item_id          VARCHAR(80)  NOT NULL,
+                entity_type      VARCHAR(80)  NOT NULL,
+                description      TEXT,
+                submitted_by     VARCHAR(120),
+                original_date    DATE,
+                action           VARCHAR(20)  NOT NULL
+                    CHECK (action IN ('approve','reject')),
+                action_date      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                amount           NUMERIC(14,2),
+                currency         VARCHAR(10),
+                from_procurement BOOLEAN      NOT NULL DEFAULT FALSE,
+                actor_id         INTEGER REFERENCES app_users(id),
+                branch_id        INTEGER REFERENCES branches(id)
+            )
+        """)
+
+        # ── 49. Audit Log ─────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id         SERIAL PRIMARY KEY,
@@ -755,15 +813,20 @@ def init_db() -> None:
         """)
 
         # ── Indexes ───────────────────────────────────────────────────────────
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_branch   ON cash_purchases(branch_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_company  ON cash_purchases(company_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_ref            ON purchase_invoices(ref_table, ref_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_petty_cash_branch       ON petty_cash_ledger(branch_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_company       ON audit_log(company_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_table_record  ON audit_log(table_name, record_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch ON inventory_movements(branch_id, entry_date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_branch            ON sales(branch_id, entry_date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchases_branch        ON purchases(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch   ON inventory_movements(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_type     ON inventory_movements(movement_type)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_ingredient ON inventory_movements(ingredient_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_branch        ON goods_receipts(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_purchase      ON goods_receipts(purchase_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_adjustments_branch     ON stock_adjustments(branch_id, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchases_branch             ON purchases(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_branch                 ON sales(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_branch        ON cash_purchases(branch_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_company       ON cash_purchases(company_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_petty_cash_branch            ON petty_cash_ledger(branch_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_ref                 ON purchase_invoices(ref_table, ref_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_company            ON audit_log(company_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_table_record       ON audit_log(table_name, record_id)")
 
         conn.commit()
         print("✅ Database initialized successfully.")

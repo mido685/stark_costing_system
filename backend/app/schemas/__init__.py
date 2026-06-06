@@ -4,9 +4,11 @@ Import from app.schemas in route files.
 """
 
 from __future__ import annotations
+
+from typing import Literal, Optional
+
 from pydantic import BaseModel
-from fastapi import Form, UploadFile, File
-from typing import Optional,Literal
+
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -173,7 +175,7 @@ class PurchaseRequest(BaseModel):
     tax_amount: float = 0
     payable_amount: float = 0
     notes: str = ""
-    status: str = "pending"
+    status: str = "pending"  # PO starts as pending — no stock impact at this stage
 
 
 class PurchaseReturnRequest(BaseModel):
@@ -187,6 +189,19 @@ class PurchaseReturnRequest(BaseModel):
     refund_amount: float = 0
     notes: str = ""
     status: str = "pending"
+
+
+# ── GRN — Goods Receipt Note ─────────────────────────────────────────────────
+# Stock increases HERE when goods are physically received, not at PO approval.
+
+class GRNRequest(BaseModel):
+    branch_id: int
+    purchase_id: int        # must reference an approved PO
+    ingredient_id: int
+    entry_date: str
+    received_qty: float     # actual delivered quantity (may differ from PO quantity)
+    unit_cost: float        # actual unit cost from supplier invoice
+    notes: str = ""
 
 
 # ── Expenses & Periods ───────────────────────────────────────────────────────
@@ -279,12 +294,12 @@ class ClosePeriodRequest(BaseModel):
 class ItemRequest(BaseModel):
     name: str
     unit: str
-    category: str                  # 'finished_good' or 'raw_material'
-    sale_price: float = 0          # for finished_good
-    standard_cost: float = 0       # for raw_material
-    reorder_level: float = 0       # for raw_material
-    sku: str | None = None         # for both
-    sku_prefix: str | None = None  # auto-generate SKU from this prefix
+    category: str                   # 'finished_good' or 'raw_material'
+    sale_price: float = 0           # for finished_good
+    standard_cost: float = 0        # for raw_material
+    reorder_level: float = 0        # for raw_material
+    sku: str | None = None
+    sku_prefix: str | None = None   # auto-generate SKU from this prefix
 
 
 # ── Password Change ──────────────────────────────────────────────────────────
@@ -302,7 +317,7 @@ class RecipeRequest(BaseModel):
     portion_unit: str = "plate"
     notes: str = ""
 
-# Recipe ingredients are sent as a separate list in the request body, not nested in RecipeRequest
+
 class RecipeIngredientRequest(BaseModel):
     ingredient_id: int
     qty_required: float
@@ -397,14 +412,14 @@ class StockAdjustmentRequest(BaseModel):
     branch_id: int
     entry_date: str
     ingredient_id: int | None = None
-    item_id: int | None = None
+    item_id: int | None = None          # alias for ingredient_id (legacy support)
     quantity_delta: float | None = None
-    counted_quantity: float = 0
+    counted_quantity: float = 0         # alias for quantity_delta (legacy support)
     notes: str = ""
 
 
 class ApproveAdjustmentRequest(BaseModel):
-    status: str
+    status: Literal["approved", "rejected"]
     notes: str = ""
 
 
@@ -416,7 +431,10 @@ class TransferRequest(BaseModel):
     quantity: float
     notes: str = ""
     status: str = "approved"
+
+
 # ── SKU Prefixes ─────────────────────────────────────────────────────────────
+
 class SkuPrefixRequest(BaseModel):
     label: str
     prefix: str

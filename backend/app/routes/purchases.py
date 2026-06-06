@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 from app.api.responses import success, error
 from app.database import purchases as purchases_db
+from app.database import inventory as inventory_db
 from app.schemas import PurchaseRequest, PurchaseReturnRequest
 from app.security.dependencies import get_current_user, require_roles, check_period_open
 
@@ -48,6 +49,20 @@ def purchases_by_branch(
     )
     return success("Purchases retrieved", purchases=purchases)
 
+@router.get("/fulfillment")
+def po_fulfillment(
+    branch_id: int | None = Query(None),
+    ingredient_id: int | None = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = inventory_db.get_po_fulfillment(
+        current_user["company_id"],
+        branch_id,
+        ingredient_id,
+        limit,
+    )
+    return success("PO fulfillment retrieved", fulfillment=rows)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SINGLE
