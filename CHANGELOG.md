@@ -1,3 +1,10 @@
+# [3.41.0](https://github.com/mido685/stark_costing_system/compare/v3.40.0...v3.41.0) (2026-06-07)
+
+
+### Features
+
+* final update for periode buttone ([88705ae](https://github.com/mido685/stark_costing_system/commit/88705ae7c1960d29d23af3fcb33f9d772963dd28))
+
 # [3.40.0](https://github.com/mido685/stark_costing_system/compare/v3.39.0...v3.40.0) (2026-06-07)
 
 
