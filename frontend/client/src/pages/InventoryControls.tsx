@@ -23,6 +23,7 @@ import {
   formatDateTime,
   getCurrencyLabel,
 } from "@/lib/localization";
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1629,7 +1630,7 @@ export default function InventoryControls() {
   const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
   const currentUserName = localStorage.getItem("user_name") ?? "System";
   const [branchId, setBranchId] = useState<number>(0);
-  const [period, setPeriod] = useState(currentPeriod());          // ← NEW: period picker for company status
+  const { workingPeriod } = useWorkingPeriod();
   const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
   const [modal, setModal] = useState<ModalType>(null);
   const [saving, setSaving] = useState(false);
@@ -1652,7 +1653,7 @@ export default function InventoryControls() {
 
   // ── NEW: Company period status (same as Finance) ──────────────────────────
   const { data: companyPeriodStatus, loading: periodStatusLoading, refetch: refetchCompanyPeriodStatus } =
-    useApi<PeriodStatusRow>(() => getPeriodStatus(period), { deps: [period] });
+    useApi<PeriodStatusRow>(() => getPeriodStatus(workingPeriod), { deps: [workingPeriod] });
 
   // ── Branch-level period closure check ────────────────────────────────────
   const { data: branchPeriodStatus, refetch: refetchBranchPeriodStatus } =
@@ -1812,7 +1813,7 @@ export default function InventoryControls() {
     setSaving(true); setFormError("");
     try {
       await setPeriodStatus({
-        period,
+        period: workingPeriod,
         status: periodStatusForm.status,
         notes: periodStatusForm.notes,
       });
@@ -2002,12 +2003,7 @@ export default function InventoryControls() {
             </p>
           )}
           <Field label="Period">
-            <input
-              type="month"
-              className={inputClass}
-              value={period}
-              onChange={e => setPeriod(e.target.value)}
-            />
+            <input type="text" className={inputClass} value={workingPeriod} readOnly />
           </Field>
           <Field label="Status">
             <select
@@ -2049,14 +2045,6 @@ export default function InventoryControls() {
             <option value="">{t("inv.selectBranch")}</option>
             {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-
-          {/* ── NEW: Period picker + status toggle button (identical to Finance) ── */}
-          <input
-            type="month"
-            className="px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-36"
-            value={period}
-            onChange={e => setPeriod(e.target.value)}
-          />
           <Button
             variant="outline"
             size="sm"
@@ -2103,8 +2091,8 @@ export default function InventoryControls() {
           <p className={`flex items-center gap-2 text-sm ${selectedPeriodLocked ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
             <Lock className="h-4 w-4" />
             {selectedPeriodLocked
-              ? `${period} is locked for the whole company. No inventory edits are allowed.`
-              : `${period} is closed for the whole company. Inventory entries are restricted.`}
+              ? `${workingPeriod} is locked for the whole company. No inventory edits are allowed.`
+              : `${workingPeriod} is closed for the whole company. Inventory entries are restricted.`}
           </p>
         </Card>
       )}

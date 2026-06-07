@@ -19,7 +19,7 @@ import type { UserRow, ItemRow, SupplierRow, PeriodStatusRow } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, getCurrencyLabel } from "@/lib/localization";
 import { apiUpload, assetUrl } from "@/lib/api";
-
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ModalType = "branch" | "supplier" | "item" | "editItem" | "user" | "price" | null;
@@ -684,8 +684,12 @@ export default function Masters() {
   const [showChangeLog, setShowChangeLog] = useState(false);
   const currencyLabel = getCurrencyLabel(language);
 
-  const [period, setPeriod] = useState(currentPeriod);
-  const { data: companyPeriodStatus } = useApi<PeriodStatusRow>(() => getPeriodStatus(period), { deps: [period] });
+  
+  const { workingPeriod } = useWorkingPeriod();
+  const { data: companyPeriodStatus } = useApi<PeriodStatusRow>(
+  () => getPeriodStatus(workingPeriod),
+  { deps: [workingPeriod] }
+  );
   const selectedPeriodState  = companyPeriodStatus?.status ?? "open";
   const selectedPeriodClosed = selectedPeriodState === "closed" || selectedPeriodState === "locked";
   const selectedPeriodLocked = selectedPeriodState === "locked";
@@ -1214,9 +1218,7 @@ export default function Masters() {
           <p className="text-muted-foreground mt-1">{t("masters.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
-          <input type="month"
-            className="px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-36"
-            value={period} onChange={e => setPeriod(e.target.value)} />
+        
           <span className={`text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${selectedPeriodLocked ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : selectedPeriodClosed ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
             <Lock className="w-3 h-3" />{selectedPeriodState.toUpperCase()}
           </span>
@@ -1228,8 +1230,8 @@ export default function Masters() {
           <p className={`flex items-center gap-2 text-sm ${selectedPeriodLocked ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
             <Lock className="h-4 w-4 flex-shrink-0" />
             {selectedPeriodLocked
-              ? `${period} is locked. No master data changes are allowed.`
-              : `${period} is closed. Adding or deleting records is restricted.`}
+              ? `${workingPeriod} is locked. No master data changes are allowed.`
+              : `${workingPeriod} is closed. Adding or deleting records is restricted.`}
           </p>
         </Card>
       )}
