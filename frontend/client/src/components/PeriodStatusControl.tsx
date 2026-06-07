@@ -1,7 +1,9 @@
 /**
  * PeriodStatusControl — Enterprise Edition
- * Uses ReactDOM.createPortal to render the dropdown directly into document.body,
- * completely escaping all z-index / overflow / stacking-context issues in the layout.
+ * Uses ReactDOM.createPortal — renders into document.body to escape all
+ * z-index / overflow / stacking-context issues.
+ * Panel position is computed from the badge's getBoundingClientRect(),
+ * clamped so it never exits the viewport on either side.
  */
 
 import {
@@ -96,6 +98,8 @@ const STATUS = {
 } satisfies Record<Status, object>;
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const PANEL_WIDTH = 300;
+const VIEWPORT_GAP = 8; // min distance from viewport edges
 
 // ─── Animation CSS ────────────────────────────────────────────────────────────
 
@@ -112,9 +116,7 @@ const css = `
     from { opacity: 0; transform: translateX(-6px); }
     to   { opacity: 1; transform: translateX(0); }
   }
-  @keyframes psc-spin {
-    to { transform: rotate(360deg); }
-  }
+  @keyframes psc-spin { to { transform: rotate(360deg); } }
   .psc-panel      { animation: psc-panel-in 0.18s cubic-bezier(0.16,1,0.3,1) forwards; }
   .psc-toast      { animation: psc-toast-in 0.22s cubic-bezier(0.16,1,0.3,1) forwards; }
   .psc-row        { animation: psc-row-in 0.15s cubic-bezier(0.16,1,0.3,1) both; }
@@ -150,7 +152,7 @@ function Spinner() {
 function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: boolean }) {
   if (loading) return (
     <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground">
-      <Spinner /> <span className="text-[11px]">Loading history…</span>
+      <Spinner /><span className="text-[11px]">Loading history…</span>
     </div>
   );
   if (!entries.length) return (
@@ -159,10 +161,8 @@ function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: b
   return (
     <div className="py-1">
       {entries.map((e, i) => (
-        <div key={i} className="psc-row flex gap-3 px-3.5 py-2.5 relative group" style={{ animationDelay: `${i * 40}ms` }}>
-          {i < entries.length - 1 && (
-            <div className="absolute left-[26px] top-[28px] bottom-0 w-px bg-border/50" />
-          )}
+        <div key={i} className="psc-row flex gap-3 px-3.5 py-2.5 relative" style={{ animationDelay: `${i * 40}ms` }}>
+          {i < entries.length - 1 && <div className="absolute left-[26px] top-[28px] bottom-0 w-px bg-border/50" />}
           <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${STATUS[e.to_status].pill} ring-1 ring-inset ${STATUS[e.to_status].ring}/30`}>
             <span className="text-[8px]">{STATUS[e.to_status].icon}</span>
           </div>
@@ -214,11 +214,13 @@ function ActionBtn({
   );
 }
 
-function AdjustingEntryForm({ period, onClose, onSuccess }: { period: string; onClose: () => void; onSuccess: () => void; }) {
+function AdjustingEntryForm({ period, onClose, onSuccess }: {
+  period: string; onClose: () => void; onSuccess: () => void;
+}) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
-  const [saving,  setSaving]  = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
 
   async function handleSubmit() {
     const parsed = parseFloat(amount);
@@ -240,7 +242,7 @@ function AdjustingEntryForm({ period, onClose, onSuccess }: { period: string; on
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[12px] font-semibold text-foreground">Post Adjusting Entry</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Correction posted in current open period · references {fmtShortPeriod(period)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Correction in current period · ref {fmtShortPeriod(period)}</p>
         </div>
         <button onClick={onClose} className="w-6 h-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex items-center justify-center">
           <X size={12} />
@@ -276,13 +278,8 @@ function PeriodPicker({ selected, statusMap, todayPeriod, onChange }: {
   const [viewYear, setViewYear] = useState(() => Number(selected.split("-")[0]));
   const todayYear  = Number(todayPeriod.split("-")[0]);
   const todayMonth = Number(todayPeriod.split("-")[1]);
-
-  function isFuture(m: number) {
-    return viewYear > todayYear || (viewYear === todayYear && m > todayMonth);
-  }
-  function cell(m: number) {
-    return `${viewYear}-${String(m).padStart(2, "0")}`;
-  }
+  const isFuture = (m: number) => viewYear > todayYear || (viewYear === todayYear && m > todayMonth);
+  const cell     = (m: number) => `${viewYear}-${String(m).padStart(2, "0")}`;
 
   return (
     <div className="px-3 py-2.5">
@@ -299,29 +296,16 @@ function PeriodPicker({ selected, statusMap, todayPeriod, onChange }: {
       </div>
       <div className="grid grid-cols-4 gap-1.5">
         {MONTHS.map((name, idx) => {
-          const m          = idx + 1;
-          const p          = cell(m);
-          const future     = isFuture(m);
-          const st         = statusMap[p] ?? "open";
-          const isSelected = p === selected;
-          const isToday    = p === todayPeriod;
+          const m = idx + 1; const p = cell(m);
+          const future = isFuture(m); const st = statusMap[p] ?? "open";
+          const isSelected = p === selected; const isToday = p === todayPeriod;
           return (
             <button key={p} disabled={future} onClick={() => onChange(p)}
-              className={`
-                psc-cal-cell relative py-1.5 rounded-lg text-[11px] font-semibold
-                disabled:opacity-25 disabled:cursor-not-allowed
-                ${isSelected
-                  ? `ring-2 ${STATUS[st].ring} ring-offset-1 ring-offset-card ${STATUS[st].pill}`
-                  : STATUS[st].cell
-                }
-              `}>
+              className={`psc-cal-cell relative py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-25 disabled:cursor-not-allowed
+                ${isSelected ? `ring-2 ${STATUS[st].ring} ring-offset-1 ring-offset-card ${STATUS[st].pill}` : STATUS[st].cell}`}>
               {name}
-              {isToday && !isSelected && (
-                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400" />
-              )}
-              {!future && st !== "open" && (
-                <span className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${STATUS[st].dot}`} />
-              )}
+              {isToday && !isSelected && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400" />}
+              {!future && st !== "open" && <span className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${STATUS[st].dot}`} />}
             </button>
           );
         })}
@@ -329,8 +313,7 @@ function PeriodPicker({ selected, statusMap, todayPeriod, onChange }: {
       <div className="flex items-center gap-4 mt-3 pt-2.5 border-t border-border/50">
         {(["open","closed","locked"] as Status[]).map((s) => (
           <span key={s} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className={`w-1.5 h-1.5 rounded-full ${STATUS[s].dot}`} />
-            {STATUS[s].label}
+            <span className={`w-1.5 h-1.5 rounded-full ${STATUS[s].dot}`} />{STATUS[s].label}
           </span>
         ))}
       </div>
@@ -347,22 +330,18 @@ const TABS: { key: Tab; label: string }[] = [
 function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ind, setInd] = useState({ left: 0, width: 0 });
-
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const active = container.querySelector(`[data-tab="${tab}"]`) as HTMLElement | null;
+    const c = containerRef.current;
+    if (!c) return;
+    const active = c.querySelector(`[data-tab="${tab}"]`) as HTMLElement | null;
     if (active) setInd({ left: active.offsetLeft, width: active.offsetWidth });
   }, [tab]);
-
   return (
     <div ref={containerRef} className="psc-tab-bar flex border-b border-border/50">
       <div className="psc-tab-indicator" style={{ left: ind.left, width: ind.width }} />
       {TABS.map(({ key, label }) => (
         <button key={key} data-tab={key} onClick={() => onChange(key)}
-          className={`flex-1 py-2.5 text-[11px] font-semibold tracking-wide transition-colors ${
-            tab === key ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-          }`}>
+          className={`flex-1 py-2.5 text-[11px] font-semibold tracking-wide transition-colors ${tab === key ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
           {label}
         </button>
       ))}
@@ -391,19 +370,22 @@ export default function PeriodStatusControl() {
   const [showAdjForm,  setShowAdjForm]  = useState(false);
   const [toast,        setToast]        = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
-  // Portal positioning — track the badge button's screen position
   const trigRef  = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
 
-  // Recompute panel position whenever it opens or window resizes
+  // Panel position — left-clamped so it never exits the viewport
+  const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
+
   const updatePos = useCallback(() => {
     if (!trigRef.current) return;
     const r = trigRef.current.getBoundingClientRect();
-    setPanelPos({
-      top:   r.bottom + 8,               // 8px gap below badge
-      right: window.innerWidth - r.right, // distance from right edge
-    });
+    // Right-align panel to badge, then clamp within viewport
+    let left = r.right - PANEL_WIDTH;
+    if (left < VIEWPORT_GAP) left = VIEWPORT_GAP;
+    if (left + PANEL_WIDTH > window.innerWidth - VIEWPORT_GAP) {
+      left = window.innerWidth - PANEL_WIDTH - VIEWPORT_GAP;
+    }
+    setPanelPos({ top: r.bottom + 8, left });
   }, []);
 
   useEffect(() => {
@@ -460,12 +442,10 @@ export default function PeriodStatusControl() {
     if (open && tab === "history") fetchHistory(workingPeriod);
   }, [open, tab, workingPeriod, fetchHistory]);
 
-  // ── Close on outside click / Escape ──────────────────────────────────────
+  // ── Close ──────────────────────────────────────────────────────────────────
 
   const closePanel = useCallback(() => {
-    setOpen(false);
-    setDrillPeriod(null);
-    setShowAdjForm(false);
+    setOpen(false); setDrillPeriod(null); setShowAdjForm(false);
   }, []);
 
   useEffect(() => {
@@ -491,7 +471,7 @@ export default function PeriodStatusControl() {
     if (acting) return;
     const confirmed = window.confirm(
       newStatus === "locked"
-        ? "Hard lock is irreversible. Continue?"
+        ? "Hard lock is irreversible. The period will be frozen permanently. Continue?"
         : `Set ${fmtShortPeriod(workingPeriod)} to "${newStatus}"?`
     );
     if (!confirmed) return;
@@ -532,16 +512,16 @@ export default function PeriodStatusControl() {
   const canLock   = role === "admin";
   const canReopen = ["admin", "manager"].includes(role);
 
-  // ─── The portal panel ─────────────────────────────────────────────────────
+  // ─── Portal panel ─────────────────────────────────────────────────────────
 
   const panelContent = open ? createPortal(
     <div
       ref={panelRef}
-      className="psc-panel fixed w-[300px] rounded-2xl border border-border/60 bg-card shadow-2xl"
+      className="psc-panel fixed w-[300px] rounded-2xl border border-border/60 bg-card"
       style={{
         top:       panelPos.top,
-        right:     panelPos.right,
-        zIndex:    99999,          // above everything in the entire app
+        left:      panelPos.left,
+        zIndex:    99999,
         boxShadow: "0 20px 60px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)",
       }}
     >
@@ -650,7 +630,9 @@ export default function PeriodStatusControl() {
               {pastPeriods.length === 0 ? (
                 <p className="py-6 text-center text-[11px] text-muted-foreground">No past periods found.</p>
               ) : pastPeriods.map((row, i) => (
-                <div key={row.period} className="psc-row flex items-center justify-between px-3 py-2 rounded-xl hover:bg-muted/50 transition-colors group" style={{ animationDelay: `${i * 35}ms` }}>
+                <div key={row.period}
+                  className="psc-row flex items-center justify-between px-3 py-2 rounded-xl hover:bg-muted/50 transition-colors group"
+                  style={{ animationDelay: `${i * 35}ms` }}>
                   <div>
                     <p className="text-[12px] font-semibold text-foreground">{fmtShortPeriod(row.period)}</p>
                     <p className="text-[10px] text-muted-foreground">{STATUS[row.status].desc}</p>
@@ -686,21 +668,12 @@ export default function PeriodStatusControl() {
     <>
       <style>{css}</style>
 
-      {/* Toast — also portalled so it's never clipped */}
+      {/* Toast portal */}
       {toast && createPortal(
         <div
-          className={`
-            psc-toast fixed z-[99999] flex items-center gap-2
-            px-3 py-2 rounded-xl text-[11px] font-semibold shadow-xl border whitespace-nowrap
-            ${toast.type === "ok"
-              ? "bg-card border-emerald-500/30 text-emerald-400"
-              : "bg-card border-red-500/30 text-red-400"
-            }
-          `}
-          style={{
-            top:   panelPos.top - 48,
-            right: panelPos.right,
-          }}
+          className={`psc-toast fixed flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-semibold shadow-xl border whitespace-nowrap
+            ${toast.type === "ok" ? "bg-card border-emerald-500/30 text-emerald-400" : "bg-card border-red-500/30 text-red-400"}`}
+          style={{ top: panelPos.top - 48, left: panelPos.left, zIndex: 99999 }}
         >
           {toast.type === "ok" ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
           {toast.msg}
@@ -708,23 +681,16 @@ export default function PeriodStatusControl() {
         document.body
       )}
 
-      {/* Badge trigger — stays in normal flow */}
+      {/* Badge trigger */}
       <button
         ref={trigRef}
         onClick={() => { setOpen((o) => !o); setDrillPeriod(null); setShowAdjForm(false); }}
         aria-haspopup="true"
         aria-expanded={open}
-        className={`
-          flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold
-          border transition-all duration-150 select-none
-          hover:opacity-90 active:scale-95
-          ${STATUS[status].badge}
-        `}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-all duration-150 select-none hover:opacity-90 active:scale-95 ${STATUS[status].badge}`}
       >
         <span className="relative flex h-2 w-2">
-          {status === "open" && (
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
-          )}
+          {status === "open" && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />}
           <span className={`relative inline-flex rounded-full h-2 w-2 ${STATUS[status].dot}`} />
         </span>
         <span>{fmtShortPeriod(workingPeriod)}</span>
@@ -734,7 +700,6 @@ export default function PeriodStatusControl() {
         <ChevronDown size={11} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
 
-      {/* Portal dropdown */}
       {panelContent}
     </>
   );
