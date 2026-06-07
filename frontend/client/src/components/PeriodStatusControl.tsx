@@ -13,11 +13,13 @@
  *   GET /api/period/history?period=YYYY-MM
  *     → [ { from_status, to_status, changed_by_name, changed_at, note } ]
  *   GET /api/period/list
- *     → [ { period, status } ]   (sorted DESC, last 6 months)
+ *     → [ { period, status } ]   (sorted DESC, last 24 months)
+ *   GET /api/period/validate?period=YYYY-MM
+ *     → 200 OK or 422 with error message
  */
 
 import {
-  useState, useEffect, useRef, useCallback, Fragment,
+  useState, useEffect, useRef, useCallback,
 } from "react";
 import {
   ChevronDown, CheckCircle, Lock, LockOpen, Eye,
@@ -29,18 +31,19 @@ import { useAuth } from "@/contexts/AuthContext";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Status = "open" | "closed" | "locked";
+type Tab    = "actions" | "history" | "past";
 
 interface PeriodRow {
-  period: string;       // "YYYY-MM"
+  period: string;   // "YYYY-MM"
   status: Status;
 }
 
 interface HistoryEntry {
-  from_status:      Status;
-  to_status:        Status;
-  changed_by_name:  string;
-  changed_at:       string;
-  note:             string | null;
+  from_status:     Status;
+  to_status:       Status;
+  changed_by_name: string;
+  changed_at:      string;
+  note:            string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -60,8 +63,7 @@ function fmtShortPeriod(p: string): string {
 }
 
 function fmtDatetime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("default", {
+  return new Date(iso).toLocaleString("default", {
     month: "short", day: "numeric", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
@@ -72,7 +74,7 @@ function currentPeriod(): string {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Style maps ───────────────────────────────────────────────────────────────
 
 const BADGE_STYLES: Record<Status, string> = {
   open:   "bg-emerald-500/10 border-emerald-500/40 text-emerald-400",
@@ -96,6 +98,8 @@ const STATUS_LABELS: Record<Status, string> = {
   open: "Open", closed: "Closed", locked: "Locked",
 };
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
 function StatusPill({ status }: { status: Status }) {
   return (
     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${PILL_STYLES[status]}`}>
@@ -117,29 +121,13 @@ function TransitionPill({ status }: { status: Status }) {
   );
 }
 
-// ─── History list (reused for current period + per-past-period) ───────────────
-
 function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: boolean }) {
   if (loading) {
-    return (
-      <div className="py-6 text-center text-[12px] text-muted-foreground">
-        Loading…
-      </div>
-    );
+    return <div className="py-6 text-center text-[12px] text-muted-foreground">Loading…</div>;
   }
   if (!entries.length) {
-    return (
-      <div className="py-6 text-center text-[12px] text-muted-foreground">
-        No transitions recorded yet.
-      </div>
-    );
+    return <div className="py-6 text-center text-[12px] text-muted-foreground">No transitions recorded yet.</div>;
   }
-
-  const ICON: Record<Status, React.ReactNode> = {
-    open:   <LockOpen  size={8} />,
-    closed: <Lock      size={8} />,
-    locked: <Lock      size={8} />,
-  };
 
   const DOT_COLOR: Record<Status, string> = {
     open:   "border-emerald-500 text-emerald-500 bg-emerald-500/10",
@@ -147,19 +135,22 @@ function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: b
     locked: "border-red-500    text-red-500    bg-red-500/10",
   };
 
+  const ICON: Record<Status, React.ReactNode> = {
+    open:   <LockOpen size={8} />,
+    closed: <Lock     size={8} />,
+    locked: <Lock     size={8} />,
+  };
+
   return (
     <div>
       {entries.map((e, i) => (
         <div key={i} className="flex gap-2.5 px-3.5 py-2.5 border-b border-border last:border-0 relative">
-          {/* vertical line */}
           {i < entries.length - 1 && (
             <div className="absolute left-[21px] top-[26px] bottom-[-10px] w-px bg-border" />
           )}
-          {/* dot */}
           <div className={`w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center border-[1.5px] mt-0.5 ${DOT_COLOR[e.to_status]}`}>
             {ICON[e.to_status]}
           </div>
-          {/* body */}
           <div className="flex-1 min-w-0">
             <p className="text-[12px] font-medium text-foreground">{e.changed_by_name}</p>
             <div className="flex items-center gap-1 mt-0.5 flex-wrap">
@@ -178,65 +169,123 @@ function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: b
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+function ActionBtn({
+  icon, label, desc, danger = false, disabled = false, onClick,
+}: {
+  icon:      React.ReactNode;
+  label:     string;
+  desc:      string;
+  danger?:   boolean;
+  disabled?: boolean;
+  onClick:   () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`
+        w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left
+        border border-border bg-muted/40 transition-colors
+        disabled:opacity-35 disabled:cursor-not-allowed
+        ${danger
+          ? "hover:bg-destructive/5 enabled:hover:border-destructive/30"
+          : "hover:bg-accent enabled:hover:border-border"
+        }
+      `}
+    >
+      <span className={`shrink-0 ${danger ? "text-destructive" : "text-muted-foreground"}`}>
+        {icon}
+      </span>
+      <div>
+        <p className={`text-[12px] font-medium ${danger ? "text-destructive" : "text-foreground"}`}>
+          {label}
+        </p>
+        <p className="text-[11px] text-muted-foreground">{desc}</p>
+      </div>
+    </button>
+  );
+}
 
-type Tab = "actions" | "history" | "past";
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function PeriodStatusControl() {
   const { user } = useAuth();
 
-  const period = currentPeriod();
+  const todayPeriod = currentPeriod();
 
-  const [open,         setOpen]         = useState(false);
-  const [status,       setStatus]       = useState<Status>("open");
-  const [pastPeriods,  setPastPeriods]  = useState<PeriodRow[]>([]);
-  const [history,      setHistory]      = useState<HistoryEntry[]>([]);
-  const [histLoading,  setHistLoading]  = useState(false);
-  const [tab,          setTab]          = useState<Tab>("actions");
-  const [acting,       setActing]       = useState(false);
+  // ── State ─────────────────────────────────────────────────────────────────
 
-  // Per-past-period history drill-in
-  const [drillPeriod,  setDrillPeriod]  = useState<PeriodRow | null>(null);
-  const [drillHist,    setDrillHist]    = useState<HistoryEntry[]>([]);
-  const [drillLoading, setDrillLoading] = useState(false);
+  const [open,           setOpen]           = useState(false);
+  const [tab,            setTab]            = useState<Tab>("actions");
+  const [acting,         setActing]         = useState(false);
 
-  const panelRef  = useRef<HTMLDivElement>(null);
-  const trigRef   = useRef<HTMLButtonElement>(null);
+  // The period the user has chosen to act on (defaults to current month)
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(todayPeriod);
 
-  // ── Fetch current period status ───────────────────────────────────────────
+  // Status of the selected period
+  const [status,         setStatus]         = useState<Status>("open");
 
-  const fetchStatus = useCallback(async () => {
+  // Past periods list (excludes current month)
+  const [pastPeriods,    setPastPeriods]    = useState<PeriodRow[]>([]);
+
+  // History for the current-period history tab
+  const [history,        setHistory]        = useState<HistoryEntry[]>([]);
+  const [histLoading,    setHistLoading]    = useState(false);
+
+  // Drill-in: past period history
+  const [drillPeriod,    setDrillPeriod]    = useState<PeriodRow | null>(null);
+  const [drillHist,      setDrillHist]      = useState<HistoryEntry[]>([]);
+  const [drillLoading,   setDrillLoading]   = useState(false);
+
+  const panelRef = useRef<HTMLDivElement>(null);
+  const trigRef  = useRef<HTMLButtonElement>(null);
+
+  // ── Data fetching ─────────────────────────────────────────────────────────
+
+  const fetchStatus = useCallback(async (p: string) => {
     try {
-      const r = await apiCall<any>(`/api/period/status?period=${period}`);
+      const r = await apiCall<any>(`/api/period/status?period=${p}`);
       setStatus(r.status ?? "open");
-    } catch { /* default open */ }
-  }, [period]);
-
-  // ── Fetch past periods list ────────────────────────────────────────────────
+    } catch {
+      setStatus("open");
+    }
+  }, []);
 
   const fetchPast = useCallback(async () => {
     try {
       const r = await apiCall<PeriodRow[]>("/api/period/list");
-      setPastPeriods((r ?? []).filter((p) => p.period !== period));
-    } catch { setPastPeriods([]); }
-  }, [period]);
+      setPastPeriods((r ?? []).filter((p) => p.period !== todayPeriod));
+    } catch {
+      setPastPeriods([]);
+    }
+  }, [todayPeriod]);
 
-  // ── Fetch current period history ──────────────────────────────────────────
-
-  const fetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async (p: string) => {
     setHistLoading(true);
     try {
-      const r = await apiCall<HistoryEntry[]>(`/api/period/history?period=${period}`);
+      const r = await apiCall<HistoryEntry[]>(`/api/period/history?period=${p}`);
       setHistory(r ?? []);
-    } catch { setHistory([]); }
-    finally { setHistLoading(false); }
-  }, [period]);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistLoading(false);
+    }
+  }, []);
 
-  useEffect(() => { fetchStatus(); fetchPast(); }, [fetchStatus, fetchPast]);
-
+  // Reload status whenever the selected period changes
   useEffect(() => {
-    if (open && tab === "history") fetchHistory();
-  }, [open, tab, fetchHistory]);
+    fetchStatus(selectedPeriod);
+  }, [selectedPeriod, fetchStatus]);
+
+  // Load past periods list on mount
+  useEffect(() => {
+    fetchPast();
+  }, [fetchPast]);
+
+  // Load history tab data when visible
+  useEffect(() => {
+    if (open && tab === "history") fetchHistory(selectedPeriod);
+  }, [open, tab, selectedPeriod, fetchHistory]);
 
   // ── Close on outside click / Escape ──────────────────────────────────────
 
@@ -249,8 +298,8 @@ export default function PeriodStatusControl() {
     if (!open) return;
     function onMouse(e: MouseEvent) {
       if (
-        panelRef.current  && !panelRef.current.contains(e.target as Node) &&
-        trigRef.current   && !trigRef.current.contains(e.target as Node)
+        panelRef.current && !panelRef.current.contains(e.target as Node) &&
+        trigRef.current  && !trigRef.current.contains(e.target as Node)
       ) closePanel();
     }
     function onKey(e: KeyboardEvent) {
@@ -271,22 +320,34 @@ export default function PeriodStatusControl() {
     const confirmed = window.confirm(
       newStatus === "locked"
         ? "Hard lock is irreversible. The period will be frozen permanently. Continue?"
-        : `Set period to "${newStatus}"?`
+        : `Set ${fmtShortPeriod(selectedPeriod)} to "${newStatus}"?`
     );
     if (!confirmed) return;
+
     setActing(true);
     try {
       await apiCall("/api/period/status", {
         method: "POST",
-        body: JSON.stringify({ period, status: newStatus }),
+        body: JSON.stringify({ period: selectedPeriod, status: newStatus }),
       });
       setStatus(newStatus);
       fetchPast();
-      if (tab === "history") fetchHistory();
+      if (tab === "history") fetchHistory(selectedPeriod);
     } catch (err: any) {
       alert(err?.message ?? "Failed to update period status.");
     } finally {
       setActing(false);
+    }
+  }
+
+  // ── Pre-close validation ──────────────────────────────────────────────────
+
+  async function runValidation() {
+    try {
+      await apiCall(`/api/period/validate?period=${selectedPeriod}`);
+      alert("All pre-close checks passed.");
+    } catch (err: any) {
+      alert(err?.message ?? "Validation failed.");
     }
   }
 
@@ -298,8 +359,11 @@ export default function PeriodStatusControl() {
     try {
       const r = await apiCall<HistoryEntry[]>(`/api/period/history?period=${row.period}`);
       setDrillHist(r ?? []);
-    } catch { setDrillHist([]); }
-    finally { setDrillLoading(false); }
+    } catch {
+      setDrillHist([]);
+    } finally {
+      setDrillLoading(false);
+    }
   }
 
   // ── Role guards ───────────────────────────────────────────────────────────
@@ -308,14 +372,23 @@ export default function PeriodStatusControl() {
   const canLock   = ["admin"].includes(user?.role ?? "");
   const canReopen = ["admin", "manager"].includes(user?.role ?? "");
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── All periods available in the selector (current + past) ────────────────
 
-  const badgeLabel = `${fmtShortPeriod(period)} · ${STATUS_LABELS[status]}`;
+  const allPeriods: PeriodRow[] = [
+    { period: todayPeriod, status: selectedPeriod === todayPeriod ? status : "open" },
+    ...pastPeriods,
+  ];
+
+  // ── Badge label reflects the selected period, not just today ──────────────
+
+  const badgeLabel = `${fmtShortPeriod(selectedPeriod)} · ${STATUS_LABELS[status]}`;
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="relative">
 
-      {/* ── Badge ── */}
+      {/* ── Badge trigger ── */}
       <button
         ref={trigRef}
         onClick={() => { setOpen((o) => !o); setDrillPeriod(null); }}
@@ -343,7 +416,7 @@ export default function PeriodStatusControl() {
           "
         >
           {drillPeriod ? (
-            /* ── Drill: past period history ── */
+            /* ── Drill view: past period history ── */
             <>
               <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border">
                 <button
@@ -372,7 +445,7 @@ export default function PeriodStatusControl() {
               {/* Header */}
               <div className="flex items-start justify-between px-3.5 py-2.5 border-b border-border">
                 <div>
-                  <p className="text-[13px] font-medium text-foreground">{fmtPeriod(period)}</p>
+                  <p className="text-[13px] font-medium text-foreground">{fmtPeriod(selectedPeriod)}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {status === "open"   && "Current period · All modules affected"}
                     {status === "closed" && "Soft closed · Writes blocked"}
@@ -405,6 +478,29 @@ export default function PeriodStatusControl() {
               {/* ── Tab: Actions ── */}
               {tab === "actions" && (
                 <div className="p-2 flex flex-col gap-1.5">
+
+                  {/* Period selector */}
+                  <select
+                    value={selectedPeriod}
+                    onChange={(e) => setSelectedPeriod(e.target.value)}
+                    disabled={acting}
+                    className="
+                      w-full text-[12px] px-2.5 py-1.5 rounded-lg
+                      border border-border bg-muted/40 text-foreground
+                      disabled:opacity-50
+                    "
+                  >
+                    <option value={todayPeriod}>
+                      {fmtShortPeriod(todayPeriod)} (current)
+                    </option>
+                    {pastPeriods.map((p) => (
+                      <option key={p.period} value={p.period}>
+                        {fmtShortPeriod(p.period)} · {STATUS_LABELS[p.status]}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Actions for open period */}
                   {status === "open" && (
                     <>
                       <ActionBtn
@@ -412,7 +508,7 @@ export default function PeriodStatusControl() {
                         label="Run pre-close checks"
                         desc="Validate before closing"
                         disabled={acting}
-                        onClick={() => apiCall(`/api/period/validate?period=${period}`).catch(() => {})}
+                        onClick={runValidation}
                       />
                       {canClose && (
                         <ActionBtn
@@ -437,6 +533,7 @@ export default function PeriodStatusControl() {
                     </>
                   )}
 
+                  {/* Actions for closed period */}
                   {status === "closed" && (
                     <>
                       {canReopen && (
@@ -453,7 +550,7 @@ export default function PeriodStatusControl() {
                         label="View snapshot"
                         desc="Figures at close time"
                         disabled={acting}
-                        onClick={() => { setTab("history"); }}
+                        onClick={() => setTab("history")}
                       />
                       <div className="h-px bg-border my-0.5" />
                       {canLock && (
@@ -469,6 +566,7 @@ export default function PeriodStatusControl() {
                     </>
                   )}
 
+                  {/* Actions for locked period */}
                   {status === "locked" && (
                     <>
                       <ActionBtn
@@ -476,7 +574,7 @@ export default function PeriodStatusControl() {
                         label="View snapshot"
                         desc="Figures frozen at lock time"
                         disabled={acting}
-                        onClick={() => { setTab("history"); }}
+                        onClick={() => setTab("history")}
                       />
                       <ActionBtn
                         icon={<SlidersHorizontal size={14} />}
@@ -508,7 +606,9 @@ export default function PeriodStatusControl() {
               {tab === "past" && (
                 <div className="p-2">
                   {pastPeriods.length === 0 ? (
-                    <p className="py-4 text-center text-[12px] text-muted-foreground">No past periods.</p>
+                    <p className="py-4 text-center text-[12px] text-muted-foreground">
+                      No past periods.
+                    </p>
                   ) : pastPeriods.map((row) => (
                     <div
                       key={row.period}
@@ -534,44 +634,5 @@ export default function PeriodStatusControl() {
         </div>
       )}
     </div>
-  );
-}
-
-// ─── ActionBtn ────────────────────────────────────────────────────────────────
-
-function ActionBtn({
-  icon, label, desc, danger = false, disabled = false, onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  desc: string;
-  danger?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`
-        w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left
-        border border-border bg-muted/40 transition-colors
-        disabled:opacity-35 disabled:cursor-not-allowed
-        ${danger
-          ? "hover:bg-destructive/5 enabled:hover:border-destructive/30"
-          : "hover:bg-accent enabled:hover:border-border"
-        }
-      `}
-    >
-      <span className={`shrink-0 ${danger ? "text-destructive" : "text-muted-foreground"}`}>
-        {icon}
-      </span>
-      <div>
-        <p className={`text-[12px] font-medium ${danger ? "text-destructive" : "text-foreground"}`}>
-          {label}
-        </p>
-        <p className="text-[11px] text-muted-foreground">{desc}</p>
-      </div>
-    </button>
   );
 }

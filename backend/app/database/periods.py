@@ -408,9 +408,9 @@ def list_period_history(
         cur.execute("""
             SELECT
                 h.*,
-                u.name AS changed_by_name
+                u.display_name AS changed_by_name
             FROM company_period_status_history h
-            LEFT JOIN users u ON u.id = h.changed_by
+            LEFT JOIN app_users u ON u.id = h.changed_by
             WHERE h.company_id = %s AND h.period = %s
             ORDER BY h.changed_at ASC
         """, (company_id, period))
