@@ -1,3 +1,10 @@
+## [3.31.4](https://github.com/mido685/stark_costing_system/compare/v3.31.3...v3.31.4) (2026-06-07)
+
+
+### Bug Fixes
+
+* fix the new periods ([a40b330](https://github.com/mido685/stark_costing_system/commit/a40b330368f78959e1ba4a6c8322d3fbb32393e9))
+
 ## [3.31.3](https://github.com/mido685/stark_costing_system/compare/v3.31.2...v3.31.3) (2026-06-07)
 
 
