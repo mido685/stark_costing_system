@@ -799,6 +799,22 @@ def init_db() -> None:
                 approved_at  TIMESTAMPTZ
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS period_backups (
+                id           SERIAL PRIMARY KEY,
+                company_id   INTEGER NOT NULL REFERENCES companies(id),
+                branch_id    INTEGER NOT NULL REFERENCES branches(id),
+                period       VARCHAR(7) NOT NULL,
+                period_start DATE NOT NULL,
+                period_end   DATE NOT NULL,
+                backup_data  JSONB NOT NULL DEFAULT '{}',
+                locked_by    VARCHAR(255) NOT NULL DEFAULT '',
+                notes        TEXT NOT NULL DEFAULT '',
+                created_by   INTEGER REFERENCES app_users(id),
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(company_id, branch_id, period)
+            )
+        """)
 
         # ── 49. Governance Action Log ─────────────────────────────────────────
         cur.execute("""

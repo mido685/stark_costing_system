@@ -6,7 +6,7 @@ import {
   ChevronRight, Loader2, AlertCircle, DollarSign,
   FileDown, History, TrendingUp, TrendingDown, Minus, Lock,
   Search, ChevronLeft, Eye, Phone, Mail, MapPin, Globe,
-  Tag, Upload, Pencil,
+  Tag, Upload, Pencil,Activity
 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import {
@@ -1220,7 +1220,12 @@ export default function Masters() {
         <div className="flex items-center gap-3">
         
           <span className={`text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${selectedPeriodLocked ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : selectedPeriodClosed ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
-            <Lock className="w-3 h-3" />{selectedPeriodState.toUpperCase()}
+            {selectedPeriodLocked
+            ? <Lock className="w-3 h-3" />
+            : selectedPeriodClosed
+            ? <Lock className="w-3 h-3" />
+            : <Activity className="w-3 h-3" />}
+          {selectedPeriodState.toUpperCase()}
           </span>
         </div>
       </div>
