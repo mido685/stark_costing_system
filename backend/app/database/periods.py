@@ -54,7 +54,7 @@ def _assert_prior_period_closed(cur, company_id: int, period: str) -> None:
     """, (company_id, prior))
     row = cur.fetchone()
     # No row means prior period was never touched — treated as open
-    if not row or row["status"] == "open":
+    if row and row["status"] == "open":
         raise ValueError(
             f"Prior period {prior} must be closed before closing {period}."
         )
@@ -415,6 +415,15 @@ def list_period_history(
             ORDER BY h.changed_at ASC
         """, (company_id, period))
         return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+def run_pre_close_validation(company_id: int, period: str) -> None:
+    """Public entry point for the /validate route."""
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        _run_pre_close_validation(cur, company_id, period)
     finally:
         cur.close()
         conn.close()

@@ -15,13 +15,10 @@ from app.database.periods import (
     list_period_statuses,
     list_period_history,
     is_period_frozen,
-    _assert_prior_period_closed,        # add these
-    _assert_no_pending_transactions,
-    _assert_no_pending_approvals,
+    run_pre_close_validation,
 )
 from app.security.dependencies import get_current_user, require_roles
 from app.api.responses import error, success
-from app.database.connection import get_connection, dict_cursor
 
 router = APIRouter(prefix="/period", tags=["periods"])
 
@@ -40,25 +37,6 @@ def get_status(
     company_id = current_user["company_id"]
     row = get_period_status(company_id, period)
     return success("Period status fetched", **row)
-
-@router.get("/validate")
-def validate_period(
-    period: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
-    current_user: dict = Depends(get_current_user),
-):
-    company_id = current_user["company_id"]
-    conn = get_connection()
-    cur = dict_cursor(conn)
-    try:
-        _assert_prior_period_closed(cur, company_id, period)
-        _assert_no_pending_transactions(cur, company_id, period)
-        _assert_no_pending_approvals(cur, company_id, period)
-        return success("All pre-close checks passed", checks_passed=True)
-    except ValueError as e:
-        return error(str(e), status=422)
-    finally:
-        cur.close()
-        conn.close()
 
 
 # ─── POST /api/period/status ──────────────────────────────────────────────────
@@ -167,3 +145,14 @@ def check_is_closed(
         is_locked=status == "locked",
         status=status,
     )
+
+@router.get("/validate")
+def validate_period(
+    period: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        run_pre_close_validation(current_user["company_id"], period)
+        return success("All pre-close checks passed", checks_passed=True)
+    except ValueError as e:
+        return error(str(e), status=422)

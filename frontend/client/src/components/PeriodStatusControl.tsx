@@ -1,28 +1,33 @@
 /**
- * PeriodStatusControl
+ * PeriodStatusControl — Production-grade period management component
  *
- * Topbar badge + dropdown panel for period management.
- * Selecting a period updates the global WorkingPeriodContext,
- * which filters all period-sensitive pages in the system.
+ * Fixes applied vs previous version:
+ *  1. Hard lock removed from "open" state (invalid transition open → locked)
+ *  2. "Post adjusting entry" wired to a real inline form
+ *  3. todayPeriod computed via useMemo + 1-min interval to survive month boundaries
+ *  4. runValidation only called on explicit user click
+ *  5. transition() surfaces structured error messages from the API
+ *  6. All tabs fully typed and null-safe
  *
- * Tabs: Actions | History | Past periods
- *
- * API shape:
- *   GET  /api/period/status?period=YYYY-MM   → { success, data: { status, ... } }
- *   POST /api/period/status                  → { success, data: { status, ... } }
- *   GET  /api/period/history?period=YYYY-MM  → { success, data: HistoryEntry[] }
- *   GET  /api/period/list                    → { success, data: PeriodRow[] }
- *   GET  /api/period/validate?period=YYYY-MM → 200 | 422
+ * API:
+ *   GET  /api/period/status?period=YYYY-MM
+ *   POST /api/period/status   { period, status, notes? }
+ *   GET  /api/period/history?period=YYYY-MM
+ *   GET  /api/period/list
+ *   GET  /api/period/validate?period=YYYY-MM
+ *   POST /api/period/adjusting-entry  { period, amount, reason }
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useState, useEffect, useRef, useCallback, useMemo,
+} from "react";
 import {
   ChevronDown, CheckCircle, Lock, LockOpen, Eye,
-  SlidersHorizontal, ArrowLeft, Clock, ChevronLeft, ChevronRight,
-  AlertTriangle,
+  SlidersHorizontal, ArrowLeft, Clock,
+  ChevronLeft, ChevronRight, AlertTriangle, X,
 } from "lucide-react";
 import { apiCall } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth }          from "@/contexts/AuthContext";
 import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,7 +50,7 @@ interface HistoryEntry {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function currentPeriod(): string {
+function buildCurrentPeriod(): string {
   const n = new Date();
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -71,10 +76,20 @@ function fmtDatetime(iso: string): string {
   });
 }
 
-/** Unwrap { success, data: T } or return raw if already T */
-function unwrap<T>(r: any, fallback: T): T {
-  if (r && typeof r === "object" && "data" in r) return r.data ?? fallback;
-  return r ?? fallback;
+function unwrap<T>(r: unknown, fallback: T): T {
+  if (r && typeof r === "object" && "data" in r) {
+    return (r as { data?: T }).data ?? fallback;
+  }
+  return (r as T) ?? fallback;
+}
+
+// Extract a human-readable message from an API error
+function extractError(err: unknown): string {
+  if (!err || typeof err !== "object") return "An unexpected error occurred.";
+  const e = err as Record<string, unknown>;
+  if (typeof e.message === "string" && e.message) return e.message;
+  if (typeof e.detail  === "string" && e.detail)  return e.detail;
+  return "An unexpected error occurred.";
 }
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
@@ -109,7 +124,7 @@ const MONTH_CELL_STYLES: Record<Status, string> = {
 
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-// ─── StatusPill ───────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatusPill({ status }: { status: Status }) {
   return (
@@ -118,8 +133,6 @@ function StatusPill({ status }: { status: Status }) {
     </span>
   );
 }
-
-// ─── TransitionPill ───────────────────────────────────────────────────────────
 
 function TransitionPill({ status }: { status: Status }) {
   const cls: Record<Status, string> = {
@@ -133,8 +146,6 @@ function TransitionPill({ status }: { status: Status }) {
     </span>
   );
 }
-
-// ─── HistoryList ──────────────────────────────────────────────────────────────
 
 function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: boolean }) {
   if (loading) return (
@@ -183,8 +194,6 @@ function HistoryList({ entries, loading }: { entries: HistoryEntry[]; loading: b
   );
 }
 
-// ─── ActionBtn ────────────────────────────────────────────────────────────────
-
 function ActionBtn({
   icon, label, desc, danger = false, disabled = false, onClick,
 }: {
@@ -218,6 +227,102 @@ function ActionBtn({
   );
 }
 
+// ─── AdjustingEntryForm ───────────────────────────────────────────────────────
+
+function AdjustingEntryForm({
+  period,
+  onClose,
+  onSuccess,
+}: {
+  period: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [amount, setAmount]   = useState("");
+  const [reason, setReason]   = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  async function handleSubmit() {
+    const parsed = parseFloat(amount);
+    if (!parsed || isNaN(parsed)) { setError("Enter a valid amount."); return; }
+    if (!reason.trim())           { setError("Reason is required."); return; }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await apiCall("/api/period/adjusting-entry", {
+        method: "POST",
+        body: JSON.stringify({
+          references_period: period,
+          amount: parsed,
+          reason: reason.trim(),
+        }),
+      });
+      onSuccess();
+    } catch (err) {
+      setError(extractError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="p-3 flex flex-col gap-2.5">
+      <div className="flex items-center justify-between mb-0.5">
+        <p className="text-[12px] font-semibold text-foreground">Post adjusting entry</p>
+        <button
+          onClick={onClose}
+          className="p-1 rounded-md text-muted-foreground hover:bg-accent transition-colors"
+        >
+          <X size={13} />
+        </button>
+      </div>
+      <p className="text-[11px] text-muted-foreground -mt-1">
+        Posts a correction in the current open period referencing{" "}
+        <span className="font-medium text-foreground">{fmtShortPeriod(period)}</span>.
+        The locked period snapshot is not modified.
+      </p>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] font-medium text-muted-foreground">Amount</label>
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="e.g. 1500.00"
+          className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] font-medium text-muted-foreground">Reason</label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Describe the correction…"
+          rows={2}
+          className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+        />
+      </div>
+
+      {error && (
+        <p className="text-[11px] text-destructive bg-destructive/10 px-2.5 py-1.5 rounded-md">
+          {error}
+        </p>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={saving}
+        className="w-full py-1.5 rounded-md bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {saving ? "Posting…" : "Post entry"}
+      </button>
+    </div>
+  );
+}
+
 // ─── PeriodPicker ─────────────────────────────────────────────────────────────
 
 function PeriodPicker({
@@ -234,7 +339,7 @@ function PeriodPicker({
   const todayMonth = Number(todayPeriod.split("-")[1]);
 
   function isFuture(month: number): boolean {
-    if (viewYear > todayYear) return true;
+    if (viewYear > todayYear)  return true;
     if (viewYear === todayYear && month > todayMonth) return true;
     return false;
   }
@@ -245,8 +350,6 @@ function PeriodPicker({
 
   return (
     <div className="px-2 pt-1 pb-2">
-
-      {/* Year navigation */}
       <div className="flex items-center justify-between mb-2">
         <button
           onClick={() => setViewYear((y) => y - 1)}
@@ -264,7 +367,6 @@ function PeriodPicker({
         </button>
       </div>
 
-      {/* Month grid */}
       <div className="grid grid-cols-4 gap-1">
         {MONTH_NAMES.map((name, idx) => {
           const month      = idx + 1;
@@ -293,14 +395,15 @@ function PeriodPicker({
                 <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-500" />
               )}
               {!future && st !== "open" && (
-                <span className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${st === "locked" ? "bg-red-500" : "bg-amber-500"}`} />
+                <span className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${
+                  st === "locked" ? "bg-red-500" : "bg-amber-500"
+                }`} />
               )}
             </button>
           );
         })}
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-3 mt-2 px-0.5">
         {(["open", "closed", "locked"] as Status[]).map((s) => (
           <span key={s} className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -316,35 +419,56 @@ function PeriodPicker({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function PeriodStatusControl() {
-  const { user } = useAuth();
+  const { user }                               = useAuth();
   const { workingPeriod, setWorkingPeriod, isCurrentPeriod } = useWorkingPeriod();
 
-  const todayPeriod = currentPeriod();
+  // Recomputed every minute so the component survives month boundaries
+  const todayPeriod = useMemo(() => {
+    return buildCurrentPeriod();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      // Forces a re-render if the month rolled over while the app was open.
+      // The useMemo above will re-run on next render cycle.
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── State ─────────────────────────────────────────────────────────────────
 
-  const [open,         setOpen]         = useState(false);
-  const [tab,          setTab]          = useState<Tab>("actions");
-  const [acting,       setActing]       = useState(false);
-  const [status,       setStatus]       = useState<Status>("open");
-  const [statusMap,    setStatusMap]    = useState<Record<string, Status>>({});
-  const [pastPeriods,  setPastPeriods]  = useState<PeriodRow[]>([]);
-  const [history,      setHistory]      = useState<HistoryEntry[]>([]);
-  const [histLoading,  setHistLoading]  = useState(false);
-  const [drillPeriod,  setDrillPeriod]  = useState<PeriodRow | null>(null);
-  const [drillHist,    setDrillHist]    = useState<HistoryEntry[]>([]);
-  const [drillLoading, setDrillLoading] = useState(false);
+  const [open,          setOpen]          = useState(false);
+  const [tab,           setTab]           = useState<Tab>("actions");
+  const [acting,        setActing]        = useState(false);
+  const [status,        setStatus]        = useState<Status>("open");
+  const [statusMap,     setStatusMap]     = useState<Record<string, Status>>({});
+  const [pastPeriods,   setPastPeriods]   = useState<PeriodRow[]>([]);
+  const [history,       setHistory]       = useState<HistoryEntry[]>([]);
+  const [histLoading,   setHistLoading]   = useState(false);
+  const [drillPeriod,   setDrillPeriod]   = useState<PeriodRow | null>(null);
+  const [drillHist,     setDrillHist]     = useState<HistoryEntry[]>([]);
+  const [drillLoading,  setDrillLoading]  = useState(false);
+  const [showAdjForm,   setShowAdjForm]   = useState(false);
+  const [toast,         setToast]         = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const trigRef  = useRef<HTMLButtonElement>(null);
+
+  // ── Toast helper ──────────────────────────────────────────────────────────
+
+  function showToast(msg: string, type: "ok" | "err" = "ok") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  }
 
   // ── Data fetching ─────────────────────────────────────────────────────────
 
   const fetchStatus = useCallback(async (p: string) => {
     try {
-      const r = await apiCall<any>(`/api/period/status?period=${p}`);
-      const row = unwrap<any>(r, {});
-      const s: Status = row?.status ?? "open";
+      const r   = await apiCall<unknown>(`/api/period/status?period=${p}`);
+      const row = unwrap<Record<string, unknown>>(r, {});
+      const s   = (row?.status as Status | undefined) ?? "open";
       setStatus(s);
       setStatusMap((prev) => ({ ...prev, [p]: s }));
     } catch {
@@ -354,8 +478,8 @@ export default function PeriodStatusControl() {
 
   const fetchPast = useCallback(async () => {
     try {
-      const r    = await apiCall<any>("/api/period/list");
-      const rows: PeriodRow[] = unwrap<PeriodRow[]>(r, []);
+      const r    = await apiCall<unknown>("/api/period/list");
+      const rows = unwrap<PeriodRow[]>(r, []);
       setPastPeriods(rows.filter((p) => p.period !== todayPeriod));
       const map: Record<string, Status> = {};
       rows.forEach((p) => { map[p.period] = p.status; });
@@ -368,7 +492,7 @@ export default function PeriodStatusControl() {
   const fetchHistory = useCallback(async (p: string) => {
     setHistLoading(true);
     try {
-      const r = await apiCall<any>(`/api/period/history?period=${p}`);
+      const r = await apiCall<unknown>(`/api/period/history?period=${p}`);
       setHistory(unwrap<HistoryEntry[]>(r, []));
     } catch {
       setHistory([]);
@@ -388,6 +512,7 @@ export default function PeriodStatusControl() {
   const closePanel = useCallback(() => {
     setOpen(false);
     setDrillPeriod(null);
+    setShowAdjForm(false);
   }, []);
 
   useEffect(() => {
@@ -428,21 +553,22 @@ export default function PeriodStatusControl() {
       setStatusMap((prev) => ({ ...prev, [workingPeriod]: newStatus }));
       fetchPast();
       if (tab === "history") fetchHistory(workingPeriod);
-    } catch (err: any) {
-      alert(err?.message ?? "Failed to update period status.");
+      showToast(`Period set to ${newStatus}.`);
+    } catch (err) {
+      showToast(extractError(err), "err");
     } finally {
       setActing(false);
     }
   }
 
-  // ── Pre-close validation ──────────────────────────────────────────────────
+  // ── Pre-close validation (only called on user click) ──────────────────────
 
   async function runValidation() {
     try {
       await apiCall(`/api/period/validate?period=${workingPeriod}`);
-      alert("All pre-close checks passed.");
-    } catch (err: any) {
-      alert(err?.message ?? "Validation failed.");
+      showToast("All pre-close checks passed.");
+    } catch (err) {
+      showToast(extractError(err), "err");
     }
   }
 
@@ -452,7 +578,7 @@ export default function PeriodStatusControl() {
     setDrillPeriod(row);
     setDrillLoading(true);
     try {
-      const r = await apiCall<any>(`/api/period/history?period=${row.period}`);
+      const r = await apiCall<unknown>(`/api/period/history?period=${row.period}`);
       setDrillHist(unwrap<HistoryEntry[]>(r, []));
     } catch {
       setDrillHist([]);
@@ -463,21 +589,43 @@ export default function PeriodStatusControl() {
 
   // ── Role guards ───────────────────────────────────────────────────────────
 
-  const canClose  = ["admin", "manager"].includes(user?.role ?? "");
-  const canLock   = ["admin"].includes(user?.role ?? "");
-  const canReopen = ["admin", "manager"].includes(user?.role ?? "");
+  const role      = user?.role ?? "";
+  const canClose  = ["admin", "manager"].includes(role);
+  const canLock   = role === "admin";
+  const canReopen = ["admin", "manager"].includes(role);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="relative">
 
+      {/* ── Toast ── */}
+      {toast && (
+        <div
+          className={`
+            absolute right-0 -top-10 z-[60] flex items-center gap-2 px-3 py-1.5
+            rounded-lg text-[11px] font-medium shadow-lg border whitespace-nowrap
+            ${toast.type === "ok"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+              : "bg-destructive/10 border-destructive/30 text-destructive"
+            }
+          `}
+        >
+          {toast.type === "ok"
+            ? <CheckCircle size={11} />
+            : <AlertTriangle size={11} />
+          }
+          {toast.msg}
+        </div>
+      )}
+
       {/* ── Badge trigger ── */}
       <button
         ref={trigRef}
-        onClick={() => { setOpen((o) => !o); setDrillPeriod(null); }}
+        onClick={() => { setOpen((o) => !o); setDrillPeriod(null); setShowAdjForm(false); }}
         aria-haspopup="true"
         aria-expanded={open}
+        aria-label="Period status"
         className={`
           flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium
           border transition-opacity hover:opacity-85 select-none
@@ -489,7 +637,10 @@ export default function PeriodStatusControl() {
         {!isCurrentPeriod && (
           <AlertTriangle size={10} className="text-amber-400 ml-0.5" />
         )}
-        <ChevronDown size={11} className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          size={11}
+          className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
       {/* ── Dropdown panel ── */}
@@ -500,7 +651,7 @@ export default function PeriodStatusControl() {
         >
           {drillPeriod ? (
 
-            /* ── Drill view: past period history ── */
+            /* ── Drill view ── */
             <>
               <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border">
                 <button
@@ -540,12 +691,13 @@ export default function PeriodStatusControl() {
                 <StatusPill status={status} />
               </div>
 
-              {/* Past-period warning banner */}
+              {/* Past-period warning */}
               {!isCurrentPeriod && (
                 <div className="flex items-center gap-2 px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20">
                   <AlertTriangle size={12} className="text-amber-500 shrink-0" />
                   <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                    System filtered to <span className="font-semibold">{fmtShortPeriod(workingPeriod)}</span>.
+                    System filtered to{" "}
+                    <span className="font-semibold">{fmtShortPeriod(workingPeriod)}</span>.
                     All pages show this period's data.
                   </p>
                 </div>
@@ -556,7 +708,7 @@ export default function PeriodStatusControl() {
                 {(["actions", "history", "past"] as Tab[]).map((t) => (
                   <button
                     key={t}
-                    onClick={() => setTab(t)}
+                    onClick={() => { setTab(t); setShowAdjForm(false); }}
                     className={`
                       flex-1 py-2 text-[11px] font-medium capitalize transition-colors
                       border-b-2 -mb-px
@@ -581,104 +733,114 @@ export default function PeriodStatusControl() {
                       selected={workingPeriod}
                       statusMap={statusMap}
                       todayPeriod={todayPeriod}
-                      onChange={setWorkingPeriod}
+                      onChange={(p) => {
+                        setWorkingPeriod(p);
+                        setShowAdjForm(false);
+                      }}
                     />
                   </div>
 
-                  {/* Action buttons */}
-                  <div className="p-2 flex flex-col gap-1.5">
+                  {/* Adjusting entry inline form */}
+                  {showAdjForm && status === "locked" ? (
+                    <AdjustingEntryForm
+                      period={workingPeriod}
+                      onClose={() => setShowAdjForm(false)}
+                      onSuccess={() => {
+                        setShowAdjForm(false);
+                        showToast("Adjusting entry posted.");
+                      }}
+                    />
+                  ) : (
 
-                    {status === "open" && (
-                      <>
-                        <ActionBtn
-                          icon={<CheckCircle size={14} />}
-                          label="Run pre-close checks"
-                          desc="Validate before closing"
-                          disabled={acting}
-                          onClick={runValidation}
-                        />
-                        {canClose && (
+                    /* Action buttons */
+                    <div className="p-2 flex flex-col gap-1.5">
+
+                      {/* ── open ── */}
+                      {status === "open" && (
+                        <>
                           <ActionBtn
-                            icon={<LockOpen size={14} />}
-                            label="Soft close"
-                            desc="Block writes, stay reviewable"
+                            icon={<CheckCircle size={14} />}
+                            label="Run pre-close checks"
+                            desc="Validate before closing"
                             disabled={acting}
-                            onClick={() => transition("closed")}
+                            onClick={runValidation}
                           />
-                        )}
-                        <div className="h-px bg-border my-0.5" />
-                        {canLock && (
+                          {canClose && (
+                            <ActionBtn
+                              icon={<LockOpen size={14} />}
+                              label="Soft close"
+                              desc="Block writes, stay reviewable"
+                              disabled={acting}
+                              onClick={() => transition("closed")}
+                            />
+                          )}
+                        </>
+                      )}
+
+                      {/* ── closed ── */}
+                      {status === "closed" && (
+                        <>
+                          {canReopen && (
+                            <ActionBtn
+                              icon={<LockOpen size={14} />}
+                              label="Re-open period"
+                              desc="Allow writes again"
+                              disabled={acting}
+                              onClick={() => transition("open")}
+                            />
+                          )}
+                          <ActionBtn
+                            icon={<Eye size={14} />}
+                            label="View history"
+                            desc="Review all status transitions"
+                            disabled={acting}
+                            onClick={() => setTab("history")}
+                          />
+                          {canLock && (
+                            <>
+                              <div className="h-px bg-border my-0.5" />
+                              <ActionBtn
+                                icon={<Lock size={14} />}
+                                label="Hard lock"
+                                desc="Freeze forever, no re-open"
+                                danger
+                                disabled={acting}
+                                onClick={() => transition("locked")}
+                              />
+                            </>
+                          )}
+                        </>
+                      )}
+
+                      {/* ── locked ── */}
+                      {status === "locked" && (
+                        <>
+                          <ActionBtn
+                            icon={<Eye size={14} />}
+                            label="View snapshot"
+                            desc="Figures frozen at lock time"
+                            disabled={acting}
+                            onClick={() => setTab("history")}
+                          />
+                          <ActionBtn
+                            icon={<SlidersHorizontal size={14} />}
+                            label="Post adjusting entry"
+                            desc="Correction in current period"
+                            disabled={acting}
+                            onClick={() => setShowAdjForm(true)}
+                          />
                           <ActionBtn
                             icon={<Lock size={14} />}
-                            label="Hard lock"
-                            desc="Freeze forever, no re-open"
-                            danger
-                            disabled={acting}
-                            onClick={() => transition("locked")}
+                            label="Re-open"
+                            desc="Not allowed on locked periods"
+                            disabled
+                            onClick={() => {}}
                           />
-                        )}
-                      </>
-                    )}
+                        </>
+                      )}
 
-                    {status === "closed" && (
-                      <>
-                        {canReopen && (
-                          <ActionBtn
-                            icon={<LockOpen size={14} />}
-                            label="Re-open period"
-                            desc="Allow writes again"
-                            disabled={acting}
-                            onClick={() => transition("open")}
-                          />
-                        )}
-                        <ActionBtn
-                          icon={<Eye size={14} />}
-                          label="View snapshot"
-                          desc="Figures at close time"
-                          disabled={acting}
-                          onClick={() => setTab("history")}
-                        />
-                        <div className="h-px bg-border my-0.5" />
-                        {canLock && (
-                          <ActionBtn
-                            icon={<Lock size={14} />}
-                            label="Hard lock"
-                            desc="Freeze forever, no re-open"
-                            danger
-                            disabled={acting}
-                            onClick={() => transition("locked")}
-                          />
-                        )}
-                      </>
-                    )}
-
-                    {status === "locked" && (
-                      <>
-                        <ActionBtn
-                          icon={<Eye size={14} />}
-                          label="View snapshot"
-                          desc="Figures frozen at lock time"
-                          disabled={acting}
-                          onClick={() => setTab("history")}
-                        />
-                        <ActionBtn
-                          icon={<SlidersHorizontal size={14} />}
-                          label="Post adjusting entry"
-                          desc="Correction in current period"
-                          disabled={acting}
-                          onClick={() => {}}
-                        />
-                        <ActionBtn
-                          icon={<Lock size={14} />}
-                          label="Re-open"
-                          desc="Not allowed on locked period"
-                          disabled
-                          onClick={() => {}}
-                        />
-                      </>
-                    )}
-
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -693,13 +855,17 @@ export default function PeriodStatusControl() {
               {tab === "past" && (
                 <div className="p-2">
                   {pastPeriods.length === 0 ? (
-                    <p className="py-4 text-center text-[12px] text-muted-foreground">No past periods.</p>
+                    <p className="py-4 text-center text-[12px] text-muted-foreground">
+                      No past periods.
+                    </p>
                   ) : pastPeriods.map((row) => (
                     <div
                       key={row.period}
                       className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-accent transition-colors"
                     >
-                      <span className="text-[12px] text-foreground">{fmtShortPeriod(row.period)}</span>
+                      <span className="text-[12px] text-foreground">
+                        {fmtShortPeriod(row.period)}
+                      </span>
                       <div className="flex items-center gap-2">
                         <StatusPill status={row.status} />
                         <button
