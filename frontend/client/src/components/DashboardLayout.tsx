@@ -14,7 +14,6 @@ import { assetUrl } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-// Compile-time constant — defined at module level so it is never re-evaluated
 const NAV_ITEMS = [
   { href: "/",                   labelKey: "nav.dashboard",      icon: LayoutDashboard, color: "text-violet-500"  },
   { href: "/masters",            labelKey: "nav.masters",        icon: Settings2,       color: "text-slate-500"   },
@@ -41,11 +40,6 @@ function getInitials(name: string | null | undefined): string {
     .toUpperCase();
 }
 
-/**
- * Resolve a company logo URL. If the value is already an absolute URL
- * (starts with http/https/data:) it is used as-is; otherwise the API
- * base is prepended to avoid double-prefixing.
- */
 function resolveLogoUrl(logo: string): string {
   return assetUrl(logo);
 }
@@ -60,9 +54,9 @@ type Props = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function DashboardLayout({ children, onLogout }: Props) {
-  const [collapsed,    setCollapsed]    = useState(false);
-  const [menuOpen,     setMenuOpen]     = useState(false);
-  const [location]  = useLocation();
+  const [collapsed, setCollapsed] = useState(false);
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [location] = useLocation();
 
   const { toggleTheme, isDark }                = useTheme();
   const { language, toggleLanguage, t, isRTL } = useLanguage();
@@ -78,7 +72,6 @@ export default function DashboardLayout({ children, onLogout }: Props) {
   const currentPage      = NAV_ITEMS.find((i) => i.href === location);
   const currentPageLabel = currentPage ? t(currentPage.labelKey) : t("nav.dashboard");
 
-  // Close menu on outside click or Escape
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   useEffect(() => {
@@ -87,9 +80,7 @@ export default function DashboardLayout({ children, onLogout }: Props) {
       if (
         menuRef.current    && !menuRef.current.contains(e.target as Node) &&
         triggerRef.current && !triggerRef.current.contains(e.target as Node)
-      ) {
-        closeMenu();
-      }
+      ) closeMenu();
     }
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") closeMenu();
@@ -166,11 +157,16 @@ export default function DashboardLayout({ children, onLogout }: Props) {
         </nav>
       </aside>
 
-      {/* ── Main ── */}
+      {/* ── Main column ── */}
       <div className="flex flex-1 flex-col min-w-0">
 
-        {/* Topbar */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 overflow-visible">
+        {/* ── Topbar ──
+            relative + z-50 → creates a stacking context that sits above <main>,
+            so the period dropdown (absolute, inside this header) always paints
+            on top of the page content beneath it.
+            overflow-visible → lets the dropdown panel escape the header bounds.
+        */}
+        <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 overflow-visible">
 
           {/* Left: hamburger + breadcrumb */}
           <div className="flex items-center gap-3">
@@ -200,16 +196,15 @@ export default function DashboardLayout({ children, onLogout }: Props) {
           {/* Right: period status + avatar menu */}
           <div className="flex items-center gap-2 overflow-visible">
 
+            {/* Period control — z-[60] lifts it above the avatar menu (z-50) */}
             <div className="relative z-[60]">
               <PeriodStatusControl />
             </div>
 
             <div className="h-5 w-px bg-border mx-1" aria-hidden="true" />
 
-            {/* ── Avatar menu (keyboard-accessible) ── */}
+            {/* ── Avatar menu ── */}
             <div className="relative">
-
-              {/* Trigger button */}
               <button
                 ref={triggerRef}
                 onClick={() => setMenuOpen((o) => !o)}
@@ -241,7 +236,6 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                 />
               </button>
 
-              {/* Dropdown */}
               {menuOpen && (
                 <div
                   ref={menuRef}
@@ -253,7 +247,6 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                     animate-in fade-in slide-in-from-top-1 duration-150
                   "
                 >
-                  {/* Header */}
                   <div className="px-3 py-2.5 border-b border-border">
                     {companyLogo && (
                       <img
@@ -267,7 +260,6 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                   </div>
 
                   <div className="p-1.5 space-y-0.5">
-                    {/* Language */}
                     <button
                       role="menuitem"
                       onClick={() => { toggleLanguage(); closeMenu(); }}
@@ -284,7 +276,6 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                       </span>
                     </button>
 
-                    {/* Theme */}
                     <button
                       role="menuitem"
                       onClick={() => { toggleTheme(); closeMenu(); }}
@@ -298,7 +289,6 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                     </button>
                   </div>
 
-                  {/* Sign out */}
                   <div className="p-1.5 border-t border-border">
                     <button
                       role="menuitem"
