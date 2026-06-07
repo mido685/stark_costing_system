@@ -10,7 +10,7 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to localhost:8085
-export const API_BASE = "https://uneulogised-liliana-unheedfully.ngrok-free.dev";
+export const API_BASE = "https://impacts-east-fitness-hydraulic.trycloudflare.com";
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
   if (!path) return "";
