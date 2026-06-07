@@ -38,7 +38,7 @@ def _assert_valid_transition(current: str, new: str) -> None:
 
 def _assert_role_permitted(current: str, user_role: str) -> None:
     """Raise if the user's role cannot change this period's state."""
-    if user_role not in ROLE_PERMISSIONS[current]:
+    if user_role.lower() not in ROLE_PERMISSIONS[current]:
         raise PermissionError(
             f"Role '{user_role}' cannot change a '{current}' period."
         )
@@ -350,6 +350,7 @@ def set_period_status(
     """
     conn = get_connection()
     cur = dict_cursor(conn)
+    user_role = user_role.lower() 
     try:
         current = _get_current_status(cur, company_id, period)
 
@@ -358,7 +359,7 @@ def set_period_status(
 
         if new_status == "closed":
             _run_pre_close_validation(cur, company_id, period)
-        if new_status == "locked" and user_role not in ["owner", "admin"]:
+        if new_status == "locked" and user_role.lower() not in ["owner", "admin"]:
             raise PermissionError(
                 "Only Owner or Admin can hard-lock periods."
             )

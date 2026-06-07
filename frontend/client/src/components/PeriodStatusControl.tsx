@@ -507,7 +507,7 @@ export default function PeriodStatusControl() {
     finally { setDrillLoading(false); }
   }
 
-  const role      = user?.role ?? "";
+  const role = (user?.role ?? "").toLowerCase();
   const canClose  = ["owner", "admin", "manager"].includes(role);
   const canLock   = ["owner", "admin"].includes(role);
   const canReopen = ["owner", "admin", "manager"].includes(role);
@@ -684,7 +684,13 @@ export default function PeriodStatusControl() {
       {/* Badge trigger */}
       <button
         ref={trigRef}
-        onClick={() => { setOpen((o) => !o); setDrillPeriod(null); setShowAdjForm(false); }}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next) fetchStatus(workingPeriod);  // ← refetch on every open
+          setDrillPeriod(null);
+          setShowAdjForm(false);
+        }}
         aria-haspopup="true"
         aria-expanded={open}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-all duration-150 select-none hover:opacity-90 active:scale-95 ${STATUS[status].badge}`}
