@@ -10,9 +10,9 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
 }
 
 ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "open":   ["accountant", "manager", "admin"],
-    "closed": ["manager", "admin"],
-    "locked": [],
+    "open":   ["owner", "accountant", "manager", "admin"],
+    "closed": ["owner", "manager", "admin"],
+    "locked": ["owner", "admin"],
 }
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
