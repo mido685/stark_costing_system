@@ -2,24 +2,28 @@
  * PeriodStatusControl
  *
  * Topbar badge + dropdown panel for period management.
- * Tabs: Actions | History | Past periods
- * Past periods → drill into per-period history view.
+ * Selecting a period updates the global WorkingPeriodContext,
+ * which filters all period-sensitive pages in the system.
  *
- * API shape expected:
- *   GET /api/period/status?period=YYYY-MM      → { status, ... }
- *   POST /api/period/status                    → { status, ... }
- *   GET /api/period/history?period=YYYY-MM     → [ { from_status, to_status, changed_by_name, changed_at, note } ]
- *   GET /api/period/list                       → [ { period, status } ]
- *   GET /api/period/validate?period=YYYY-MM    → 200 OK or 422
+ * Tabs: Actions | History | Past periods
+ *
+ * API shape:
+ *   GET  /api/period/status?period=YYYY-MM   → { status, ... }
+ *   POST /api/period/status                  → { status, ... }
+ *   GET  /api/period/history?period=YYYY-MM  → HistoryEntry[]
+ *   GET  /api/period/list                    → PeriodRow[]
+ *   GET  /api/period/validate?period=YYYY-MM → 200 | 422
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   ChevronDown, CheckCircle, Lock, LockOpen, Eye,
   SlidersHorizontal, ArrowLeft, Clock, ChevronLeft, ChevronRight,
+  AlertTriangle,
 } from "lucide-react";
 import { apiCall } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +45,11 @@ interface HistoryEntry {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function currentPeriod(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function fmtPeriod(p: string): string {
   const [y, m] = p.split("-");
   return new Date(Number(y), Number(m) - 1).toLocaleString("default", {
@@ -60,20 +69,6 @@ function fmtDatetime(iso: string): string {
     month: "short", day: "numeric", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
-}
-
-function currentPeriod(): string {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function periodToDate(p: string): Date {
-  const [y, m] = p.split("-");
-  return new Date(Number(y), Number(m) - 1, 1);
-}
-
-function dateToPeriod(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 // ─── Style maps ───────────────────────────────────────────────────────────────
@@ -224,7 +219,6 @@ function PeriodPicker({
   todayPeriod: string;
   onChange:    (p: string) => void;
 }) {
-  // The year currently shown in the picker
   const [viewYear, setViewYear] = useState(() => Number(selected.split("-")[0]));
 
   const todayYear  = Number(todayPeriod.split("-")[0]);
@@ -263,11 +257,12 @@ function PeriodPicker({
       {/* Month grid */}
       <div className="grid grid-cols-4 gap-1">
         {MONTH_NAMES.map((name, idx) => {
-          const month  = idx + 1;
-          const p      = cellPeriod(month);
-          const future = isFuture(month);
-          const st     = statusMap[p] ?? "open";
+          const month      = idx + 1;
+          const p          = cellPeriod(month);
+          const future     = isFuture(month);
+          const st         = statusMap[p] ?? "open";
           const isSelected = p === selected;
+          const isToday    = p === todayPeriod;
 
           return (
             <button
@@ -284,7 +279,11 @@ function PeriodPicker({
               `}
             >
               {name}
-              {/* Status dot */}
+              {/* Today indicator */}
+              {isToday && !isSelected && (
+                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-500" />
+              )}
+              {/* Status dot (closed/locked) */}
               {!future && st !== "open" && (
                 <span className={`
                   absolute top-0.5 right-0.5 w-1 h-1 rounded-full
@@ -316,30 +315,23 @@ function PeriodPicker({
 
 export default function PeriodStatusControl() {
   const { user } = useAuth();
+  const { workingPeriod, setWorkingPeriod, isCurrentPeriod } = useWorkingPeriod();
 
   const todayPeriod = currentPeriod();
 
   // ── State ─────────────────────────────────────────────────────────────────
 
-  const [open,           setOpen]           = useState(false);
-  const [tab,            setTab]            = useState<Tab>("actions");
-  const [acting,         setActing]         = useState(false);
-
-  const [selectedPeriod, setSelectedPeriod] = useState<string>(todayPeriod);
-  const [status,         setStatus]         = useState<Status>("open");
-
-  // Map of period → status for all known periods (used by the picker)
-  const [statusMap,      setStatusMap]      = useState<Record<string, Status>>({});
-
-  // Flat past periods list for the Past tab
-  const [pastPeriods,    setPastPeriods]    = useState<PeriodRow[]>([]);
-
-  const [history,        setHistory]        = useState<HistoryEntry[]>([]);
-  const [histLoading,    setHistLoading]    = useState(false);
-
-  const [drillPeriod,    setDrillPeriod]    = useState<PeriodRow | null>(null);
-  const [drillHist,      setDrillHist]      = useState<HistoryEntry[]>([]);
-  const [drillLoading,   setDrillLoading]   = useState(false);
+  const [open,         setOpen]         = useState(false);
+  const [tab,          setTab]          = useState<Tab>("actions");
+  const [acting,       setActing]       = useState(false);
+  const [status,       setStatus]       = useState<Status>("open");
+  const [statusMap,    setStatusMap]    = useState<Record<string, Status>>({});
+  const [pastPeriods,  setPastPeriods]  = useState<PeriodRow[]>([]);
+  const [history,      setHistory]      = useState<HistoryEntry[]>([]);
+  const [histLoading,  setHistLoading]  = useState(false);
+  const [drillPeriod,  setDrillPeriod]  = useState<PeriodRow | null>(null);
+  const [drillHist,    setDrillHist]    = useState<HistoryEntry[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const trigRef  = useRef<HTMLButtonElement>(null);
@@ -362,7 +354,6 @@ export default function PeriodStatusControl() {
       const r = await apiCall<PeriodRow[]>("/api/period/list");
       const rows = r ?? [];
       setPastPeriods(rows.filter((p) => p.period !== todayPeriod));
-      // Populate the status map from the list response
       const map: Record<string, Status> = {};
       rows.forEach((p) => { map[p.period] = p.status; });
       setStatusMap((prev) => ({ ...prev, ...map }));
@@ -383,11 +374,11 @@ export default function PeriodStatusControl() {
     }
   }, []);
 
-  useEffect(() => { fetchStatus(selectedPeriod); }, [selectedPeriod, fetchStatus]);
+  useEffect(() => { fetchStatus(workingPeriod); }, [workingPeriod, fetchStatus]);
   useEffect(() => { fetchPast(); }, [fetchPast]);
   useEffect(() => {
-    if (open && tab === "history") fetchHistory(selectedPeriod);
-  }, [open, tab, selectedPeriod, fetchHistory]);
+    if (open && tab === "history") fetchHistory(workingPeriod);
+  }, [open, tab, workingPeriod, fetchHistory]);
 
   // ── Close on outside click / Escape ──────────────────────────────────────
 
@@ -413,6 +404,12 @@ export default function PeriodStatusControl() {
     };
   }, [open, closePanel]);
 
+  // ── Period selection (updates global context) ─────────────────────────────
+
+  function handlePeriodChange(p: string) {
+    setWorkingPeriod(p);  // ← this drives the whole system
+  }
+
   // ── Period transition ─────────────────────────────────────────────────────
 
   async function transition(newStatus: Status) {
@@ -420,7 +417,7 @@ export default function PeriodStatusControl() {
     const confirmed = window.confirm(
       newStatus === "locked"
         ? "Hard lock is irreversible. The period will be frozen permanently. Continue?"
-        : `Set ${fmtShortPeriod(selectedPeriod)} to "${newStatus}"?`
+        : `Set ${fmtShortPeriod(workingPeriod)} to "${newStatus}"?`
     );
     if (!confirmed) return;
 
@@ -428,12 +425,12 @@ export default function PeriodStatusControl() {
     try {
       await apiCall("/api/period/status", {
         method: "POST",
-        body: JSON.stringify({ period: selectedPeriod, status: newStatus }),
+        body: JSON.stringify({ period: workingPeriod, status: newStatus }),
       });
       setStatus(newStatus);
-      setStatusMap((prev) => ({ ...prev, [selectedPeriod]: newStatus }));
+      setStatusMap((prev) => ({ ...prev, [workingPeriod]: newStatus }));
       fetchPast();
-      if (tab === "history") fetchHistory(selectedPeriod);
+      if (tab === "history") fetchHistory(workingPeriod);
     } catch (err: any) {
       alert(err?.message ?? "Failed to update period status.");
     } finally {
@@ -445,7 +442,7 @@ export default function PeriodStatusControl() {
 
   async function runValidation() {
     try {
-      await apiCall(`/api/period/validate?period=${selectedPeriod}`);
+      await apiCall(`/api/period/validate?period=${workingPeriod}`);
       alert("All pre-close checks passed.");
     } catch (err: any) {
       alert(err?.message ?? "Validation failed.");
@@ -467,20 +464,15 @@ export default function PeriodStatusControl() {
     }
   }
 
-  // ── Handle period selection from picker ───────────────────────────────────
-
-  function handlePeriodChange(p: string) {
-    setSelectedPeriod(p);
-    // Status will be fetched by the useEffect above
-  }
-
   // ── Role guards ───────────────────────────────────────────────────────────
 
   const canClose  = ["admin", "manager"].includes(user?.role ?? "");
   const canLock   = ["admin"].includes(user?.role ?? "");
   const canReopen = ["admin", "manager"].includes(user?.role ?? "");
 
-  const badgeLabel = `${fmtShortPeriod(selectedPeriod)} · ${STATUS_LABELS[status]}`;
+  // ── Badge ─────────────────────────────────────────────────────────────────
+
+  const badgeLabel = `${fmtShortPeriod(workingPeriod)} · ${STATUS_LABELS[status]}`;
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -501,6 +493,10 @@ export default function PeriodStatusControl() {
       >
         <span className={`w-1.5 h-1.5 rounded-full ${DOT_STYLES[status]}`} />
         {badgeLabel}
+        {/* Warning dot when not on current period */}
+        {!isCurrentPeriod && (
+          <AlertTriangle size={10} className="text-amber-400 ml-0.5" />
+        )}
         <ChevronDown size={11} className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -521,7 +517,6 @@ export default function PeriodStatusControl() {
                 <button
                   onClick={() => setDrillPeriod(null)}
                   className="p-1 rounded-md text-muted-foreground hover:bg-accent transition-colors"
-                  aria-label="Back"
                 >
                   <ArrowLeft size={14} />
                 </button>
@@ -544,7 +539,7 @@ export default function PeriodStatusControl() {
               {/* Header */}
               <div className="flex items-start justify-between px-3.5 py-2.5 border-b border-border">
                 <div>
-                  <p className="text-[13px] font-medium text-foreground">{fmtPeriod(selectedPeriod)}</p>
+                  <p className="text-[13px] font-medium text-foreground">{fmtPeriod(workingPeriod)}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {status === "open"   && "All modules open for entry"}
                     {status === "closed" && "Soft closed · Writes blocked"}
@@ -553,6 +548,17 @@ export default function PeriodStatusControl() {
                 </div>
                 <StatusPill status={status} />
               </div>
+
+              {/* Not on current period — system-wide warning banner */}
+              {!isCurrentPeriod && (
+                <div className="flex items-center gap-2 px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20">
+                  <AlertTriangle size={12} className="text-amber-500 shrink-0" />
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    System is filtered to <span className="font-semibold">{fmtShortPeriod(workingPeriod)}</span>.
+                    All pages show this period's data.
+                  </p>
+                </div>
+              )}
 
               {/* Tabs */}
               <div className="flex border-b border-border">
@@ -577,11 +583,10 @@ export default function PeriodStatusControl() {
               {/* ── Tab: Actions ── */}
               {tab === "actions" && (
                 <div className="flex flex-col">
-
                   {/* Period picker */}
                   <div className="border-b border-border">
                     <PeriodPicker
-                      selected={selectedPeriod}
+                      selected={workingPeriod}
                       statusMap={statusMap}
                       todayPeriod={todayPeriod}
                       onChange={handlePeriodChange}

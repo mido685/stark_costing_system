@@ -2,34 +2,37 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, Router as WouterRouter } from "wouter";
-import ErrorBoundary        from "./components/ErrorBoundary";
-import { ThemeProvider }    from "./contexts/ThemeContext";
-import { LanguageProvider } from "./contexts/LanguageContext";
+import ErrorBoundary             from "./components/ErrorBoundary";
+import { ThemeProvider }         from "./contexts/ThemeContext";
+import { LanguageProvider }      from "./contexts/LanguageContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import DashboardLayout      from "./components/DashboardLayout";
-import Dashboard            from "./pages/Dashboard";
-import Masters              from "./pages/Masters";
-import InventoryControls    from "./pages/InventoryControls";
-import Procurement          from "./pages/Procurement";
-import Production           from "./pages/Production";
-import Recipes              from "./pages/Recipes";
-import Sales                from "./pages/Sales";
-import Finance              from "./pages/Finance";
-import Governance           from "./pages/Governance";
-import Report               from "./pages/Report";
-import Login                from "./pages/Login";
-import Register             from "./pages/Register";
-import UserManagement       from "./pages/UserManagement";
-import SuperAdminPanel      from "./pages/Superadminpanel";
-import SystemOwnerLogin     from "./pages/SystemOwnerLogin";
+import { WorkingPeriodProvider } from "./contexts/Workingperiodcontext";
+import DashboardLayout           from "./components/DashboardLayout";
+import Dashboard                 from "./pages/Dashboard";
+import Masters                   from "./pages/Masters";
+import InventoryControls         from "./pages/InventoryControls";
+import Procurement               from "./pages/Procurement";
+import Production                from "./pages/Production";
+import Recipes                   from "./pages/Recipes";
+import Sales                     from "./pages/Sales";
+import Finance                   from "./pages/Finance";
+import Governance                from "./pages/Governance";
+import Report                    from "./pages/Report";
+import Login                     from "./pages/Login";
+import Register                  from "./pages/Register";
+import UserManagement            from "./pages/UserManagement";
+import SuperAdminPanel           from "./pages/Superadminpanel";
+import SystemOwnerLogin          from "./pages/SystemOwnerLogin";
+
+// ─── Routers ──────────────────────────────────────────────────────────────────
 
 function SuperAdminRouter() {
   return (
     <Switch>
-      <Route path="/"         component={SuperAdminPanel} />
-      <Route path="/register" component={Register}        />
+      <Route path="/"             component={SuperAdminPanel} />
+      <Route path="/register"     component={Register}        />
       <Route path="/system-owner" component={SuperAdminPanel} />
-      <Route                  component={NotFound} />
+      <Route                      component={NotFound}        />
     </Switch>
   );
 }
@@ -50,11 +53,13 @@ function AppRouter() {
         <Route path="/governance"         component={Governance}        />
         <Route path="/report"             component={Report}            />
         <Route path="/user-management"    component={UserManagement}    />
-        <Route component={NotFound}       />
+        <Route                            component={NotFound}          />
       </Switch>
     </DashboardLayout>
   );
 }
+
+// ─── Shell ────────────────────────────────────────────────────────────────────
 
 function AppShell() {
   const { user, checking } = useAuth();
@@ -72,17 +77,17 @@ function AppShell() {
       <Switch>
         <Route path="/register"     component={Register}         />
         <Route path="/system-owner" component={SystemOwnerLogin} />
-        <Route component={Login} />
+        <Route                      component={Login}            />
       </Switch>
     );
   }
 
-  if (user.role === "superadmin") {
-    return <SuperAdminRouter />;
-  }
+  if (user.role === "superadmin") return <SuperAdminRouter />;
 
   return <AppRouter />;
 }
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (
@@ -91,10 +96,12 @@ export default function App() {
         <ThemeProvider defaultTheme="light">
           <LanguageProvider>
             <AuthProvider>
-              <TooltipProvider>
-                <Toaster />
-                <AppShell />
-              </TooltipProvider>
+              <WorkingPeriodProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <AppShell />
+                </TooltipProvider>
+              </WorkingPeriodProvider>
             </AuthProvider>
           </LanguageProvider>
         </ThemeProvider>
