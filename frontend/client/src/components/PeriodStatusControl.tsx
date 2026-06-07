@@ -98,8 +98,8 @@ const STATUS = {
 } satisfies Record<Status, object>;
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const PANEL_WIDTH = 300;
-const VIEWPORT_GAP = 8; // min distance from viewport edges
+const PANEL_WIDTH  = 300;
+const VIEWPORT_GAP = 8;
 
 // ─── Animation CSS ────────────────────────────────────────────────────────────
 
@@ -373,13 +373,11 @@ export default function PeriodStatusControl() {
   const trigRef  = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Panel position — left-clamped so it never exits the viewport
   const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
 
   const updatePos = useCallback(() => {
     if (!trigRef.current) return;
     const r = trigRef.current.getBoundingClientRect();
-    // Right-align panel to badge, then clamp within viewport
     let left = r.right - PANEL_WIDTH;
     if (left < VIEWPORT_GAP) left = VIEWPORT_GAP;
     if (left + PANEL_WIDTH > window.innerWidth - VIEWPORT_GAP) {
@@ -442,7 +440,7 @@ export default function PeriodStatusControl() {
     if (open && tab === "history") fetchHistory(workingPeriod);
   }, [open, tab, workingPeriod, fetchHistory]);
 
-  // ── Close ──────────────────────────────────────────────────────────────────
+  // ── Close panel ────────────────────────────────────────────────────────────
 
   const closePanel = useCallback(() => {
     setOpen(false); setDrillPeriod(null); setShowAdjForm(false);
@@ -466,6 +464,9 @@ export default function PeriodStatusControl() {
   }, [open, closePanel]);
 
   // ── Transition ────────────────────────────────────────────────────────────
+  // FIX: await fetchStatus after POST instead of setting state optimistically.
+  // This prevents the stale-read race where a subsequent fetchStatus (triggered
+  // by workingPeriod context change) overwrites the optimistic value.
 
   async function transition(newStatus: Status) {
     if (acting) return;
@@ -481,9 +482,9 @@ export default function PeriodStatusControl() {
         method: "POST",
         body: JSON.stringify({ period: workingPeriod, status: newStatus }),
       });
-      setStatus(newStatus);
-      setStatusMap((prev) => ({ ...prev, [workingPeriod]: newStatus }));
-      fetchPast();
+      // Refetch from server — source of truth, no optimistic guess
+      await fetchStatus(workingPeriod);
+      await fetchPast();
       if (tab === "history") fetchHistory(workingPeriod);
       showToast(`Period set to ${newStatus}.`);
     } catch (err) { showToast(extractError(err), "err"); }
@@ -507,7 +508,7 @@ export default function PeriodStatusControl() {
     finally { setDrillLoading(false); }
   }
 
-  const role = (user?.role ?? "").toLowerCase();
+  const role      = (user?.role ?? "").toLowerCase();
   const canClose  = ["owner", "admin", "manager"].includes(role);
   const canLock   = ["owner", "admin"].includes(role);
   const canReopen = ["owner", "admin", "manager"].includes(role);
@@ -687,7 +688,10 @@ export default function PeriodStatusControl() {
         onClick={() => {
           const next = !open;
           setOpen(next);
-          if (next) fetchStatus(workingPeriod);  // ← refetch on every open
+          if (next) {
+            fetchStatus(workingPeriod);
+            fetchPast();  // refresh calendar dots on every open
+          }
           setDrillPeriod(null);
           setShowAdjForm(false);
         }}
