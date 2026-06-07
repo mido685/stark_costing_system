@@ -989,7 +989,9 @@ export default function Sales() {
     - safeNum(saleForm.promotion_amount)
     + safeNum(saleForm.tax_amount);
 
+  const WRITE_MODALS: ModalType[] = ["sale", "return", "waste", "damage"];
   function openModal(type: ModalType) {
+    if (selectedPeriodClosed && type && WRITE_MODALS.includes(type)) return;
     setFormError(""); setPeriodFormError("");
     setModal(type);
   }
@@ -1479,8 +1481,14 @@ export default function Sales() {
           <Button variant="outline" size="sm" onClick={refetchAll}>
             <RefreshCw className="w-4 h-4" />
           </Button>
-          <Button size="sm" onClick={() => openModal("sale")}>
-            <Plus className="w-4 h-4 mr-1" /> {t("sales.recordSale")}
+          <Button
+            size="sm"
+            onClick={() => openModal("sale")}
+            disabled={selectedPeriodClosed}
+            title={selectedPeriodLocked ? "Period is locked" : selectedPeriodClosed ? "Period is closed" : undefined}
+          >
+            {selectedPeriodClosed ? <Lock className="w-4 h-4 mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
+            {t("sales.recordSale")}
           </Button>
         </div>
       </div>
@@ -1548,13 +1556,20 @@ export default function Sales() {
           { label: t("sales.customerReturn"), icon: "↩️", type: "return" as ModalType, color: "bg-amber-50 border-amber-200 hover:border-amber-400 dark:bg-amber-950/20 dark:border-amber-900/50 dark:hover:border-amber-700"      },
           { label: t("sales.logWaste"),       icon: "🗑️", type: "waste"  as ModalType, color: "bg-red-50 border-red-200 hover:border-red-400 dark:bg-red-950/20 dark:border-red-900/50 dark:hover:border-red-700"                 },
           { label: t("sales.logDamage"),      icon: "⚠️", type: "damage" as ModalType, color: "bg-orange-50 border-orange-200 hover:border-orange-400 dark:bg-orange-950/20 dark:border-orange-900/50 dark:hover:border-orange-700" },
-        ].map(item => (
-          <button key={item.label} onClick={() => openModal(item.type)}
-            className={`p-4 rounded-lg border-2 transition-colors text-left ${item.color}`}>
-            <span className="text-2xl">{item.icon}</span>
-            <p className="text-sm font-medium text-foreground mt-2">{item.label}</p>
-          </button>
-        ))}
+          ].map(item => (
+            <button
+              key={item.label}
+              onClick={() => openModal(item.type)}
+              disabled={selectedPeriodClosed}
+              title={selectedPeriodLocked ? "Period is locked" : selectedPeriodClosed ? "Period is closed" : undefined}
+              className={`p-4 rounded-lg border-2 transition-colors text-left ${item.color} ${
+                selectedPeriodClosed ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              <span className="text-2xl">{selectedPeriodClosed ? "🔒" : item.icon}</span>
+              <p className="text-sm font-medium text-foreground mt-2">{item.label}</p>
+            </button>
+          ))}
       </div>
 
       {/* ── Recent Activity ── */}
@@ -1582,7 +1597,7 @@ export default function Sales() {
           ) : !sales.length ? (
             <div className="py-10 text-center">
               <p className="text-sm text-muted-foreground">{t("sales.noSales")}</p>
-              <Button size="sm" className="mt-3" onClick={() => openModal("sale")}>
+              <Button size="sm" className="mt-3" onClick={() => openModal("sale")} disabled={selectedPeriodClosed}>
                 <Plus className="w-4 h-4 mr-1" /> {t("sales.recordFirstSale")}
               </Button>
             </div>
@@ -1781,9 +1796,9 @@ export default function Sales() {
           ) : !wasteList.length ? (
             <div className="py-10 text-center">
               <p className="text-sm text-muted-foreground">{t("sales.noWaste")}</p>
-              <Button size="sm" className="mt-3" onClick={() => openModal("waste")}>
-                <Plus className="w-4 h-4 mr-1" /> {t("sales.logWaste")}
-              </Button>
+              <Button size="sm" className="mt-3" onClick={() => openModal("waste")} disabled={selectedPeriodClosed}>
+              <Plus className="w-4 h-4 mr-1" /> {t("sales.logWaste")}
+            </Button>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1836,7 +1851,7 @@ export default function Sales() {
         {activeTab === "damage" && (
           <div className="py-10 text-center">
             <p className="text-sm text-muted-foreground mb-3">{t("sales.damageHint")}</p>
-            <Button size="sm" onClick={() => openModal("damage")}>
+            <Button size="sm" onClick={() => openModal("damage")} disabled={selectedPeriodClosed}>
               <Plus className="w-4 h-4 mr-1" /> {t("sales.logDamage")}
             </Button>
           </div>
