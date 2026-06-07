@@ -1,3 +1,10 @@
+# [3.38.0](https://github.com/mido685/stark_costing_system/compare/v3.37.0...v3.38.0) (2026-06-07)
+
+
+### Features
+
+* the periode status updating ([167f525](https://github.com/mido685/stark_costing_system/commit/167f5257d40fb20faa42987fc17da6a21fbc0311))
+
 # [3.37.0](https://github.com/mido685/stark_costing_system/compare/v3.36.0...v3.37.0) (2026-06-07)
 
 
