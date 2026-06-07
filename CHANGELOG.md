@@ -1,3 +1,10 @@
+## [3.46.1](https://github.com/mido685/stark_costing_system/compare/v3.46.0...v3.46.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* fixing the icon of open ([e08596e](https://github.com/mido685/stark_costing_system/commit/e08596e521f3cb90f0f5920c046b9ae479ea53de))
+
 # [3.46.0](https://github.com/mido685/stark_costing_system/compare/v3.45.0...v3.46.0) (2026-06-07)
 
 
