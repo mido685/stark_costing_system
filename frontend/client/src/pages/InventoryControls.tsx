@@ -1734,11 +1734,12 @@ export default function InventoryControls() {
     refetchTransfers?.(); refetchOpening?.(); refetchAdjustments?.(); refetchSnapshots?.();
     refetchCompanyPeriodStatus?.(); refetchBranchPeriodStatus?.(); refetchProductionMovements?.();
   }
+  const WRITE_MODALS: ModalType[] = ["count", "adjustment", "transfer", "opening", "periodClose"];
 
   function openModal(type: ModalType) {
+    if (selectedPeriodClosed && type && WRITE_MODALS.includes(type)) return;
     setFormError(""); setModal(type);
     if (type === "transfer") setTransferForm(f => ({ ...f, from_branch_id: branchId }));
-    // ← NEW: pre-fill period status form
     if (type === "periodStatus") {
       setPeriodStatusForm({
         status: selectedPeriodState === "open" ? "closed" : selectedPeriodState,
@@ -1746,7 +1747,7 @@ export default function InventoryControls() {
       });
     }
   }
-
+  
   async function handleSaveCount() {
     if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
     if (!countForm.ingredient_id) { setFormError(t("inv.err.selectIngredient")); return; }
@@ -2045,21 +2046,7 @@ export default function InventoryControls() {
             <option value="">{t("inv.selectBranch")}</option>
             {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openModal("periodStatus")}
-            className={
-              selectedPeriodLocked
-                ? "border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                : selectedPeriodClosed
-                  ? "border-amber-300 dark:border-amber-600 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
-                  : "border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20"
-            }
-          >
-            <Lock className="h-4 w-4 mr-1" />
-            {selectedPeriodState.toUpperCase()}
-          </Button>
+          
           {branchId > 0 && (
             <Button variant="outline" size="sm" onClick={() => setShowPOModal(true)} className="border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30">
               <ShoppingCart className="w-4 h-4 mr-1.5" /> {t("inv.generatePO")}
@@ -2159,9 +2146,17 @@ export default function InventoryControls() {
                         <p className="text-xs text-muted-foreground">{item.desc}</p>
                       </div>
                     </div>
-                    <Button size="sm" variant="outline" className="bg-white/80 dark:bg-white/10" onClick={() => openModal(item.key)} disabled={!branchId && item.key !== "transfer"}>
-                      {t("inv.ops.record")}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="bg-white/80 dark:bg-white/10"
+                      onClick={() => openModal(item.key)}
+                      disabled={(!branchId && item.key !== "transfer") || selectedPeriodClosed}
+                      title={selectedPeriodClosed ? (selectedPeriodLocked ? "Period is locked" : "Period is closed") : undefined}
+                    >
+                      {selectedPeriodClosed ? <Lock className="w-3 h-3" /> : t("inv.ops.record")}
                     </Button>
+                  
                   </div>
                 ))}
               </div>
