@@ -6,7 +6,7 @@ from .connection import get_connection, dict_cursor
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "open":   {"closed"},
     "closed": {"open", "locked"},
-    "locked": set(),
+    "locked": {},
 }
 
 ROLE_PERMISSIONS: dict[str, list[str]] = {
@@ -358,6 +358,10 @@ def set_period_status(
 
         if new_status == "closed":
             _run_pre_close_validation(cur, company_id, period)
+        if new_status == "locked" and user_role not in ["owner", "admin"]:
+            raise PermissionError(
+                "Only Owner or Admin can hard-lock periods."
+            )
 
         if new_status == "locked":
             _capture_snapshot(cur, company_id, period)

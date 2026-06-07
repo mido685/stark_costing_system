@@ -509,7 +509,7 @@ export default function PeriodStatusControl() {
 
   const role      = user?.role ?? "";
   const canClose  = ["owner", "admin", "manager"].includes(role);
-  const canLock   = role === "admin";
+  const canLock   = ["owner", "admin"].includes(role);
   const canReopen = ["owner", "admin", "manager"].includes(role);
 
   // ─── Portal panel ─────────────────────────────────────────────────────────
