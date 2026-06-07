@@ -1,3 +1,10 @@
+## [3.31.2](https://github.com/mido685/stark_costing_system/compare/v3.31.1...v3.31.2) (2026-06-07)
+
+
+### Bug Fixes
+
+* fix  the design again ([a503fab](https://github.com/mido685/stark_costing_system/commit/a503fab8ede177acb6f9b011fc56f19985b86d00))
+
 ## [3.31.1](https://github.com/mido685/stark_costing_system/compare/v3.31.0...v3.31.1) (2026-06-07)
 
 
