@@ -1,3 +1,10 @@
+## [3.31.3](https://github.com/mido685/stark_costing_system/compare/v3.31.2...v3.31.3) (2026-06-07)
+
+
+### Bug Fixes
+
+* fix the dashboard ([7a07b82](https://github.com/mido685/stark_costing_system/commit/7a07b82724764a2e439ab7956a324f4c8351b5c4))
+
 ## [3.31.2](https://github.com/mido685/stark_costing_system/compare/v3.31.1...v3.31.2) (2026-06-07)
 
 
