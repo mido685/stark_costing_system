@@ -2060,16 +2060,10 @@ export default function InventoryControls() {
             <Lock className="h-4 w-4 mr-1" />
             {selectedPeriodState.toUpperCase()}
           </Button>
-
           {branchId > 0 && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => openModal("periodClose")} className="border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30">
-                <Lock className="w-4 h-4 mr-1.5" /> {t("inv.closePeriod")}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setShowPOModal(true)} className="border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30">
-                <ShoppingCart className="w-4 h-4 mr-1.5" /> {t("inv.generatePO")}
-              </Button>
-            </>
+            <Button variant="outline" size="sm" onClick={() => setShowPOModal(true)} className="border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30">
+              <ShoppingCart className="w-4 h-4 mr-1.5" /> {t("inv.generatePO")}
+            </Button>
           )}
           <Button variant="outline" size="sm" onClick={refetchAll} disabled={balancesLoading}>
             <RefreshCw className={`w-4 h-4 ${balancesLoading ? "animate-spin" : ""}`} />
