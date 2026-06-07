@@ -1,6 +1,6 @@
 {
     "name": "better_transformation",
-    "version": "3.31.0",
+    "version": "3.31.1",
     "main": "index.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1"

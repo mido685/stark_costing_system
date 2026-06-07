@@ -1,3 +1,10 @@
+## [3.31.1](https://github.com/mido685/stark_costing_system/compare/v3.31.0...v3.31.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* fix the periode button ([d9cf544](https://github.com/mido685/stark_costing_system/commit/d9cf5440116f0d444908d26a9d4c17fa7b76f56b))
+
 # [3.31.0](https://github.com/mido685/stark_costing_system/compare/v3.30.0...v3.31.0) (2026-06-06)
 
 
