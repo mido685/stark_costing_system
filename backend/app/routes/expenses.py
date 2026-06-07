@@ -113,9 +113,8 @@ def create_period_snapshot(req: PeriodSnapshotRequest, current_user: dict = Depe
 
 
 @router.get("/period-snapshots")
-def list_period_snapshots(branch_id: int | None = Query(None), current_user: dict = Depends(get_current_user)):
-    return success("Period snapshots retrieved", snapshots=expenses_db.list_period_snapshots(current_user["company_id"], branch_id))
-
+def list_period_snapshots(current_user: dict = Depends(get_current_user)):
+    return success("Period snapshots retrieved", snapshots=expenses_db.list_period_snapshots(current_user["company_id"]))
 
 @router.post("/period-backups/generate")
 def generate_period_backups(req: PeriodBackupRequest, current_user: dict = Depends(require_roles("owner", "admin"))):

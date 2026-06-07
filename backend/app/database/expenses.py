@@ -20,7 +20,6 @@ from .log_audit import log_audit
 from .periods import is_period_frozen, set_period_status
 from .reports import compute_kpis
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants & whitelists
 # ─────────────────────────────────────────────────────────────────────────────
@@ -29,23 +28,31 @@ BUDGET_CATEGORIES = frozenset({
     "food_cost", "labor", "rent", "utilities", "marketing", "other"
 })
 
-# Only these tables may be used with the generic _list_entries / _add_simple_amount
-# helpers. Any other value raises ValueError before touching the DB.
-_ALLOWED_SIMPLE_TABLES: dict[str, str] = {
-    # table_name            → label column
-    "depreciation_entries": "asset_name",
-    "accrual_entries":      "category",
-}
-
-_ALLOWED_LIST_TABLES = frozenset({
+# Tables that have branch_id and entry_date columns
+_BRANCH_SCOPED_TABLES: frozenset[str] = frozenset({
     "expenses",
     "payroll_entries",
     "depreciation_entries",
     "accrual_entries",
     "prepayment_entries",
-    "period_snapshots",
+    "inventory_movements",
+    # add future branch-scoped tables here
 })
 
+# Tables that are company-level only (no branch_id, no entry_date)
+_COMPANY_SCOPED_TABLES: frozenset[str] = frozenset({
+    "period_snapshots",
+    # add future company-scoped tables here
+})
+
+# Derived — single source of truth, no second definition below
+_ALLOWED_LIST_TABLES: frozenset[str] = _BRANCH_SCOPED_TABLES | _COMPANY_SCOPED_TABLES
+
+# Only these tables may be used with _add_simple_amount
+_ALLOWED_SIMPLE_TABLES: dict[str, str] = {
+    "depreciation_entries": "asset_name",
+    "accrual_entries":      "category",
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
@@ -85,35 +92,49 @@ def _list_entries(
     """
     Generic list query for accounting entry tables.
     table must be in _ALLOWED_LIST_TABLES — raises ValueError otherwise.
+    Branch and period filtering only applied to branch-scoped tables.
     """
     if table not in _ALLOWED_LIST_TABLES:
         raise ValueError(f"Table '{table}' is not permitted for generic listing")
 
+    is_branch_scoped = table in _BRANCH_SCOPED_TABLES
+
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        where = ["b.company_id = %s"]
-        params: list[Any] = [company_id]
-        if branch_id:
-            where.append("e.branch_id = %s")
-            params.append(branch_id)
-        if period:
-            where.append("TO_CHAR(e.entry_date, 'YYYY-MM') = %s")
-            params.append(period)
-        # table is whitelisted above — safe to interpolate
-        cur.execute(f"""
-            SELECT e.*, b.name AS branch_name
-            FROM {table} e
-            JOIN branches b ON b.id = e.branch_id
-            WHERE {' AND '.join(where)}
-            ORDER BY e.entry_date DESC, e.id DESC
-            LIMIT %s
-        """, params + [limit])
+        if is_branch_scoped:
+            where = ["b.company_id = %s"]
+            params: list[Any] = [company_id]
+            if branch_id:
+                where.append("e.branch_id = %s")
+                params.append(branch_id)
+            if period:
+                where.append("TO_CHAR(e.entry_date, 'YYYY-MM') = %s")
+                params.append(period)
+
+            cur.execute(f"""
+                SELECT e.*, b.name AS branch_name
+                FROM {table} e
+                JOIN branches b ON b.id = e.branch_id
+                WHERE {' AND '.join(where)}
+                ORDER BY e.entry_date DESC, e.id DESC
+                LIMIT %s
+            """, params + [limit])
+
+        else:
+            # Company-scoped table: no branch join, no entry_date
+            cur.execute(f"""
+                SELECT e.*
+                FROM {table} e
+                WHERE e.company_id = %s
+                ORDER BY e.id DESC
+                LIMIT %s
+            """, [company_id, limit])
+
         return [_row(dict(r)) for r in cur.fetchall()]
     finally:
         cur.close()
         conn.close()
-
 
 def _add_simple_amount(
     table: str,
@@ -596,41 +617,49 @@ def set_budget(
 def create_period_snapshot(
     company_id: int,
     user_id: int,
-    branch_id: int,
-    period_label: str,
-    entry_date: str,
-    notes: str = "",
-    locked_by: str = "",
-    opening_value: float = 0,
-    closing_value: float = 0,
-    purchases_value: float = 0,
+    period: str,
+    total_sales: float = 0,
+    total_expenses: float = 0,
+    total_purchases: float = 0,
     cogs: float = 0,
+    gross_profit: float = 0,
+    inventory_value: float = 0,
     ip_address: str | None = None,
 ) -> dict[str, Any]:
     """
-    Explicit keyword arguments — no **data dict that silently ignores typos.
+    Upsert a company-level financial snapshot for a given period (YYYY-MM).
+    If a snapshot already exists for this company + period, it is refreshed.
+    No branch_id — period_snapshots is company-scoped.
     """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        _verify_branch(cur, branch_id, company_id)
         cur.execute("""
             INSERT INTO period_snapshots
-                (branch_id, period_label, entry_date, notes, locked_by,
-                 opening_value, closing_value, purchases_value, cogs)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (company_id, period, total_sales, total_expenses,
+                 total_purchases, cogs, gross_profit, inventory_value, snapped_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (company_id, period)
+            DO UPDATE SET
+                total_sales      = EXCLUDED.total_sales,
+                total_expenses   = EXCLUDED.total_expenses,
+                total_purchases  = EXCLUDED.total_purchases,
+                cogs             = EXCLUDED.cogs,
+                gross_profit     = EXCLUDED.gross_profit,
+                inventory_value  = EXCLUDED.inventory_value,
+                snapped_at       = NOW()
             RETURNING *
         """, (
-            branch_id, period_label, entry_date, notes, locked_by,
-            opening_value, closing_value, purchases_value, cogs,
+            company_id, period,
+            total_sales, total_expenses, total_purchases,
+            cogs, gross_profit, inventory_value,
         ))
         row = _row(dict(cur.fetchone()))
         log_audit(
             conn,
             company_id=company_id,
             user_id=user_id,
-            branch_id=branch_id,
-            action="CREATE",
+            action="UPSERT",
             table_name="period_snapshots",
             record_id=row["id"],
             new_data=row,
@@ -644,7 +673,6 @@ def create_period_snapshot(
     finally:
         cur.close()
         conn.close()
-
 
 def list_period_snapshots(
     company_id: int,

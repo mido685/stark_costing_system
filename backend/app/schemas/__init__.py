@@ -259,15 +259,13 @@ class BudgetRequest(BaseModel):
 
 
 class PeriodSnapshotRequest(BaseModel):
-    branch_id: int
-    period_label: str
-    entry_date: str
-    notes: str = ""
-    locked_by: str = ""
-    opening_value: float = 0
-    closing_value: float = 0
-    purchases_value: float = 0
+    period: str                  # YYYY-MM
+    total_sales: float = 0
+    total_expenses: float = 0
+    total_purchases: float = 0
     cogs: float = 0
+    gross_profit: float = 0
+    inventory_value: float = 0
 
 
 class PeriodBackupRequest(BaseModel):
