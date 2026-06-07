@@ -62,6 +62,8 @@ const UNWRAP_KEYS = new Set([
   "ledger",
   "opening_stock",
   "payroll",
+  "period_status",
+  "periods",
   "prepayment",
   "prepayments",
   "product",
