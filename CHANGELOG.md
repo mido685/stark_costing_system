@@ -1,3 +1,10 @@
+# [3.43.0](https://github.com/mido685/stark_costing_system/compare/v3.42.0...v3.43.0) (2026-06-07)
+
+
+### Features
+
+* inventory controls page and masters updating ([d50a52f](https://github.com/mido685/stark_costing_system/commit/d50a52f708be39247dc8d9f9922b27aaabf088ce))
+
 # [3.42.0](https://github.com/mido685/stark_costing_system/compare/v3.41.0...v3.42.0) (2026-06-07)
 
 
