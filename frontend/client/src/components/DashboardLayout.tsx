@@ -103,7 +103,7 @@ export default function DashboardLayout({ children, onLogout }: Props) {
   }, [menuOpen, closeMenu]);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="flex h-screen w-full bg-background">
 
       {/* ── Sidebar ── */}
       <aside
@@ -170,7 +170,7 @@ export default function DashboardLayout({ children, onLogout }: Props) {
       <div className="flex flex-1 flex-col min-w-0">
 
         {/* Topbar */}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 overflow-visible">
 
           {/* Left: hamburger + breadcrumb */}
           <div className="flex items-center gap-3">
@@ -198,9 +198,11 @@ export default function DashboardLayout({ children, onLogout }: Props) {
           </div>
 
           {/* Right: period status + avatar menu */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 overflow-visible">
 
-            <PeriodStatusControl />
+            <div className="relative z-[60]">
+              <PeriodStatusControl />
+            </div>
 
             <div className="h-5 w-px bg-border mx-1" aria-hidden="true" />
 
