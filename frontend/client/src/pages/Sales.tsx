@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   TrendingUp, TrendingDown, Plus, X, Loader2, AlertCircle, RefreshCw,
-  Download, Filter, Search, FileText, Languages, Moon, Sun, Lock,
+  Download, Filter, Search, FileText, Lock,
   ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
@@ -1447,37 +1447,6 @@ export default function Sales() {
             value={period}
             onChange={e => setPeriod(e.target.value)}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openModal("periodStatus")}
-            className={
-              selectedPeriodLocked
-                ? "border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                : selectedPeriodClosed
-                  ? "border-amber-300 dark:border-amber-600 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
-                  : "border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20"
-            }
-          >
-            <Lock className="h-4 w-4 mr-1" />
-            {selectedPeriodState.toUpperCase()}
-          </Button>
-          <button
-            onClick={toggleLanguage}
-            title={language === "en" ? t("sales.header.switchArabic") : t("sales.header.switchEnglish")}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors select-none"
-          >
-            <Languages size={13} />
-            <span className="w-5 text-center">{language === "en" ? "ع" : "EN"}</span>
-          </button>
-          <button
-            onClick={toggleTheme}
-            title={isDark ? t("sales.header.switchLight") : t("sales.header.switchDark")}
-            className="flex items-center justify-center rounded-md border border-border w-8 h-8 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            aria-label={t("sales.header.toggleTheme")}
-          >
-            {isDark ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} />}
-          </button>
           <Button variant="outline" size="sm" onClick={refetchAll}>
             <RefreshCw className="w-4 h-4" />
           </Button>
