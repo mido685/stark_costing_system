@@ -812,7 +812,7 @@ export async function addStockAdjustment(data: {
   user_id: number;
 }): Promise<boolean> {
   try {
-    await apiCall("/api/inventory/adjustment", {
+    await apiCall("/api/stock-adjustments", {
       method: "POST",
       body: JSON.stringify({
         branch_id:        data.branch_id,
