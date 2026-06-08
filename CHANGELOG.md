@@ -1,3 +1,10 @@
+# [3.50.0](https://github.com/mido685/stark_costing_system/compare/v3.49.0...v3.50.0) (2026-06-08)
+
+
+### Features
+
+* updating the cloudfare ([2b93687](https://github.com/mido685/stark_costing_system/commit/2b93687c695909793636e1683584f10a8e5722a6))
+
 # [3.49.0](https://github.com/mido685/stark_costing_system/compare/v3.48.0...v3.49.0) (2026-06-07)
 
 
