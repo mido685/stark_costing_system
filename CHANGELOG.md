@@ -1,3 +1,10 @@
+# [3.51.0](https://github.com/mido685/stark_costing_system/compare/v3.50.0...v3.51.0) (2026-06-08)
+
+
+### Features
+
+* update the design of user mangement ([add768b](https://github.com/mido685/stark_costing_system/commit/add768bfd718fb22183cf107615ce043c60a5168))
+
 # [3.50.0](https://github.com/mido685/stark_costing_system/compare/v3.49.0...v3.50.0) (2026-06-08)
 
 
