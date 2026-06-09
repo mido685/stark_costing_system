@@ -1230,7 +1230,7 @@ export default function Masters() {
             </Field>
             <Field label={t("masters.field.category")}>
               <select className={inputClass} value={itemForm.category}
-                onChange={e => setItemForm({ ...itemForm, category: e.target.value, sku_prefix: "", sku: "" })}>
+                onChange={e => setItemForm(prev => ({ ...prev, category: e.target.value, sku_prefix: "", sku: "" }))}>
                 <option value="raw_material">{t("masters.cat.rawMaterial")}</option>
                 <option value="finished_good">{t("masters.cat.finishedGood")}</option>
               </select>
@@ -1238,25 +1238,25 @@ export default function Masters() {
           </div>
           <Field label={t("masters.field.unit")}>
             <input className={inputClass} placeholder={t("masters.ph.unit")} value={itemForm.unit}
-              onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} />
+              onChange={e => setItemForm(prev => ({ ...prev, unit: e.target.value }))} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("masters.field.standardCost")}>
               <input className={inputClass} type="number" min={0} step={0.01}
                 placeholder={t("masters.ph.price")} value={itemForm.standard_cost || ""}
-                onChange={e => setItemForm({ ...itemForm, standard_cost: Number(e.target.value) })} />
+                onChange={e => setItemForm(prev => ({ ...prev, standard_cost: Number(e.target.value) }))} />
             </Field>
             {itemForm.category === "finished_good" ? (
               <Field label={t("masters.field.salePrice")}>
                 <input className={inputClass} type="number" min={0} step={0.01}
                   placeholder={t("masters.ph.price")} value={itemForm.sale_price || ""}
-                  onChange={e => setItemForm({ ...itemForm, sale_price: Number(e.target.value) })} />
+                  onChange={e => setItemForm(prev => ({ ...prev, sale_price: Number(e.target.value) }))} />
               </Field>
             ) : (
               <Field label={t("masters.field.reorderLevel")}>
                 <input className={inputClass} type="number" min={0} placeholder="0"
                   value={itemForm.reorder_level || ""}
-                  onChange={e => setItemForm({ ...itemForm, reorder_level: Number(e.target.value) })} />
+                  onChange={e => setItemForm(prev => ({ ...prev, reorder_level: Number(e.target.value) }))} />
               </Field>
             )}
           </div>
@@ -1266,8 +1266,8 @@ export default function Masters() {
             category={itemForm.category}
             selectedPrefix={itemForm.sku_prefix}
             manualSku={itemForm.sku}
-            onPrefixChange={prefix => setItemForm({ ...itemForm, sku_prefix: prefix, sku: "" })}
-            onManualSkuChange={sku => setItemForm({ ...itemForm, sku })}
+            onPrefixChange={prefix => setItemForm(prev => ({ ...prev, sku_prefix: prefix, sku: "" }))}
+            onManualSkuChange={sku => setItemForm(prev => ({ ...prev, sku }))}
           />
         </Modal>
       )}
@@ -1292,30 +1292,30 @@ export default function Masters() {
           <div className="grid grid-cols-2 gap-3">
             <Field label="Item Name">
               <input className={inputClass} placeholder="Item name" value={editItemForm.name}
-                onChange={e => setEditItemForm({ ...editItemForm, name: e.target.value })} autoFocus />
+                onChange={e => setEditItemForm(prev => ({ ...prev, name: e.target.value }))} autoFocus />
             </Field>
             <Field label="Unit">
               <input className={inputClass} placeholder="kg / pcs / L" value={editItemForm.unit}
-                onChange={e => setEditItemForm({ ...editItemForm, unit: e.target.value })} />
+                onChange={e => setEditItemForm(prev => ({ ...prev, unit: e.target.value }))} autoFocus />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Standard Cost (${currencyLabel})`}>
               <input className={inputClass} type="number" min={0} step={0.01}
                 value={editItemForm.standard_cost || ""}
-                onChange={e => setEditItemForm({ ...editItemForm, standard_cost: Number(e.target.value) })} />
+                onChange={e => setEditItemForm(prev => ({ ...prev, standard_cost: Number(e.target.value) }))} />
             </Field>
             {editingItem.category === "finished_good" ? (
               <Field label={`Sale Price (${currencyLabel})`}>
                 <input className={inputClass} type="number" min={0} step={0.01}
                   value={editItemForm.sale_price || ""}
-                  onChange={e => setEditItemForm({ ...editItemForm, sale_price: Number(e.target.value) })} />
+                  onChange={e => setEditItemForm(prev => ({ ...prev, sale_price: Number(e.target.value) }))} />
               </Field>
             ) : (
               <Field label="Reorder Level">
                 <input className={inputClass} type="number" min={0}
                   value={editItemForm.reorder_level || ""}
-                  onChange={e => setEditItemForm({ ...editItemForm, reorder_level: Number(e.target.value) })} />
+                  onChange={e => setEditItemForm(prev => ({ ...prev, reorder_level: Number(e.target.value) }))} />
               </Field>
             )}
           </div>
@@ -1325,8 +1325,8 @@ export default function Masters() {
             category={editingItem.category}
             selectedPrefix={editItemForm.sku_prefix}
             manualSku={editItemForm.sku}
-            onPrefixChange={prefix => setEditItemForm({ ...editItemForm, sku_prefix: prefix, sku: "" })}
-            onManualSkuChange={sku => setEditItemForm({ ...editItemForm, sku })}
+            onPrefixChange={prefix => setEditItemForm(prev => ({ ...prev, sku_prefix: prefix, sku: "" }))}
+            onManualSkuChange={sku => setEditItemForm(prev => ({ ...prev, sku }))}
           />
         </Modal>
       )}
