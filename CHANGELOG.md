@@ -1,3 +1,10 @@
+# [3.53.0](https://github.com/mido685/stark_costing_system/compare/v3.52.0...v3.53.0) (2026-06-09)
+
+
+### Features
+
+* updated new sku tap ([f743d79](https://github.com/mido685/stark_costing_system/commit/f743d79f1c76a999c960a50d3bd2b61c116b0b75))
+
 # [3.52.0](https://github.com/mido685/stark_costing_system/compare/v3.51.0...v3.52.0) (2026-06-08)
 
 
