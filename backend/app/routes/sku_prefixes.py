@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends
 from app.api.responses import success, error
 from app.database import sku_prefixes as sku_db
 from app.security.dependencies import get_current_user, require_roles
-from app.schemas import SkuPrefixRequest 
+from app.schemas import SkuPrefixRequest
 
 router = APIRouter(prefix="/sku-prefixes", tags=["sku-prefixes"])
+
 
 @router.get("")
 def list_prefixes(
@@ -16,6 +17,17 @@ def list_prefixes(
         item_type=item_type or None,
     )
     return success("SKU prefixes retrieved", prefixes=prefixes)
+
+
+@router.post("/seed-defaults")
+def seed_defaults(
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        sku_db.seed_default_prefixes(current_user["company_id"])
+        return success("Default prefixes seeded")
+    except Exception as e:
+        return error(str(e))
 
 
 @router.post("")

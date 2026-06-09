@@ -6,7 +6,7 @@ import {
   ChevronRight, Loader2, AlertCircle, DollarSign,
   FileDown, History, TrendingUp, TrendingDown, Minus, Lock,
   Search, ChevronLeft, Eye, Phone, Mail, MapPin, Globe,
-  Tag, Upload, Pencil,Activity
+  Tag, Upload, Pencil, Activity, CheckCircle,
 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import {
@@ -14,16 +14,19 @@ import {
   addBranch, addSupplier, addItem, addUser,
   deleteSupplier, deleteBranch, deleteItem, apiCall,
   getPeriodStatus,
+  getSkuPrefixes, addSkuPrefix, deleteSkuPrefix, seedSkuPrefixes,
+  type SkuPrefixRow,
 } from "@/lib/api";
 import type { UserRow, ItemRow, SupplierRow, PeriodStatusRow } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, getCurrencyLabel } from "@/lib/localization";
 import { apiUpload, assetUrl } from "@/lib/api";
 import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ModalType = "branch" | "supplier" | "item" | "editItem" | "user" | "price" | null;
-type Tab = "branches" | "suppliers" | "items" | "users" | "prices";
+type Tab = "branches" | "suppliers" | "items" | "users" | "prices" | "skuPrefixes";
 
 interface PriceHistoryRow {
   entry_date:    string;
@@ -32,14 +35,7 @@ interface PriceHistoryRow {
   notes:         string;
 }
 
-interface SkuPrefix {
-  id:        number;
-  label:     string;
-  prefix:    string;
-  item_type: string; // 'raw_material' | 'finished_good' | 'both'
-}
 
-// Change 5 — typed interface replacing any[]
 interface IngredientOption {
   id:            number;
   name:          string;
@@ -51,11 +47,6 @@ interface IngredientOption {
 
 function today() {
   return new Date().toISOString().split("T")[0];
-}
-
-function currentPeriod() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 const inputClass =
@@ -182,7 +173,7 @@ function SkuSelector({
   prefixes, loading, category, selectedPrefix, manualSku,
   onPrefixChange, onManualSkuChange,
 }: {
-  prefixes: SkuPrefix[]; loading: boolean; category: string;
+  prefixes: SkuPrefixRow[]; loading: boolean; category: string;
   selectedPrefix: string; manualSku: string;
   onPrefixChange: (p: string) => void; onManualSkuChange: (s: string) => void;
 }) {
@@ -324,7 +315,6 @@ function ItemCard({
   const isFG = item.category === "finished_good";
   const [uploading, setUploading] = useState(false);
 
-  // Change 1 — removed (item as any) casts
   const supplierName: string =
     item.supplier_name ??
     suppliers.find(s => s.id === item.supplier_id)?.name ?? "";
@@ -337,7 +327,6 @@ function ItemCard({
     formData.append("file", file);
     const category = isFG ? "finished_good" : "raw_material";
     try {
-      // Change 2 — typed cast instead of any
       const result = await apiUpload<{ image_url?: string; message?: string }>(
         `/api/products/${item.id}/image?category=${category}`, formData
       );
@@ -354,10 +343,7 @@ function ItemCard({
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden hover:shadow-md hover:border-primary/40 transition-all duration-200 flex flex-col group">
-
-      {/* ── Image ── */}
       <div className="relative h-36 bg-secondary/40 flex items-center justify-center shrink-0 overflow-hidden">
-        {/* Change 3 — removed (item as any).image_url casts */}
         {item.image_url ? (
           <img src={assetUrl(item.image_url)} alt={item.name} className="w-full h-full object-cover" />
         ) : (
@@ -366,7 +352,6 @@ function ItemCard({
             <span className="text-[10px] font-semibold text-muted-foreground/40 tracking-widest uppercase">No Image</span>
           </div>
         )}
-
         {!selectedPeriodClosed && (
           <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
             {uploading ? (
@@ -381,22 +366,15 @@ function ItemCard({
               onChange={handleImageUpload} disabled={uploading} />
           </label>
         )}
-
-        {/* Category badge — top left */}
         <span className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${isFG ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"}`}>
           {isFG ? "Finished Good" : "Raw Material"}
         </span>
-        {/* Active badge — top right */}
         <span className="absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
           Active
         </span>
       </div>
-
-      {/* ── Body ── */}
       <div className="p-4 flex flex-col gap-3 flex-1">
-
         <p className="text-sm font-bold text-foreground leading-snug">{item.name}</p>
-
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           {item.sku && (
             <div className="col-span-2">
@@ -404,25 +382,20 @@ function ItemCard({
               <p className="text-xs font-semibold text-foreground font-mono">{item.sku}</p>
             </div>
           )}
-
           <div>
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Unit</p>
             <p className="text-xs font-semibold text-foreground">{item.unit}</p>
           </div>
-
-          {/* Change 4 — removed (item as any).category_label casts */}
           {item.category_label && (
             <div>
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Category</p>
               <p className="text-xs font-semibold text-foreground">{item.category_label}</p>
             </div>
           )}
-
           <div>
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Cost</p>
             <p className="text-xs font-bold text-primary">{formatCurrency(item.standard_cost ?? 0)} {currencyLabel}</p>
           </div>
-
           {isFG ? (
             <div>
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Sale Price</p>
@@ -435,7 +408,6 @@ function ItemCard({
             </div>
           )}
         </div>
-
         {supplierName && (
           <div className="pt-2 border-t border-border">
             <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-0.5">Supplier</p>
@@ -444,8 +416,6 @@ function ItemCard({
             </p>
           </div>
         )}
-
-        {/* ── Actions ── */}
         <div className="flex gap-2 mt-auto pt-2 border-t border-border">
           <button
             disabled={selectedPeriodClosed} onClick={onEdit}
@@ -663,6 +633,237 @@ function SupplierDetailView({ s, selectedPeriodClosed, onBack, onDelete }: {
   );
 }
 
+// ─── SKU Prefix Manager ───────────────────────────────────────────────────────
+
+function SkuPrefixManager({
+  prefixes, loading, onRefresh, selectedPeriodClosed,
+}: {
+  prefixes: SkuPrefixRow[];
+  loading: boolean;
+  onRefresh: () => void;
+  selectedPeriodClosed: boolean;
+}) {
+  const [form, setForm] = useState({
+    label: "",
+    prefix: "",
+    item_type: "raw_material" as "raw_material" | "finished_good" | "both",
+  });
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState("");
+  const [success, setSuccess] = useState("");
+  const [seeding, setSeeding] = useState(false);
+
+  const rawPrefixes      = prefixes.filter(p => p.item_type === "raw_material");
+  const finishedPrefixes = prefixes.filter(p => p.item_type === "finished_good");
+  const bothPrefixes     = prefixes.filter(p => p.item_type === "both");
+  async function handleAdd() {
+    if (!form.label.trim())  { setError("Label is required.");  return; }
+    if (!form.prefix.trim()) { setError("Prefix is required."); return; }
+    if (!/^[A-Z0-9]+$/.test(form.prefix.toUpperCase())) {
+      setError("Prefix must be letters/numbers only (e.g. PIZ, BRK2)."); return;
+    }
+    setSaving(true); setError(""); setSuccess("");
+    try {
+      await addSkuPrefix({
+        label:     form.label.trim(),
+        prefix:    form.prefix.trim().toUpperCase(),
+        item_type: form.item_type,
+      });
+      setSuccess(`Prefix "${form.prefix.toUpperCase()}" added successfully.`);
+      setForm({ label: "", prefix: "", item_type: "raw_material" });
+      onRefresh();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to add prefix. It may already exist.");
+    }
+    setSaving(false);
+  }
+
+  async function handleDelete(id: number, prefix: string) {
+    if (!confirm(`Delete prefix "${prefix}"? Items with this SKU prefix won't be affected.`)) return;
+    const ok = await deleteSkuPrefix(id);
+    if (ok) {
+      onRefresh();
+    } else {
+      alert("Failed to delete prefix.");
+    }
+  }
+
+  async function handleSeedDefaults() {
+    if (!confirm("This will add all default prefixes for your company. Existing ones won't be changed. Continue?")) return;
+    setSeeding(true);
+    const ok = await seedSkuPrefixes();
+    if (ok) {
+      onRefresh();
+      setSuccess("Default prefixes seeded successfully.");
+    } else {
+      setError("Failed to seed defaults.");
+    }
+    setSeeding(false);
+  }
+  
+
+  
+
+  function PrefixGroup({ title, items, color }: { title: string; items: SkuPrefixRow[]; color: string }) {
+    if (!items.length) return null;
+    return (
+      <div>
+        <p className={`text-[11px] font-bold uppercase tracking-widest mb-2 ${color}`}>
+          {title} ({items.length})
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {items.map(p => (
+            <div
+              key={p.id}
+              className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-secondary/30 hover:bg-secondary/60 group transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="font-mono text-sm font-bold text-primary">{p.prefix}-</p>
+                <p className="text-[11px] text-muted-foreground truncate">{p.label}</p>
+              </div>
+              {!selectedPeriodClosed && (
+                <button
+                  onClick={() => handleDelete(p.id, p.prefix)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 shrink-0"
+                  title={`Delete ${p.prefix}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">SKU Prefix Manager</h2>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-2"
+          onClick={handleSeedDefaults}
+          disabled={seeding || selectedPeriodClosed}
+        >
+          {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          Seed Defaults
+        </Button>
+      </div>
+
+      {/* Add New Prefix Form */}
+      <div className="p-4 rounded-xl border border-primary/30 bg-primary/[0.03] space-y-4">
+        <p className="text-xs font-bold text-primary uppercase tracking-wider">Add New SKU Prefix</p>
+
+        {error   && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+        {success && <p className="text-xs text-green-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />{success}</p>}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Field label="Label (display name)">
+            <input
+              className={inputClass}
+              placeholder="e.g. Wraps & Rolls"
+              value={form.label}
+              onChange={e => setForm({ ...form, label: e.target.value })}
+            />
+          </Field>
+
+          <Field label="Prefix (short code)">
+            <div className="relative">
+              <input
+                className={inputClass + " uppercase font-mono"}
+                placeholder="e.g. WRAP"
+                maxLength={8}
+                value={form.prefix}
+                onChange={e => setForm({ ...form, prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
+              />
+              {form.prefix && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-mono">
+                  → {form.prefix}-00001
+                </span>
+              )}
+            </div>
+          </Field>
+
+          <Field label="Applies To">
+            <select
+              className={inputClass}
+              value={form.item_type}
+              onChange={e => setForm({ ...form, item_type: e.target.value as "raw_material" | "finished_good" | "both" })}
+            >
+              <option value="raw_material">Raw Materials only</option>
+              <option value="finished_good">Finished Goods only</option>
+              <option value="both">Both</option>
+            </select>
+          </Field>
+        </div>
+
+        {/* Preview */}
+        {form.prefix && form.label && (
+          <div className="flex items-center gap-3 p-2.5 rounded-lg bg-background border border-border text-xs">
+            <Tag className="w-3.5 h-3.5 text-primary shrink-0" />
+            <span className="text-muted-foreground">Preview:</span>
+            <span className="font-mono font-bold text-primary">{form.prefix}-00001</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="font-mono font-bold text-primary">{form.prefix}-00002</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">{form.label}</span>
+            <span className={`ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+              form.item_type === "raw_material"  ? "bg-amber-100 text-amber-700"  :
+              form.item_type === "finished_good" ? "bg-green-100 text-green-700"  :
+                                                   "bg-blue-100 text-blue-700"
+            }`}>
+              {form.item_type === "raw_material"  ? "Raw Material"  :
+               form.item_type === "finished_good" ? "Finished Good" : "Both"}
+            </span>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={handleAdd}
+            disabled={saving || selectedPeriodClosed || !form.label || !form.prefix}
+            className="gap-2"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Add Prefix
+          </Button>
+        </div>
+      </div>
+
+      {/* Existing Prefixes */}
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map(i => <div key={i} className="h-10 bg-secondary/40 rounded-lg animate-pulse" />)}
+        </div>
+      ) : !prefixes.length ? (
+        <div className="py-12 text-center space-y-3">
+          <Tag className="w-10 h-10 text-muted-foreground/30 mx-auto" />
+          <p className="text-sm text-muted-foreground">No prefixes yet.</p>
+          <p className="text-xs text-muted-foreground">
+            Click <strong>Seed Defaults</strong> to add the standard F&B prefixes, or add your own above.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <PrefixGroup title="Raw Materials"  items={rawPrefixes}      color="text-amber-600 dark:text-amber-400" />
+          <PrefixGroup title="Finished Goods" items={finishedPrefixes} color="text-green-600 dark:text-green-400" />
+          <PrefixGroup title="Both"           items={bothPrefixes}     color="text-blue-600 dark:text-blue-400"   />
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground border-t border-border pt-4">
+        Deleting a prefix won't affect existing items — their SKUs are stored permanently.
+        The counter resets if you re-add the same prefix later.
+      </p>
+    </div>
+  );
+}
+
 // ─── Empty supplier form ──────────────────────────────────────────────────────
 
 const emptySupplierForm = {
@@ -684,11 +885,10 @@ export default function Masters() {
   const [showChangeLog, setShowChangeLog] = useState(false);
   const currencyLabel = getCurrencyLabel(language);
 
-  
   const { workingPeriod } = useWorkingPeriod();
   const { data: companyPeriodStatus } = useApi<PeriodStatusRow>(
-  () => getPeriodStatus(workingPeriod),
-  { deps: [workingPeriod] }
+    () => getPeriodStatus(workingPeriod),
+    { deps: [workingPeriod] }
   );
   const selectedPeriodState  = companyPeriodStatus?.status ?? "open";
   const selectedPeriodClosed = selectedPeriodState === "closed" || selectedPeriodState === "locked";
@@ -699,7 +899,6 @@ export default function Masters() {
   const [itemSearch, setItemSearch] = useState("");
   const [itemFilter, setItemFilter] = useState<"all" | "raw_material" | "finished_good">("all");
 
-  // Change 7 — fail loudly if user_id is missing instead of silent fallback to 1
   const currentUserId = Number(localStorage.getItem("user_id") ?? "0");
 
   const { data: branches,    loading: branchLoading,   refetch: refetchBranches  } = useApi(getBranches);
@@ -707,16 +906,17 @@ export default function Masters() {
   const { data: items,       loading: itemLoading,     refetch: refetchItemsRaw  } = useApi(getItems);
   const { data: users,       loading: userLoading,     refetch: refetchUsers     } = useApi(getUsers);
 
-  // Change 5 — typed as IngredientOption[] instead of any[]
   const { data: ingredients, loading: ingredientLoading } = useApi(
     () => apiCall<IngredientOption[]>("/api/ingredients")
   );
 
-  // ── SKU Prefixes ──
-  const { data: skuPrefixData, loading: skuPrefixLoading } = useApi(
-    () => apiCall<SkuPrefix[]>("/api/sku-prefixes")
+
+  const { data: skuPrefixData, loading: skuPrefixLoading, refetch: refetchSkuPrefixes } = useApi(
+  getSkuPrefixes
   );
-  const skuPrefixes: SkuPrefix[] = skuPrefixData ?? [];
+
+
+  const skuPrefixes: SkuPrefixRow[] = skuPrefixData ?? [];
 
   const [selectedIngredient,     setSelectedIngredient]     = useState<number>(0);
   const [selectedIngredientName, setSelectedIngredientName] = useState<string>("");
@@ -732,14 +932,12 @@ export default function Masters() {
   const [phoneError,      setPhoneError]      = useState("");
   const [agentPhoneError, setAgentPhoneError] = useState("");
 
-  // ── Add Item form ──
   const [itemForm, setItemForm] = useState({
     name: "", sku: "", sku_prefix: "",
     category: "raw_material", unit: "",
     sale_price: 0, reorder_level: 0, standard_cost: 0,
   });
 
-  // ── Edit Item form ──
   const [editingItem,  setEditingItem]  = useState<ItemRow | null>(null);
   const [editItemForm, setEditItemForm] = useState({
     name: "", sku: "", sku_prefix: "", unit: "",
@@ -827,7 +1025,6 @@ export default function Masters() {
     if (ok) {
       setModal(null);
       setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
-      // Change 6 — consistent ?. pattern across all refetch calls
       await refetchItemsRaw?.();
     } else setError(t("masters.err.itemSave"));
   }
@@ -888,15 +1085,10 @@ export default function Masters() {
     setSaving(true); setError("");
     try {
       await apiCall("/api/suppliers/price", { method: "POST", body: JSON.stringify(priceForm) });
-
-      // Auto-select the ingredient that was just priced so the table appears immediately
       setSelectedIngredient(priceForm.ingredient_id);
       const found = ingredients?.find(i => i.id === priceForm.ingredient_id);
       setSelectedIngredientName(found?.name ?? "");
-
-      // Switch to prices tab so the history table is visible
       setTab("prices");
-
       setModal(null);
       setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
       await refetchPrices?.();
@@ -914,10 +1106,11 @@ export default function Masters() {
   // ── Derived values ─────────────────────────────────────────────────────────
 
   const counts = {
-    branches:  branches?.length  ?? 0,
-    suppliers: suppliers?.length ?? 0,
-    items:     items?.length     ?? 0,
-    users:     users?.length     ?? 0,
+    branches:    branches?.length    ?? 0,
+    suppliers:   suppliers?.length   ?? 0,
+    items:       items?.length       ?? 0,
+    users:       users?.length       ?? 0,
+    skuPrefixes: skuPrefixes.length,
   };
 
   const roleColor = (role: string) =>
@@ -1030,7 +1223,6 @@ export default function Masters() {
       {modal === "item" && (
         <Modal title={t("masters.modal.addItem")} onClose={() => setModal(null)} onSave={handleSaveItem} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
-
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("masters.field.itemName")}>
               <input className={inputClass} placeholder={t("masters.ph.itemName")} value={itemForm.name}
@@ -1044,12 +1236,10 @@ export default function Masters() {
               </select>
             </Field>
           </div>
-
           <Field label={t("masters.field.unit")}>
             <input className={inputClass} placeholder={t("masters.ph.unit")} value={itemForm.unit}
               onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} />
           </Field>
-
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("masters.field.standardCost")}>
               <input className={inputClass} type="number" min={0} step={0.01}
@@ -1070,7 +1260,6 @@ export default function Masters() {
               </Field>
             )}
           </div>
-
           <SkuSelector
             prefixes={skuPrefixes}
             loading={skuPrefixLoading}
@@ -1092,7 +1281,6 @@ export default function Masters() {
           {...modalProps}
         >
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
-
           <div className="flex items-center gap-2 p-2 rounded-lg bg-secondary/50">
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${editingItem.category === "finished_good" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
               {editingItem.category === "finished_good" ? "Finished Good" : "Raw Material"}
@@ -1101,7 +1289,6 @@ export default function Masters() {
               <span className="text-xs text-muted-foreground font-mono">{editingItem.sku}</span>
             )}
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <Field label="Item Name">
               <input className={inputClass} placeholder="Item name" value={editItemForm.name}
@@ -1112,7 +1299,6 @@ export default function Masters() {
                 onChange={e => setEditItemForm({ ...editItemForm, unit: e.target.value })} />
             </Field>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Standard Cost (${currencyLabel})`}>
               <input className={inputClass} type="number" min={0} step={0.01}
@@ -1133,7 +1319,6 @@ export default function Masters() {
               </Field>
             )}
           </div>
-
           <SkuSelector
             prefixes={skuPrefixes}
             loading={skuPrefixLoading}
@@ -1181,7 +1366,6 @@ export default function Masters() {
             <select className={inputClass} value={priceForm.ingredient_id || ""}
               onChange={e => setPriceForm({ ...priceForm, ingredient_id: Number(e.target.value) })}>
               <option value="">{t("masters.ph.selectIngredient")}</option>
-              {/* Change 5 — removed (i: any) cast */}
               {ingredients?.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
             </select>
           </Field>
@@ -1218,14 +1402,13 @@ export default function Masters() {
           <p className="text-muted-foreground mt-1">{t("masters.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
-        
           <span className={`text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 ${selectedPeriodLocked ? "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400" : selectedPeriodClosed ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" : "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
             {selectedPeriodLocked
-            ? <Lock className="w-3 h-3" />
-            : selectedPeriodClosed
-            ? <Lock className="w-3 h-3" />
-            : <Activity className="w-3 h-3" />}
-          {selectedPeriodState.toUpperCase()}
+              ? <Lock className="w-3 h-3" />
+              : selectedPeriodClosed
+              ? <Lock className="w-3 h-3" />
+              : <Activity className="w-3 h-3" />}
+            {selectedPeriodState.toUpperCase()}
           </span>
         </div>
       </div>
@@ -1265,11 +1448,12 @@ export default function Masters() {
 
       {/* ── Tab Bar ── */}
       <div className="flex flex-wrap gap-2">
-        <TabBtn active={tab === "branches"}  onClick={() => setTab("branches")}  icon={<Building2  className="w-4 h-4" />} label={t("masters.tab.branches")}  count={counts.branches}  />
-        <TabBtn active={tab === "suppliers"} onClick={() => { setTab("suppliers"); setSupplierView(null); }} icon={<Truck className="w-4 h-4" />} label={t("masters.tab.suppliers")} count={counts.suppliers} />
-        <TabBtn active={tab === "items"}     onClick={() => setTab("items")}     icon={<Package    className="w-4 h-4" />} label={t("masters.tab.items")}     count={counts.items}     />
-        <TabBtn active={tab === "users"}     onClick={() => setTab("users")}     icon={<Users      className="w-4 h-4" />} label={t("masters.tab.users")}     count={counts.users}     />
-        <TabBtn active={tab === "prices"}    onClick={() => setTab("prices")}    icon={<DollarSign className="w-4 h-4" />} label={t("masters.tab.prices")}                             />
+        <TabBtn active={tab === "branches"}    onClick={() => setTab("branches")}    icon={<Building2  className="w-4 h-4" />} label={t("masters.tab.branches")}  count={counts.branches}  />
+        <TabBtn active={tab === "suppliers"}   onClick={() => { setTab("suppliers"); setSupplierView(null); }} icon={<Truck className="w-4 h-4" />} label={t("masters.tab.suppliers")} count={counts.suppliers} />
+        <TabBtn active={tab === "items"}       onClick={() => setTab("items")}       icon={<Package    className="w-4 h-4" />} label={t("masters.tab.items")}     count={counts.items}     />
+        <TabBtn active={tab === "users"}       onClick={() => setTab("users")}       icon={<Users      className="w-4 h-4" />} label={t("masters.tab.users")}     count={counts.users}     />
+        <TabBtn active={tab === "prices"}      onClick={() => setTab("prices")}      icon={<DollarSign className="w-4 h-4" />} label={t("masters.tab.prices")}                             />
+        <TabBtn active={tab === "skuPrefixes"} onClick={() => setTab("skuPrefixes")} icon={<Tag        className="w-4 h-4" />} label="SKU Prefixes"                count={counts.skuPrefixes} />
       </div>
 
       <Card className="p-6">
@@ -1335,9 +1519,9 @@ export default function Masters() {
                 {!supplierLoading && supplierList.length > 0 && (
                   <div className="grid grid-cols-3 gap-4 mb-6">
                     {[
-                      { label: "Total Suppliers", value: supplierList.length,                                            color: "text-green-600 dark:text-green-400"   },
-                      { label: "Active",           value: supplierList.length,                                            color: "text-blue-600 dark:text-blue-400"     },
-                      { label: "Categories",       value: new Set(supplierList.map(s => s.category || "General")).size,  color: "text-violet-600 dark:text-violet-400" },
+                      { label: "Total Suppliers", value: supplierList.length,                                           color: "text-green-600 dark:text-green-400"   },
+                      { label: "Active",           value: supplierList.length,                                           color: "text-blue-600 dark:text-blue-400"     },
+                      { label: "Categories",       value: new Set(supplierList.map(s => s.category || "General")).size, color: "text-violet-600 dark:text-violet-400" },
                     ].map((stat, i) => (
                       <Card key={i} className="p-4">
                         <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
@@ -1405,8 +1589,6 @@ export default function Masters() {
                 </Button>
               </div>
             </div>
-
-            {/* Search + Category Filter */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -1425,7 +1607,6 @@ export default function Masters() {
                 </span>
               )}
             </div>
-
             {itemLoading ? <SkeletonCards count={8} />
               : !items?.length ? <EmptyState label={t("masters.empty.items")} />
               : !filteredItems.length ? <EmptyState label="No items match your search." />
@@ -1517,7 +1698,6 @@ export default function Masters() {
                 </Button>
               </div>
             </div>
-
             <div className="mb-4">
               <Field label={t("masters.field.ingredientHistory")}>
                 {ingredientLoading ? <div className="h-10 bg-secondary/50 rounded animate-pulse" /> : (
@@ -1525,13 +1705,11 @@ export default function Masters() {
                     onChange={e => {
                       const id = Number(e.target.value);
                       setSelectedIngredient(id);
-                      // Change 5 — removed (i: any) cast
                       const found = ingredients?.find(i => i.id === id);
                       setSelectedIngredientName(found?.name ?? "");
                       setShowChangeLog(false);
                     }}>
                     <option value="">{t("masters.ph.selectIngredient")}</option>
-                    {/* Change 5 — removed (i: any) cast */}
                     {ingredients?.map(i => (
                       <option key={i.id} value={i.id}>{i.name} — {formatCurrency(Number(i.cost_per_unit))} / {i.unit}</option>
                     ))}
@@ -1539,7 +1717,6 @@ export default function Masters() {
                 )}
               </Field>
             </div>
-
             {!selectedIngredient ? (
               <div className="py-12 text-center text-muted-foreground text-sm">{t("masters.empty.selectIngredient")}</div>
             ) : priceLoading ? <SkeletonRows count={3} />
@@ -1603,6 +1780,16 @@ export default function Masters() {
                 </>
               )}
           </>
+        )}
+
+        {/* ── SKU Prefixes ── */}
+        {tab === "skuPrefixes" && (
+          <SkuPrefixManager
+            prefixes={skuPrefixes}
+            loading={skuPrefixLoading}
+            onRefresh={() => refetchSkuPrefixes?.()}
+            selectedPeriodClosed={selectedPeriodClosed}
+          />
         )}
 
       </Card>

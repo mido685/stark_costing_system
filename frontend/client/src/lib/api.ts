@@ -9,7 +9,7 @@ export function encodeFinishedGoodId(itemId: number): number {
   return itemId >= PRODUCT_OFFSET ? itemId : itemId + PRODUCT_OFFSET;
 }
 
-// Empty string = same origin, Vite proxy forwards /api/* to localhost:8085
+// Empty string = same origin, Vite proxy forwards /api/* to xlocalhost:8085
 export const API_BASE = "https://somerset-necklace-until-point.trycloudflare.com";
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
@@ -1281,6 +1281,52 @@ export async function updateItem(data: {
         }),
       });
     }
+    return true;
+  } catch {
+    return false;
+  }
+}
+// ─── SKU Prefixes ─────────────────────────────────────────────────────────────
+
+export interface SkuPrefixRow {
+  id:        number;
+  label:     string;
+  prefix:    string;
+  item_type: "raw_material" | "finished_good" | "both";
+}
+
+export async function getSkuPrefixes(item_type?: string): Promise<SkuPrefixRow[]> {
+  try {
+    const query = item_type ? `?item_type=${item_type}` : "";
+    return await apiCall<SkuPrefixRow[]>(`/api/sku-prefixes${query}`);
+  } catch {
+    return [];
+  }
+}
+
+export async function addSkuPrefix(data: {
+  label:     string;
+  prefix:    string;
+  item_type: "raw_material" | "finished_good" | "both";
+}): Promise<SkuPrefixRow> {
+  return apiCall<SkuPrefixRow>("/api/sku-prefixes", {
+    method: "POST",
+    body:   JSON.stringify(data),
+  });
+}
+
+export async function deleteSkuPrefix(prefixId: number): Promise<boolean> {
+  try {
+    await apiCall(`/api/sku-prefixes/${prefixId}`, { method: "DELETE" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function seedSkuPrefixes(): Promise<boolean> {
+  try {
+    await apiCall("/api/sku-prefixes/seed-defaults", { method: "POST" });
     return true;
   } catch {
     return false;
