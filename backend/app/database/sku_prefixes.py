@@ -137,24 +137,18 @@ def next_sku(company_id: int, prefix: str, table: str) -> str:
         prefix_pattern = re.escape(prefix)
         cur.execute(f"""
             SELECT
-                COALESCE(MAX(CAST(SUBSTRING(sku FROM %s) AS INTEGER)), 0) AS max_suffix,
-                COUNT(*) FILTER (WHERE sku LIKE %s) AS prefix_count,
-                COUNT(*) AS total_count
+                COALESCE(MAX(CAST(SUBSTRING(sku FROM %s) AS INTEGER)), 0) AS max_suffix
             FROM {table}
             WHERE company_id = %s
-        """, (rf"^{prefix_pattern}-([0-9]+)$", f"{prefix}-%", company_id))
+              AND sku ~ %s
+        """, (
+            rf"{prefix_pattern}-([0-9]+)",
+            company_id,
+            rf"^{prefix_pattern}-[0-9]+$",
+        ))
         row = cur.fetchone()
-        if isinstance(row, dict):
-            max_suffix = int(row["max_suffix"] or 0)
-            prefix_count = int(row["prefix_count"] or 0)
-            total_count = int(row["total_count"] or 0)
-        else:
-            max_suffix = int(row[0] or 0)
-            prefix_count = int(row[1] or 0)
-            total_count = int(row[2] or 0)
-
-        fallback_count = total_count if prefix in {"RM", "DISH"} else prefix_count
-        next_number = max(max_suffix, fallback_count) + 1
+        max_suffix = int(row["max_suffix"] or 0)
+        next_number = max_suffix + 1
         return f"{prefix}-{str(next_number).zfill(5)}"
     finally:
         cur.close()
