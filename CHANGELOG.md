@@ -1,3 +1,10 @@
+# [3.58.0](https://github.com/mido685/stark_costing_system/compare/v3.57.0...v3.58.0) (2026-06-10)
+
+
+### Features
+
+* updating the sku count and the activation of the items ([b7a4bb6](https://github.com/mido685/stark_costing_system/commit/b7a4bb680c0ecaf5c489bafe7140c5f2ea5a4391))
+
 # [3.57.0](https://github.com/mido685/stark_costing_system/compare/v3.56.0...v3.57.0) (2026-06-10)
 
 
