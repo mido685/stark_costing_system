@@ -55,40 +55,50 @@ def add_ingredient(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # Priority: manual sku → picked prefix → default ING prefix
-        auto_sku = sku or next_sku(company_id, sku_prefix or "RM", "ingredients")
-
+        # Check if ingredient exists but is inactive → reactivate it
         cur.execute("""
-            INSERT INTO ingredients
-                (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING *
-        """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, auto_sku))
-        ingredient = dict(cur.fetchone())
+            SELECT * FROM ingredients
+            WHERE company_id = %s AND LOWER(name) = LOWER(%s) AND is_active = FALSE
+        """, (company_id, name))
+        existing = cur.fetchone()
 
-        log_audit(
-            conn,
-            company_id=company_id,
-            user_id=user_id,
-            action="CREATE",
-            table_name="ingredients",
-            record_id=ingredient["id"],
-            new_data=ingredient,
-            ip_address=ip_address,
-        )
+        if existing:
+            auto_sku = sku or existing["sku"] or next_sku(company_id, sku_prefix or "RM", "ingredients")
+            cur.execute("""
+                UPDATE ingredients
+                SET is_active     = TRUE,
+                    unit          = %s,
+                    cost_per_unit = %s,
+                    stock_qty     = %s,
+                    reorder_level = %s,
+                    supplier_id   = %s,
+                    sku           = %s
+                WHERE id = %s AND company_id = %s
+                RETURNING *
+            """, (unit, cost_per_unit, stock_qty, reorder_level, supplier_id, auto_sku, existing["id"], company_id))
+            ingredient = dict(cur.fetchone())
+        else:
+            auto_sku = sku or next_sku(company_id, sku_prefix or "RM", "ingredients")
+            cur.execute("""
+                INSERT INTO ingredients
+                    (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING *
+            """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, auto_sku))
+            ingredient = dict(cur.fetchone())
+
+        log_audit(conn, company_id=company_id, user_id=user_id,
+                  action="CREATE", table_name="ingredients",
+                  record_id=ingredient["id"], new_data=ingredient, ip_address=ip_address)
         conn.commit()
         return ingredient
 
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-        raise ValueError("Ingredient name already exists for this company")
     except Exception:
         conn.rollback()
         raise
     finally:
         cur.close()
         conn.close()
-
 
 def update_ingredient(
     ingredient_id: int,

@@ -116,9 +116,13 @@ def init_db() -> None:
                 sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
                 is_active  BOOLEAN NOT NULL DEFAULT TRUE,
                 sku        VARCHAR(80),
-                image_url  TEXT,
-                UNIQUE(company_id, name)
+                image_url  TEXT
             )
+        """)
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS products_active_name_unique
+                ON products (company_id, LOWER(name))
+                WHERE is_active = TRUE
         """)
 
         # ── 10. SKU Prefixes ──────────────────────────────────────────────────
@@ -168,9 +172,13 @@ def init_db() -> None:
                 supplier_id   INTEGER REFERENCES suppliers(id),
                 is_active     BOOLEAN NOT NULL DEFAULT TRUE,
                 sku           VARCHAR(80),
-                image_url     TEXT,
-                UNIQUE(company_id, name)
+                image_url     TEXT
             )
+        """)
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS ingredients_active_name_unique
+                ON ingredients (company_id, LOWER(name))
+                WHERE is_active = TRUE
         """)
 
         # ── 13. Expense Categories ────────────────────────────────────────────

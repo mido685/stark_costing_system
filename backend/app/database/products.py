@@ -32,15 +32,33 @@ def add_product(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # Priority: manual sku → picked prefix → default DISH prefix
-        auto_sku = sku or next_sku(company_id, sku_prefix or "DISH", "products")
-
+        # Check if product exists but is inactive → reactivate it
         cur.execute("""
-            INSERT INTO products (company_id, name, unit, sale_price, sku)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING *
-        """, (company_id, name, unit, sale_price, auto_sku))
-        product = dict(cur.fetchone())
+            SELECT * FROM products
+            WHERE company_id = %s AND LOWER(name) = LOWER(%s) AND is_active = FALSE
+        """, (company_id, name))
+        existing = cur.fetchone()
+
+        if existing:
+            auto_sku = sku or existing["sku"] or next_sku(company_id, sku_prefix or "DISH", "products")
+            cur.execute("""
+                UPDATE products
+                SET is_active  = TRUE,
+                    unit       = %s,
+                    sale_price = %s,
+                    sku        = %s
+                WHERE id = %s AND company_id = %s
+                RETURNING *
+            """, (unit, sale_price, auto_sku, existing["id"], company_id))
+            product = dict(cur.fetchone())
+        else:
+            auto_sku = sku or next_sku(company_id, sku_prefix or "DISH", "products")
+            cur.execute("""
+                INSERT INTO products (company_id, name, unit, sale_price, sku)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING *
+            """, (company_id, name, unit, sale_price, auto_sku))
+            product = dict(cur.fetchone())
 
         log_audit(
             conn,
@@ -55,16 +73,12 @@ def add_product(
         conn.commit()
         return product
 
-    except psycopg2.errors.UniqueViolation:
-        conn.rollback()
-        raise ValueError("Product name already exists for this company")
     except Exception:
         conn.rollback()
         raise
     finally:
         cur.close()
         conn.close()
-
 
 def update_product(
     product_id: int,
