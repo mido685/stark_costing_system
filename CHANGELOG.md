@@ -1,3 +1,10 @@
+# [3.63.0](https://github.com/mido685/stark_costing_system/compare/v3.62.0...v3.63.0) (2026-06-11)
+
+
+### Features
+
+* updating the payroll features ([3e4cdd4](https://github.com/mido685/stark_costing_system/commit/3e4cdd480334590e6865c20a2a706b7fa469eff0))
+
 # [3.62.0](https://github.com/mido685/stark_costing_system/compare/v3.61.0...v3.62.0) (2026-06-11)
 
 
