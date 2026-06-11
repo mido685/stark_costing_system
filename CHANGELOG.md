@@ -1,3 +1,10 @@
+# [3.60.0](https://github.com/mido685/stark_costing_system/compare/v3.59.0...v3.60.0) (2026-06-11)
+
+
+### Features
+
+* fixing the delete ingredient button ([95c589c](https://github.com/mido685/stark_costing_system/commit/95c589c43ae42537adbaa20119802f7a5557da70))
+
 # [3.59.0](https://github.com/mido685/stark_costing_system/compare/v3.58.0...v3.59.0) (2026-06-11)
 
 
