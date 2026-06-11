@@ -243,7 +243,7 @@ function RecipeCard({
     setRemovingIngId(ingredientId);
     setRemoveError("");
     try {
-      const ok = await removeRecipeIngredient(recipe.recipe.id, ingredientId);
+      const ok = await removeRecipeIngredient(product.id, ingredientId);
       if (ok) {
         setRecipe((prev: any) => {
           if (!prev?.recipe) return prev;

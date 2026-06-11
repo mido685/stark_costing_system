@@ -591,12 +591,13 @@ export async function deleteSupplier(supplierId: number): Promise<boolean> {
 
 // ─── Recipes ──────────────────────────────────────────────────────────────────
 
+// ✅ Correct — sends product_id which is what the backend expects
 export async function removeRecipeIngredient(
-  recipeId: number,
+  productId: number,
   ingredientId: number
 ): Promise<boolean> {
   try {
-    await apiCall(`/api/recipes/${recipeId}/ingredients/${ingredientId}`, {
+    await apiCall(`/api/recipes/${productId}/ingredients/${ingredientId}`, {
       method: "DELETE",
     });
     return true;
@@ -604,7 +605,6 @@ export async function removeRecipeIngredient(
     return false;
   }
 }
-
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export async function getUsers(): Promise<UserRow[]> {
