@@ -860,6 +860,19 @@ def init_db() -> None:
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+         # ── 51. employee_groups ─────────────────────────────────────────────────────
+        cur.execute("""
+            CREATE TABLE employee_groups (
+                id              SERIAL PRIMARY KEY,
+                company_id      INTEGER NOT NULL REFERENCES companies(id),
+                name            VARCHAR(120) NOT NULL,
+                burden_pct      NUMERIC(5,2) NOT NULL DEFAULT 26.00,
+                headcount       INTEGER NOT NULL DEFAULT 1,
+                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(company_id, name)
+            );
+        """)
 
         # ── Indexes ───────────────────────────────────────────────────────────
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch     ON inventory_movements(branch_id, entry_date)")

@@ -793,7 +793,15 @@ export default function Finance() {
 
   // ── Form state ──
   const [expenseForm, setExpenseForm]           = useState({ entry_date: today(), category: "rent", amount: 0, expense_group: "operating", subtype: "admin", notes: "" });
-  const [payrollForm, setPayrollForm]           = useState({ entry_date: today(), employee_group: "Frontline", base_salary: 0, employer_burden: 0, notes: "" });
+  const [payrollForm, setPayrollForm] = useState({
+  entry_date: today(),
+  employee_group: "Kitchen Staff",
+  headcount: 1,
+  base_salary: 0,
+  burden_pct: 26,
+  employer_burden: 0,
+  notes: ""
+});
   const [accrualForm, setAccrualForm]           = useState({ entry_date: today(), category: "utilities", amount: 0, notes: "" });
   const [depreciationForm, setDepreciationForm] = useState({ entry_date: today(), asset_name: "", amount: 0, notes: "" });
   const [prepaymentForm, setPrepaymentForm]     = useState({ entry_date: today(), category: "marketing", amount: 0, months: 1, notes: "" });
@@ -838,6 +846,16 @@ export default function Finance() {
     approvalsLoading || kpiLoading || periodStatusLoading || salesLoading || companyPeriodStatusLoading;
 
   // ── Computed ──
+  const payrollTotals = useMemo(() => {
+  const perPerson  = Number(payrollForm.base_salary) || 0;
+  const count      = Number(payrollForm.headcount)   || 1;
+  const pct        = Number(payrollForm.burden_pct)  || 0;
+  const grossSalary   = perPerson * count;
+  const burdenAmount  = grossSalary * (pct / 100);
+  const totalCost     = grossSalary + burdenAmount;
+  return { grossSalary, burdenAmount, totalCost };
+  }, [payrollForm.base_salary, payrollForm.headcount, payrollForm.burden_pct]);
+
   const adjustedActualsByCategory = useMemo(() => {
     const actuals = new Map<string, number>();
     const add = (cat: string, amt: number) => actuals.set(cat, (actuals.get(cat) ?? 0) + Number(amt || 0));
@@ -922,7 +940,15 @@ const expenseBreakdown = useMemo(() => {
   function openModal(type: ModalType) {
     setFormError("");
     if (type === "expense")      setExpenseForm({ entry_date: defaultDateForPeriod(period), category: "rent", amount: 0, expense_group: "operating", subtype: "admin", notes: "" });
-    if (type === "payroll")      setPayrollForm({ entry_date: defaultDateForPeriod(period), employee_group: "Frontline", base_salary: 0, employer_burden: 0, notes: "" });
+    if (type === "payroll") setPayrollForm({
+      entry_date: defaultDateForPeriod(period),
+      employee_group: "Kitchen Staff",
+      headcount: 1,
+      base_salary: 0,
+      burden_pct: 26,
+      employer_burden: 0,
+      notes: ""
+    });
     if (type === "accrual")      setAccrualForm({ entry_date: defaultDateForPeriod(period), category: "utilities", amount: 0, notes: "" });
     if (type === "depreciation") setDepreciationForm({ entry_date: defaultDateForPeriod(period), asset_name: "", amount: 0, notes: "" });
     if (type === "prepayment")   setPrepaymentForm({ entry_date: defaultDateForPeriod(period), category: "marketing", amount: 0, months: 1, notes: "" });
@@ -944,14 +970,22 @@ const expenseBreakdown = useMemo(() => {
   }
 
   async function handleSavePayroll() {
-    if (!branchId) return setFormError(t("finance.selectBranchFirst"));
-    if (payrollForm.base_salary <= 0) return setFormError(t("finance.salaryPositive"));
-    setSaving(true); setFormError("");
-    try {
-      await addPayroll({ branch_id: branchId, entry_date: payrollForm.entry_date, employee_group: payrollForm.employee_group, base_salary: payrollForm.base_salary, employer_burden: payrollForm.employer_burden, notes: payrollForm.notes });
-      setModal(null); refetchAll();
-    } catch { setFormError(t("finance.saveFailed")); }
-    setSaving(false);
+  if (!branchId) return setFormError(t("finance.selectBranchFirst"));
+  if (payrollForm.base_salary <= 0) return setFormError(t("finance.salaryPositive"));
+  if (payrollForm.headcount < 1)    return setFormError("Headcount must be at least 1");
+  setSaving(true); setFormError("");
+  try {
+    await addPayroll({
+      branch_id:       branchId,
+      entry_date:      payrollForm.entry_date,
+      employee_group:  `${payrollForm.employee_group} (×${payrollForm.headcount})`,
+      base_salary:     payrollTotals.grossSalary,      // headcount × per-person salary
+      employer_burden: payrollTotals.burdenAmount,
+      notes:           payrollForm.notes,
+    });
+    setModal(null); refetchAll();
+  } catch { setFormError(t("finance.saveFailed")); }
+  setSaving(false);
   }
 
   async function handleSaveAccrual() {
@@ -1091,17 +1125,108 @@ const expenseBreakdown = useMemo(() => {
       )}
 
       {modal === "payroll" && (
-        <Modal title={t("finance.modal.recordPayroll")} {...modalProps} onClose={() => setModal(null)} onSave={handleSavePayroll}>
-          {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
+        <Modal
+          title={t("finance.modal.recordPayroll")}
+          {...modalProps}
+          onClose={() => setModal(null)}
+          onSave={handleSavePayroll}
+        >
+          {formError && (
+            <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+              <AlertCircle className="h-3 w-3" />{formError}
+            </p>
+          )}
+
+          {/* Row 1: Date + Group */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={payrollForm.entry_date} onChange={e => setPayrollForm({ ...payrollForm, entry_date: e.target.value })} /></Field>
-            <Field label={t("finance.modal.employeeGroup")}><input type="text" className={inputClass} value={payrollForm.employee_group} onChange={e => setPayrollForm({ ...payrollForm, employee_group: e.target.value })} /></Field>
+            <Field label={t("finance.modal.date")}>
+              <input
+                type="date"
+                className={inputClass}
+                value={payrollForm.entry_date}
+                onChange={e => setPayrollForm({ ...payrollForm, entry_date: e.target.value })}
+              />
+            </Field>
+            <Field label={t("finance.modal.employeeGroup")}>
+              <select
+                className={inputClass}
+                value={payrollForm.employee_group}
+                onChange={e => setPayrollForm({ ...payrollForm, employee_group: e.target.value })}
+              >
+                {["Kitchen Staff","Service Staff","Management","Security","Cleaning","Drivers","Administration"]
+                  .map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </Field>
           </div>
+
+          {/* Row 2: Headcount + Base Salary per person */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.baseSalary")}><input type="number" min={0.01} step={0.01} className={inputClass} value={payrollForm.base_salary || ""} onChange={e => setPayrollForm({ ...payrollForm, base_salary: Number(e.target.value) })} /></Field>
-            <Field label={t("finance.modal.employerBurden")}><input type="number" min={0} step={0.01} className={inputClass} value={payrollForm.employer_burden || ""} onChange={e => setPayrollForm({ ...payrollForm, employer_burden: Number(e.target.value) })} /></Field>
+            <Field label="Number of Employees">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                className={inputClass}
+                value={payrollForm.headcount || ""}
+                onChange={e => setPayrollForm({ ...payrollForm, headcount: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Base Salary (per person)">
+              <input
+                type="number"
+                min={0.01}
+                step={0.01}
+                className={inputClass}
+                value={payrollForm.base_salary || ""}
+                onChange={e => setPayrollForm({ ...payrollForm, base_salary: Number(e.target.value) })}
+              />
+            </Field>
           </div>
-          <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={payrollForm.notes} onChange={e => setPayrollForm({ ...payrollForm, notes: e.target.value })} /></Field>
+
+          {/* Row 3: Burden % + Burden Amount (read-only) */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Employer Burden %">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                className={inputClass}
+                value={payrollForm.burden_pct || ""}
+                onChange={e => setPayrollForm({ ...payrollForm, burden_pct: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Burden Amount (auto)">
+              <input
+                type="text"
+                readOnly
+                className={`${inputClass} bg-secondary/50 text-muted-foreground cursor-not-allowed`}
+                value={formatCurrency(payrollTotals.burdenAmount)}
+              />
+            </Field>
+          </div>
+
+          {/* Total Cost to Company — prominent summary row */}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Total Cost to Company
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {payrollForm.headcount} × {formatCurrency(payrollForm.base_salary)} + {payrollForm.burden_pct}% burden
+              </p>
+            </div>
+            <p className="text-xl font-bold text-primary">{formatCurrency(payrollTotals.totalCost)}</p>
+          </div>
+
+          <Field label={t("finance.modal.notes")}>
+            <textarea
+              className={inputClass}
+              rows={2}
+              value={payrollForm.notes}
+              onChange={e => setPayrollForm({ ...payrollForm, notes: e.target.value })}
+            />
+          </Field>
         </Modal>
       )}
 
