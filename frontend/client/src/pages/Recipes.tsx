@@ -245,18 +245,9 @@ function RecipeCard({
     try {
       const ok = await removeRecipeIngredient(product.id, ingredientId);
       if (ok) {
-        setRecipe((prev: any) => {
-          if (!prev?.recipe) return prev;
-          return {
-            ...prev,
-            recipe: {
-              ...prev.recipe,
-              ingredients: prev.recipe.ingredients.filter(
-                (i: any) => i.ingredient_id !== ingredientId
-              ),
-            },
-          };
-        });
+        // ✅ Reload full recipe + cost from backend instead of local update
+        const data = await apiCall<any>(`/api/recipes/${product.id}`);
+        setRecipe(data);
       }
     } catch {
       setRemoveError(t("recipes.err.removeIngredientFailed") || "Failed to remove ingredient.");
