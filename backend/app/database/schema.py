@@ -862,7 +862,7 @@ def init_db() -> None:
         """)
          # ── 51. employee_groups ─────────────────────────────────────────────────────
         cur.execute("""
-            CREATE TABLE employee_groups (
+            CREATE TABLE IF NOT EXISTS employee_groups (
                 id              SERIAL PRIMARY KEY,
                 company_id      INTEGER NOT NULL REFERENCES companies(id),
                 name            VARCHAR(120) NOT NULL,
