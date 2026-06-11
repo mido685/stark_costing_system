@@ -99,9 +99,19 @@ def set_budget(req: BudgetRequest, current_user: dict = Depends(require_roles("o
 
 
 @router.get("/budgets/{branch_id}/{period}")
-def budget_vs_actual(branch_id: int, period: str, current_user: dict = Depends(get_current_user)):
-    return success("Budget vs actual retrieved", budget=expenses_db.get_budget_vs_actual(current_user["company_id"], branch_id, period))
-
+def budget_vs_actual(
+    branch_id: int,
+    period: str,
+    current_user: dict = Depends(get_current_user)
+):
+    return success(
+        "Budget vs actual retrieved",
+        budget=expenses_db.get_budget_summary(
+            current_user["company_id"],
+            branch_id,
+            period
+        )
+    )
 
 @router.post("/period-snapshots")
 def create_period_snapshot(req: PeriodSnapshotRequest, current_user: dict = Depends(require_roles("owner", "admin"))):
