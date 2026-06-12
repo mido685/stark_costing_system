@@ -40,7 +40,10 @@ type FinanceActivityRow = {
   entry_date: string;
   type: string;
   description: string;
+  /** Display amount — monthly_expense for prepayments, amount for everything else */
   amount: number;
+  /** Original full amount (shown in description for prepayments) */
+  full_amount?: number;
   notes: string;
   branch_name: string;
 };
@@ -58,6 +61,9 @@ const budgetCategories = [
 ] as const;
 
 const expenseGroups = ["operating", "admin", "finance", "payroll"] as const;
+
+/** Large-amount threshold that triggers a confirmation dialog (per-entry) */
+const HIGH_VALUE_THRESHOLD = 50_000;
 
 // ─── Expense label helpers ────────────────────────────────────────────────────
 
@@ -133,10 +139,14 @@ function labelize(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 }
 function emptyKpi(branchId: number, period: string): FinanceKpiRow {
-  return { branch_id: branchId, period, revenue: 0, food_cost: 0, food_cost_pct: 0, labor_cost: 0, labor_cost_pct: 0, waste_cost: 0, gross_profit: 0, net_profit: 0 };
+  return {
+    branch_id: branchId, period, revenue: 0, food_cost: 0,
+    food_cost_pct: 0, labor_cost: 0, labor_cost_pct: 0,
+    waste_cost: 0, gross_profit: 0, net_profit: 0,
+  };
 }
 
-// ─── PDF Export (strings kept in English as they're printed documents) ────────
+// ─── PDF Export ───────────────────────────────────────────────────────────────
 
 function exportPLtoPDF(
   branchName: string, period: string, summary: any,
@@ -286,19 +296,20 @@ function exportActivityToPDF(branchName: string, period: string, activity: Finan
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub, color, icon, trend, trendLabel }: {
+function KpiCard({ label, value, sub, color, icon, trend, trendLabel, warn }: {
   label: string; value: string; sub?: string;
   color: string; icon: ReactNode; trend?: number; trendLabel?: string;
+  warn?: boolean;
 }) {
   return (
-    <Card className="p-5">
+    <Card className={`p-5 ${warn ? "border-amber-300 dark:border-amber-600 bg-amber-50/40 dark:bg-amber-900/10" : ""}`}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
           <p className={`text-2xl font-bold mt-1.5 ${color}`}>{value}</p>
           {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
         </div>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center opacity-80 bg-secondary dark:bg-white/10`}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center opacity-80 bg-secondary dark:bg-white/10">
           {icon}
         </div>
       </div>
@@ -312,10 +323,22 @@ function KpiCard({ label, value, sub, color, icon, trend, trendLabel }: {
   );
 }
 
+// ─── Revenue Source Badge ─────────────────────────────────────────────────────
+
+function RevenueSourceBadge({ source }: { source: "live" | "cached" }) {
+  if (source === "live") return null;
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full
+      bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/40">
+      <AlertCircle className="w-2.5 h-2.5" /> Revenue from KPI cache — live sales data unavailable
+    </span>
+  );
+}
+
 // ─── P&L Statement Component ──────────────────────────────────────────────────
 
-function PLStatement({ summary, branchName, period, expenseBreakdown, budgetViewRows }: {
-  summary: any; branchName: string; period: string;
+function PLStatement({ summary, revenueSource, branchName, period, expenseBreakdown, budgetViewRows }: {
+  summary: any; revenueSource: "live" | "cached"; branchName: string; period: string;
   expenseBreakdown: any[]; budgetViewRows: any[];
 }) {
   const { t } = useLanguage();
@@ -338,10 +361,13 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-bold text-foreground">{t("finance.pl.title")}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">{branchName} · {period}</p>
+          <div className="mt-1.5">
+            <RevenueSourceBadge source={revenueSource} />
+          </div>
         </div>
         <Button size="sm" variant="outline"
           onClick={() => exportPLtoPDF(branchName, period, summary, expenseBreakdown, budgetViewRows)}
@@ -355,7 +381,8 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
         <KpiCard label={t("finance.kpi.revenue")}
           value={formatCurrency(summary.revenue)}
           color="text-blue-600 dark:text-blue-400"
-          icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />} />
+          icon={<DollarSign className="w-5 h-5 text-blue-600 dark:text-blue-400" />}
+          warn={revenueSource === "cached"} />
 
         <KpiCard label={t("finance.kpi.grossProfit")}
           value={formatCurrency(summary.grossProfit)}
@@ -400,29 +427,23 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
               <h3 className="font-semibold text-sm text-foreground">{t("finance.pl.incomeStatement")}</h3>
             </div>
             <div className="p-4 space-y-0.5">
-              {/* Revenue row */}
               <div className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-secondary/30">
                 <span className="text-sm font-medium text-foreground">{t("finance.pl.netSales")}</span>
                 <span className="text-sm font-bold font-mono text-blue-600 dark:text-blue-400">{formatCurrency(summary.revenue)}</span>
               </div>
-              {/* Food cost */}
               <div className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-secondary/30">
                 <span className="text-sm font-medium text-foreground" style={{ paddingLeft: 14 }}>
                   <span className="text-muted-foreground mr-1">─</span>{t("finance.pl.foodCostCogs")}
                 </span>
                 <span className="text-sm font-bold font-mono text-red-500 dark:text-red-400">({formatCurrency(summary.foodCost)})</span>
               </div>
-              {/* Waste */}
               <div className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-secondary/30">
                 <span className="text-sm font-medium text-foreground" style={{ paddingLeft: 14 }}>
                   <span className="text-muted-foreground mr-1">─</span>{t("finance.pl.wasteAndDamage")}
                 </span>
                 <span className="text-sm font-bold font-mono text-red-400 dark:text-red-300">({formatCurrency(summary.wasteCost)})</span>
               </div>
-
               <div className="my-1.5 border-t border-border/60" />
-
-              {/* Gross Profit */}
               <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border
                 ${summary.grossProfit >= 0
                   ? "bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-800/40"
@@ -435,8 +456,6 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
                   {formatCurrency(summary.grossProfit)}
                 </span>
               </div>
-
-              {/* Operating Expenses */}
               <div className="pt-2">
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 py-1">
                   {t("finance.pl.operatingExp")}
@@ -460,25 +479,17 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
                   </button>
                 )}
               </div>
-
               <div className="my-1.5 border-t border-border/60" />
-
-              {/* EBITDA */}
               <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border
                 ${ebitda >= 0
                   ? "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/40"
                   : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"}`}>
-                <span className="text-sm font-bold text-foreground">
-                  {t("finance.pl.ebitda")}
-                </span>
+                <span className="text-sm font-bold text-foreground">{t("finance.pl.ebitda")}</span>
                 <span className={`text-sm font-bold font-mono ${ebitda >= 0 ? "text-indigo-600 dark:text-indigo-400" : "text-red-600 dark:text-red-400"}`}>
                   {formatCurrency(ebitda)}
                 </span>
               </div>
-
               <div className="my-1.5 border-t border-border/60" />
-
-              {/* Net Profit / Loss */}
               <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border
                 ${isProfit
                   ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/40"
@@ -494,8 +505,6 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
                 </span>
               </div>
             </div>
-
-            {/* Key Ratios */}
             <div className="px-5 py-4 border-t border-border bg-secondary/10">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">{t("finance.pl.keyRatios")}</p>
               <div className="grid grid-cols-2 gap-2">
@@ -526,12 +535,11 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
             <p className="text-sm font-semibold text-foreground mb-4">{t("finance.pl.costWaterfall")}</p>
             <div className="space-y-3">
               {[
-                // ✅ collapse bar to 0 when there's no revenue
-                { label: t("finance.kpi.revenue"),   value: summary.revenue,            pct: summary.revenue > 0 ? 100 : 0, color: "bg-blue-500" },
-                { label: t("finance.pl.foodCost"),   value: summary.foodCost,           pct: summary.revenue > 0 ? (summary.foodCost / summary.revenue) * 100 : 0,                        color: "bg-red-400"   },
-                { label: t("finance.pl.waste"),      value: summary.wasteCost,          pct: summary.revenue > 0 ? (summary.wasteCost / summary.revenue) * 100 : 0,                       color: "bg-orange-400"},
-                { label: t("finance.pl.opex"),       value: summary.recognizedExpenses, pct: summary.revenue > 0 ? (summary.recognizedExpenses / summary.revenue) * 100 : 0,              color: "bg-amber-400" },
-                { label: t("finance.pl.netResult"),  value: Math.abs(summary.operatingResult), pct: summary.revenue > 0 ? Math.abs(summary.operatingResult / summary.revenue) * 100 : 0, color: isProfit ? "bg-green-500" : "bg-red-500" },
+                { label: t("finance.kpi.revenue"),   value: summary.revenue,            pct: summary.revenue > 0 ? 100 : 0,                                                                            color: "bg-blue-500" },
+                { label: t("finance.pl.foodCost"),   value: summary.foodCost,           pct: summary.revenue > 0 ? (summary.foodCost / summary.revenue) * 100 : 0,                                     color: "bg-red-400"   },
+                { label: t("finance.pl.waste"),      value: summary.wasteCost,          pct: summary.revenue > 0 ? (summary.wasteCost / summary.revenue) * 100 : 0,                                    color: "bg-orange-400"},
+                { label: t("finance.pl.opex"),       value: summary.recognizedExpenses, pct: summary.revenue > 0 ? (summary.recognizedExpenses / summary.revenue) * 100 : 0,                           color: "bg-amber-400" },
+                { label: t("finance.pl.netResult"),  value: Math.abs(summary.operatingResult), pct: summary.revenue > 0 ? Math.abs(summary.operatingResult / summary.revenue) * 100 : 0,              color: isProfit ? "bg-green-500" : "bg-red-500" },
               ].map(r => (
                 <div key={r.label} className="flex items-center gap-3">
                   <span className="text-xs text-muted-foreground w-20 flex-shrink-0">{r.label}</span>
@@ -565,7 +573,6 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
               <p className="text-xs text-muted-foreground mt-0.5">{t("finance.pl.categoriesDesc")}</p>
             </Card>
           </div>
-
           <Card className="overflow-hidden">
             <div className="px-4 py-3 border-b border-border bg-secondary/20">
               <h3 className="font-semibold text-sm">{t("finance.pl.detailedBreakdown")}</h3>
@@ -604,7 +611,6 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
               </div>
             )}
           </Card>
-
           {expenseBreakdown.length > 0 && (
             <Card className="p-4 border-amber-200 dark:border-amber-700/40 bg-amber-50/50 dark:bg-amber-900/20">
               <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide mb-2">{t("finance.pl.insights")}</p>
@@ -656,7 +662,6 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
                   </p>
                 </Card>
               </div>
-
               <Card className="overflow-hidden">
                 <div className="px-4 py-3 border-b border-border bg-secondary/20">
                   <h3 className="font-semibold text-sm">{t("finance.budget.title")} — {period}</h3>
@@ -667,7 +672,12 @@ function PLStatement({ summary, branchName, period, expenseBreakdown, budgetView
                     return (
                       <div key={r.category}>
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-sm font-medium text-foreground">{labelize(r.category)}</span>
+                          <span className="text-sm font-medium text-foreground">
+                            {labelize(r.category)}
+                            {r.category === "other_uncategorized" && (
+                              <span className="ml-2 text-[10px] text-muted-foreground font-normal">(not in budget)</span>
+                            )}
+                          </span>
                           <div className="flex items-center gap-4 text-xs">
                             <span className="text-muted-foreground">
                               {formatCurrency(r.actual_amount)} / {formatCurrency(r.budget_amount)}
@@ -712,7 +722,6 @@ function BudgetTab({ budgetViewRows, loading, onSetBudget }: {
           <Plus className="w-4 h-4" /> {t("finance.setBudget")}
         </Button>
       </div>
-
       {totalBudget > 0 && (
         <div className="grid grid-cols-3 gap-4">
           <KpiCard label={t("finance.kpi.totalBudget")}   value={formatCurrency(totalBudget)}   color="text-blue-600 dark:text-blue-400"  icon={<BarChart2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />} />
@@ -720,7 +729,6 @@ function BudgetTab({ budgetViewRows, loading, onSetBudget }: {
           <KpiCard label={t("finance.kpi.totalVariance")} value={formatCurrency(totalVariance)} color={totalVariance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"} icon={totalVariance >= 0 ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />} />
         </div>
       )}
-
       <Card className="overflow-hidden">
         {loading ? (
           <div className="p-6 space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-10 animate-pulse rounded bg-secondary/50" />)}</div>
@@ -749,7 +757,12 @@ function BudgetTab({ budgetViewRows, loading, onSetBudget }: {
                   const over = row.pct_used > 100;
                   return (
                     <tr key={row.category} className="border-b border-border hover:bg-secondary/30">
-                      <td className="px-4 py-3 font-medium text-foreground">{labelize(row.category)}</td>
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {labelize(row.category)}
+                        {row.category === "other_uncategorized" && (
+                          <span className="ml-2 text-[10px] text-muted-foreground font-normal">(not in budget)</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(row.budget_amount)}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(row.actual_amount)}</td>
                       <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${row.variance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>{formatCurrency(row.variance)}</td>
@@ -775,7 +788,7 @@ function BudgetTab({ budgetViewRows, loading, onSetBudget }: {
 
 export default function Finance() {
   const { t } = useLanguage();
-  const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
+  const currentUserId   = Number(localStorage.getItem("user_id") ?? 1);
   const currentUserName = localStorage.getItem("user_name") ?? "";
   const currentUserRole = localStorage.getItem("role") ?? "";
 
@@ -785,23 +798,21 @@ export default function Finance() {
   const [saving, setSaving]       = useState(false);
   const [backupRefreshing, setBackupRefreshing] = useState(false);
   const [backupDateFrom, setBackupDateFrom] = useState("");
-  const [backupDateTo, setBackupDateTo] = useState("");
+  const [backupDateTo, setBackupDateTo]     = useState("");
   const [formError, setFormError] = useState("");
   const [activeTab, setActiveTab] = useState<ActiveTab>("overview");
 
   const periodEnd = useMemo(() => getPeriodEnd(period), [period]);
 
   // ── Form state ──
-  const [expenseForm, setExpenseForm]           = useState({ entry_date: today(), category: "rent", amount: 0, expense_group: "operating", subtype: "admin", notes: "" });
+  const [expenseForm, setExpenseForm] = useState({
+    entry_date: today(), category: "rent", amount: 0,
+    expense_group: "operating", subtype: "admin", notes: "",
+  });
   const [payrollForm, setPayrollForm] = useState({
-  entry_date: today(),
-  employee_group: "Kitchen Staff",
-  headcount: 1,
-  base_salary: 0,
-  burden_pct: 26,
-  employer_burden: 0,
-  notes: ""
-});
+    entry_date: today(), employee_group: "Kitchen Staff",
+    headcount: 1, base_salary: 0, burden_pct: 26, employer_burden: 0, notes: "",
+  });
   const [accrualForm, setAccrualForm]           = useState({ entry_date: today(), category: "utilities", amount: 0, notes: "" });
   const [depreciationForm, setDepreciationForm] = useState({ entry_date: today(), asset_name: "", amount: 0, notes: "" });
   const [prepaymentForm, setPrepaymentForm]     = useState({ entry_date: today(), category: "marketing", amount: 0, months: 1, notes: "" });
@@ -810,18 +821,18 @@ export default function Finance() {
   const [periodStatusForm, setPeriodStatusForm] = useState<{ status: PeriodStatusValue; notes: string }>({ status: "closed", notes: "" });
 
   // ── API calls ──
-  const { data: branches }                                                                          = useApi<Branch[]>(getBranches);
-  const { data: expenses,            loading: expensesLoading,      refetch: refetchExpenses }      = useApi<ExpenseRow[]>(() => branchId ? getExpenses(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: payrollEntries,      loading: payrollLoading,       refetch: refetchPayroll }       = useApi<PayrollEntryRow[]>(() => branchId ? getPayrollEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: accrualEntries,      loading: accrualLoading,       refetch: refetchAccruals }      = useApi<AccrualEntryRow[]>(() => branchId ? getAccrualEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: depreciationEntries, loading: depreciationLoading,  refetch: refetchDepreciation }  = useApi<DepreciationEntryRow[]>(() => branchId ? getDepreciationEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: prepaymentEntries,   loading: prepaymentLoading,    refetch: refetchPrepayments }   = useApi<PrepaymentEntryRow[]>(() => branchId ? getPrepaymentEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: budgetRows,          loading: budgetLoading,        refetch: refetchBudget }        = useApi<BudgetVsActualRow[]>(() => branchId ? getBudgetVsActual(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: approvals,           loading: approvalsLoading,     refetch: refetchApprovals }     = useApi<ApprovalRow[]>(getPendingApprovals);
-  const { data: kpi,                 loading: kpiLoading,           refetch: refetchKpi }           = useApi<FinanceKpiRow>(() => branchId ? getFinanceKpi(branchId, period) : Promise.resolve(emptyKpi(branchId, period)), { deps: [branchId, period] });
-  const { data: periodStatus,        loading: periodStatusLoading,  refetch: refetchPeriodStatus }  = useApi<{ is_closed: boolean; is_locked?: boolean; status?: PeriodStatusValue }>(() => branchId ? isPeriodClosed(branchId, periodEnd) : Promise.resolve({ is_closed: false }), { deps: [branchId, periodEnd] });
-  const { data: sales,               loading: salesLoading,         refetch: refetchSales }         = useApi<SaleRow[]>(() => branchId ? getSalesByBranch(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
-  const { data: periodBackups,       refetch: refetchPeriodBackups }                                = useApi<PeriodBackupRow[]>(() => getPeriodBackups({ branchId: branchId || undefined, months: 4, dateFrom: backupDateFrom || undefined, dateTo: backupDateTo || undefined }), { deps: [branchId, backupDateFrom, backupDateTo] });
+  const { data: branches }                                                                           = useApi<Branch[]>(getBranches);
+  const { data: expenses,            loading: expensesLoading,      refetch: refetchExpenses }       = useApi<ExpenseRow[]>(() => branchId ? getExpenses(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: payrollEntries,      loading: payrollLoading,       refetch: refetchPayroll }        = useApi<PayrollEntryRow[]>(() => branchId ? getPayrollEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: accrualEntries,      loading: accrualLoading,       refetch: refetchAccruals }       = useApi<AccrualEntryRow[]>(() => branchId ? getAccrualEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: depreciationEntries, loading: depreciationLoading,  refetch: refetchDepreciation }   = useApi<DepreciationEntryRow[]>(() => branchId ? getDepreciationEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: prepaymentEntries,   loading: prepaymentLoading,    refetch: refetchPrepayments }    = useApi<PrepaymentEntryRow[]>(() => branchId ? getPrepaymentEntries(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: budgetRows,          loading: budgetLoading,        refetch: refetchBudget }         = useApi<BudgetVsActualRow[]>(() => branchId ? getBudgetVsActual(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: approvals,           loading: approvalsLoading,     refetch: refetchApprovals }      = useApi<ApprovalRow[]>(getPendingApprovals);
+  const { data: kpi,                 loading: kpiLoading,           refetch: refetchKpi }            = useApi<FinanceKpiRow>(() => branchId ? getFinanceKpi(branchId, period) : Promise.resolve(emptyKpi(branchId, period)), { deps: [branchId, period] });
+  const { data: periodStatus,        loading: periodStatusLoading,  refetch: refetchPeriodStatus }   = useApi<{ is_closed: boolean; is_locked?: boolean; status?: PeriodStatusValue }>(() => branchId ? isPeriodClosed(branchId, periodEnd) : Promise.resolve({ is_closed: false }), { deps: [branchId, periodEnd] });
+  const { data: sales,               loading: salesLoading,         refetch: refetchSales }          = useApi<SaleRow[]>(() => branchId ? getSalesByBranch(branchId, period) : Promise.resolve([]), { deps: [branchId, period] });
+  const { data: periodBackups,       refetch: refetchPeriodBackups }                                 = useApi<PeriodBackupRow[]>(() => getPeriodBackups({ branchId: branchId || undefined, months: 4, dateFrom: backupDateFrom || undefined, dateTo: backupDateTo || undefined }), { deps: [branchId, backupDateFrom, backupDateTo] });
   const { data: companyPeriodStatus, loading: companyPeriodStatusLoading, refetch: refetchCompanyPeriodStatus } = useApi<PeriodStatusRow>(() => getPeriodStatus(period), { deps: [period] });
 
   // ── Safe values ──
@@ -834,7 +845,7 @@ export default function Finance() {
   const safeBudgetRows          = budgetRows          ?? [];
   const safeApprovals           = approvals           ?? [];
   const safeSales               = sales               ?? [];
-  const safeKpi                 = kpi                 ?? emptyKpi(branchId, period);
+  const safeKpi                 = kpi ?? emptyKpi(branchId, period);
   const safePeriodBackups       = periodBackups       ?? [];
   const selectedBranch          = safeBranches.find(b => b.id === branchId) ?? null;
   const selectedPeriodState     = companyPeriodStatus?.status ?? periodStatus?.status ?? "open";
@@ -847,46 +858,57 @@ export default function Finance() {
 
   // ── Computed ──
   const payrollTotals = useMemo(() => {
-  const perPerson  = Number(payrollForm.base_salary) || 0;
-  const count      = Number(payrollForm.headcount)   || 1;
-  const pct        = Number(payrollForm.burden_pct)  || 0;
-  const grossSalary   = perPerson * count;
-  const burdenAmount  = grossSalary * (pct / 100);
-  const totalCost     = grossSalary + burdenAmount;
-  return { grossSalary, burdenAmount, totalCost };
+    const perPerson    = Number(payrollForm.base_salary) || 0;
+    const count        = Number(payrollForm.headcount)   || 1;
+    const pct          = Number(payrollForm.burden_pct)  || 0;
+    const grossSalary  = perPerson * count;
+    const burdenAmount = grossSalary * (pct / 100);
+    const totalCost    = grossSalary + burdenAmount;
+    return { grossSalary, burdenAmount, totalCost };
   }, [payrollForm.base_salary, payrollForm.headcount, payrollForm.burden_pct]);
 
+  /**
+   * FIX 1 — No double-counting of depreciation.
+   * Expenses with category "depreciation" are EXCLUDED here; depreciation
+   * is sourced exclusively from safeDepreciationEntries below.
+   */
   const adjustedActualsByCategory = useMemo(() => {
     const actuals = new Map<string, number>();
     const add = (cat: string, amt: number) => actuals.set(cat, (actuals.get(cat) ?? 0) + Number(amt || 0));
-    safeExpenses.forEach(r => add(r.category || "other", Number(r.amount)));
+
+    // Exclude "depreciation" from raw expenses — it has its own dedicated table
+    safeExpenses.forEach(r => {
+      if ((r.category || "other") !== "depreciation") {
+        add(r.category || "other", Number(r.amount));
+      }
+    });
     safePayrollEntries.forEach(r => add("labor", Number(r.total_amount)));
     safeAccrualEntries.forEach(r => add(r.category || "other", Number(r.amount)));
+    // FIX 5 — Use monthly_expense for prepayments, not full amount
     safePrepaymentEntries.forEach(r => add(r.category || "other", Number(r.monthly_expense)));
     return actuals;
   }, [safeAccrualEntries, safeExpenses, safePayrollEntries, safePrepaymentEntries]);
 
-  const budgetViewRows = useMemo(() => {
-    const rows = new Map<string, BudgetVsActualRow>();
-    safeBudgetRows.forEach(row => {
-      rows.set(row.category, { category: row.category, budget_amount: Number(row.budget_amount || 0), actual_amount: 0, variance: 0, pct_used: 0 });
-    });
-    adjustedActualsByCategory.forEach((amt, cat) => {
-      if (!budgetCategories.includes(cat as any)) return;
-      const ex = rows.get(cat) ?? { category: cat, budget_amount: 0, actual_amount: 0, variance: 0, pct_used: 0 };
-      rows.set(cat, { ...ex, actual_amount: amt, variance: ex.budget_amount - amt, pct_used: ex.budget_amount > 0 ? (amt / ex.budget_amount) * 100 : 0 });
-    });
-    return Array.from(rows.values()).filter(r => r.budget_amount > 0 || r.actual_amount > 0).sort((a, b) => a.category.localeCompare(b.category));
-  }, [adjustedActualsByCategory, safeBudgetRows]);
+  /**
+   * FIX 2 — Revenue source tracking.
+   * Exposes whether revenue came from live sales or fell back to KPI cache,
+   * so the UI can warn the user.
+   */
+  const { revenue: computedRevenue, revenueSource } = useMemo(() => {
+    const revenueFromSales = safeSales.reduce((s, r) => s + Number(r.net_amount || 0), 0);
+    if (revenueFromSales > 0) {
+      return { revenue: revenueFromSales, revenueSource: "live" as const };
+    }
+    return { revenue: Number(safeKpi.revenue || 0), revenueSource: "cached" as const };
+  }, [safeSales, safeKpi.revenue]);
 
   const summary = useMemo(() => {
-    const revenueFromSales = safeSales.reduce((s, r) => s + Number(r.net_amount || 0), 0);
-    const revenue          = revenueFromSales > 0 ? revenueFromSales : Number(safeKpi.revenue || 0);
-    const foodCost         = Number(safeKpi.food_cost || 0);
-    const wasteCost        = Number(safeKpi.waste_cost || 0);
-    const laborCost        = Number(adjustedActualsByCategory.get("labor") ?? 0);
+    const revenue    = computedRevenue;
+    const foodCost   = Number(safeKpi.food_cost  || 0);
+    const wasteCost  = Number(safeKpi.waste_cost || 0);
+    const laborCost  = Number(adjustedActualsByCategory.get("labor") ?? 0);
 
-    // Single source of truth — matches expenseBreakdown exactly
+    // Depreciation sourced exclusively from depreciationEntries (no double-count)
     const depTotal = safeDepreciationEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
     const recognizedExpenses =
       Array.from(adjustedActualsByCategory.values()).reduce((s, v) => s + v, 0) + depTotal;
@@ -897,33 +919,107 @@ export default function Finance() {
       revenue, foodCost, wasteCost, recognizedExpenses, laborCost, grossProfit, operatingResult,
       foodCostPct:  revenue > 0 ? (foodCost  / revenue) * 100 : Number(safeKpi.food_cost_pct  || 0),
       laborCostPct: revenue > 0 ? (laborCost / revenue) * 100 : Number(safeKpi.labor_cost_pct || 0),
-  };
-}, [adjustedActualsByCategory, safeDepreciationEntries, safeKpi, safeSales]);
-const expenseBreakdown = useMemo(() => {
-  const map = new Map<string, number>();
-  adjustedActualsByCategory.forEach((amt, cat) => map.set(cat, amt));
-  
-  // Merge depreciation into the map so it appears inline
-  const depTotal = safeDepreciationEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
-  if (depTotal > 0) map.set("depreciation", (map.get("depreciation") ?? 0) + depTotal);
+    };
+  }, [adjustedActualsByCategory, computedRevenue, safeDepreciationEntries, safeKpi]);
 
-  // Merge accruals and prepayments explicitly (they're already in adjustedActualsByCategory
-  // but make sure nothing is double-counted)
-  return Array.from(map.entries())
-    .map(([category, amount]) => ({ category, amount }))
-    .filter(r => r.amount > 0)
-    .sort((a, b) => b.amount - a.amount);
-}, [adjustedActualsByCategory, safeDepreciationEntries]);
+  const expenseBreakdown = useMemo(() => {
+    const map = new Map<string, number>();
+    adjustedActualsByCategory.forEach((amt, cat) => map.set(cat, amt));
 
+    // Depreciation injected once, from its dedicated table
+    const depTotal = safeDepreciationEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
+    if (depTotal > 0) map.set("depreciation", (map.get("depreciation") ?? 0) + depTotal);
+
+    return Array.from(map.entries())
+      .map(([category, amount]) => ({ category, amount }))
+      .filter(r => r.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+  }, [adjustedActualsByCategory, safeDepreciationEntries]);
+
+  /**
+   * FIX 3 — Budget view includes uncategorized spend.
+   * Any actual spend that doesn't map to a budgetCategory is collected
+   * into "other_uncategorized" so auditors can see the full picture.
+   */
+  const budgetViewRows = useMemo(() => {
+    const rows = new Map<string, BudgetVsActualRow>();
+    safeBudgetRows.forEach(row => {
+      rows.set(row.category, {
+        category: row.category, budget_amount: Number(row.budget_amount || 0),
+        actual_amount: 0, variance: 0, pct_used: 0,
+      });
+    });
+    adjustedActualsByCategory.forEach((amt, cat) => {
+      if (!budgetCategories.includes(cat as any)) return;
+      const ex = rows.get(cat) ?? { category: cat, budget_amount: 0, actual_amount: 0, variance: 0, pct_used: 0 };
+      rows.set(cat, {
+        ...ex, actual_amount: amt,
+        variance: ex.budget_amount - amt,
+        pct_used: ex.budget_amount > 0 ? (amt / ex.budget_amount) * 100 : 0,
+      });
+    });
+
+    // Collect spend that falls outside the 6 budget categories
+    let uncategorizedTotal = 0;
+    adjustedActualsByCategory.forEach((amt, cat) => {
+      if (!budgetCategories.includes(cat as any)) uncategorizedTotal += amt;
+    });
+    const depTotal = safeDepreciationEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
+    uncategorizedTotal += depTotal;
+
+    if (uncategorizedTotal > 0) {
+      rows.set("other_uncategorized", {
+        category: "other_uncategorized",
+        budget_amount: 0,
+        actual_amount: uncategorizedTotal,
+        variance: -uncategorizedTotal,
+        pct_used: 0,
+      });
+    }
+
+    return Array.from(rows.values())
+      .filter(r => r.budget_amount > 0 || r.actual_amount > 0)
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }, [adjustedActualsByCategory, safeBudgetRows, safeDepreciationEntries]);
+
+  /**
+   * FIX 5 — Activity log uses monthly_expense for prepayments,
+   * so the total doesn't inflate with the full prepaid amount.
+   */
   const recentActivity = useMemo<FinanceActivityRow[]>(() => {
     const activity: FinanceActivityRow[] = [];
-    safeExpenses.forEach(r => activity.push({ id: `expense-${r.id}`, entry_date: r.entry_date, type: t("finance.expense"), description: `${expenseLabel(r.category || "other")} / ${labelize(r.subtype || "general")}`, amount: Number(r.amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "" }));
-    safePayrollEntries.forEach(r => activity.push({ id: `payroll-${r.id}`, entry_date: r.entry_date, type: t("finance.payroll"), description: r.employee_group, amount: Number(r.total_amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "" }));
-    safeAccrualEntries.forEach(r => activity.push({ id: `accrual-${r.id}`, entry_date: r.entry_date, type: t("finance.accrual"), description: labelize(r.category || "other"), amount: Number(r.amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "" }));
-    safeDepreciationEntries.forEach(r => activity.push({ id: `dep-${r.id}`, entry_date: r.entry_date, type: t("finance.depreciation"), description: r.asset_name, amount: Number(r.amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "" }));
-    safePrepaymentEntries.forEach(r => activity.push({ id: `pre-${r.id}`, entry_date: r.entry_date, type: t("finance.prepayment"), description: `${labelize(r.category || "other")} (${r.months}mo)`, amount: Number(r.amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "" }));
-    return activity.sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.id.localeCompare(a.id)).slice(0, 50);
-  },[safeAccrualEntries, safeDepreciationEntries, safeExpenses, safePayrollEntries, safePrepaymentEntries, selectedBranch?.name, t]);
+    safeExpenses.forEach(r => activity.push({
+      id: `expense-${r.id}`, entry_date: r.entry_date, type: t("finance.expense"),
+      description: `${expenseLabel(r.category || "other")} / ${labelize(r.subtype || "general")}`,
+      amount: Number(r.amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
+    }));
+    safePayrollEntries.forEach(r => activity.push({
+      id: `payroll-${r.id}`, entry_date: r.entry_date, type: t("finance.payroll"),
+      description: r.employee_group, amount: Number(r.total_amount || 0),
+      notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
+    }));
+    safeAccrualEntries.forEach(r => activity.push({
+      id: `accrual-${r.id}`, entry_date: r.entry_date, type: t("finance.accrual"),
+      description: labelize(r.category || "other"), amount: Number(r.amount || 0),
+      notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
+    }));
+    safeDepreciationEntries.forEach(r => activity.push({
+      id: `dep-${r.id}`, entry_date: r.entry_date, type: t("finance.depreciation"),
+      description: r.asset_name, amount: Number(r.amount || 0),
+      notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
+    }));
+    // Use monthly_expense as the display amount; show full amount in description
+    safePrepaymentEntries.forEach(r => activity.push({
+      id: `pre-${r.id}`, entry_date: r.entry_date, type: t("finance.prepayment"),
+      description: `${labelize(r.category || "other")} (${r.months}mo · total ${formatCurrency(Number(r.amount || 0))})`,
+      amount: Number(r.monthly_expense || 0),
+      full_amount: Number(r.amount || 0),
+      notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
+    }));
+    return activity
+      .sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.id.localeCompare(a.id))
+      .slice(0, 50);
+  }, [safeAccrualEntries, safeDepreciationEntries, safeExpenses, safePayrollEntries, safePrepaymentEntries, selectedBranch?.name, t]);
 
   const filteredApprovals = useMemo(() =>
     safeApprovals.filter(a => !branchId || a.branch_id === branchId),
@@ -940,15 +1036,7 @@ const expenseBreakdown = useMemo(() => {
   function openModal(type: ModalType) {
     setFormError("");
     if (type === "expense")      setExpenseForm({ entry_date: defaultDateForPeriod(period), category: "rent", amount: 0, expense_group: "operating", subtype: "admin", notes: "" });
-    if (type === "payroll") setPayrollForm({
-      entry_date: defaultDateForPeriod(period),
-      employee_group: "Kitchen Staff",
-      headcount: 1,
-      base_salary: 0,
-      burden_pct: 26,
-      employer_burden: 0,
-      notes: ""
-    });
+    if (type === "payroll")      setPayrollForm({ entry_date: defaultDateForPeriod(period), employee_group: "Kitchen Staff", headcount: 1, base_salary: 0, burden_pct: 26, employer_burden: 0, notes: "" });
     if (type === "accrual")      setAccrualForm({ entry_date: defaultDateForPeriod(period), category: "utilities", amount: 0, notes: "" });
     if (type === "depreciation") setDepreciationForm({ entry_date: defaultDateForPeriod(period), asset_name: "", amount: 0, notes: "" });
     if (type === "prepayment")   setPrepaymentForm({ entry_date: defaultDateForPeriod(period), category: "marketing", amount: 0, months: 1, notes: "" });
@@ -958,39 +1046,54 @@ const expenseBreakdown = useMemo(() => {
     setModal(type);
   }
 
+  // FIX 4 — High-value confirmation helper
+  function confirmHighValue(amount: number, label: string): boolean {
+    if (amount < HIGH_VALUE_THRESHOLD) return true;
+    return window.confirm(
+      `You are about to record ${label} of ${formatCurrency(amount)}.\n\nAre you sure this amount is correct?`
+    );
+  }
+
   async function handleSaveExpense() {
     if (!branchId) return setFormError(t("finance.selectBranchFirst"));
     if (expenseForm.amount <= 0) return setFormError(t("finance.amountPositive"));
+    if (!confirmHighValue(expenseForm.amount, `an expense (${labelize(expenseForm.category)})`)) return;
     setSaving(true); setFormError("");
     try {
-      await addExpense({ branch_id: branchId, entry_date: expenseForm.entry_date, category: expenseForm.category, amount: expenseForm.amount, expense_group: expenseForm.expense_group, subtype: expenseForm.subtype, notes: expenseForm.notes, user_id: currentUserId });
+      await addExpense({
+        branch_id: branchId, entry_date: expenseForm.entry_date,
+        category: expenseForm.category, amount: expenseForm.amount,
+        expense_group: expenseForm.expense_group, subtype: expenseForm.subtype,
+        notes: expenseForm.notes, user_id: currentUserId,
+      });
       setModal(null); refetchAll();
     } catch { setFormError(t("finance.saveFailed")); }
     setSaving(false);
   }
 
   async function handleSavePayroll() {
-  if (!branchId) return setFormError(t("finance.selectBranchFirst"));
-  if (payrollForm.base_salary <= 0) return setFormError(t("finance.salaryPositive"));
-  if (payrollForm.headcount < 1)    return setFormError("Headcount must be at least 1");
-  setSaving(true); setFormError("");
-  try {
-    await addPayroll({
-      branch_id:       branchId,
-      entry_date:      payrollForm.entry_date,
-      employee_group:  `${payrollForm.employee_group} (×${payrollForm.headcount})`,
-      base_salary:     payrollTotals.grossSalary,      // headcount × per-person salary
-      employer_burden: payrollTotals.burdenAmount,
-      notes:           payrollForm.notes,
-    });
-    setModal(null); refetchAll();
-  } catch { setFormError(t("finance.saveFailed")); }
-  setSaving(false);
+    if (!branchId) return setFormError(t("finance.selectBranchFirst"));
+    if (payrollForm.base_salary <= 0) return setFormError(t("finance.salaryPositive"));
+    if (payrollForm.headcount < 1)    return setFormError("Headcount must be at least 1");
+    if (!confirmHighValue(payrollTotals.totalCost, `payroll (${payrollForm.employee_group})`)) return;
+    setSaving(true); setFormError("");
+    try {
+      await addPayroll({
+        branch_id: branchId, entry_date: payrollForm.entry_date,
+        employee_group: `${payrollForm.employee_group} (×${payrollForm.headcount})`,
+        base_salary: payrollTotals.grossSalary,
+        employer_burden: payrollTotals.burdenAmount,
+        notes: payrollForm.notes,
+      });
+      setModal(null); refetchAll();
+    } catch { setFormError(t("finance.saveFailed")); }
+    setSaving(false);
   }
 
   async function handleSaveAccrual() {
     if (!branchId) return setFormError(t("finance.selectBranchFirst"));
     if (accrualForm.amount <= 0) return setFormError(t("finance.amountPositive"));
+    if (!confirmHighValue(accrualForm.amount, "an accrual")) return;
     setSaving(true); setFormError("");
     try {
       await addAccrual({ branch_id: branchId, entry_date: accrualForm.entry_date, category: accrualForm.category, amount: accrualForm.amount, notes: accrualForm.notes });
@@ -1003,6 +1106,7 @@ const expenseBreakdown = useMemo(() => {
     if (!branchId) return setFormError(t("finance.selectBranchFirst"));
     if (!depreciationForm.asset_name.trim()) return setFormError(t("finance.assetRequired"));
     if (depreciationForm.amount <= 0) return setFormError(t("finance.amountPositive"));
+    if (!confirmHighValue(depreciationForm.amount, `depreciation (${depreciationForm.asset_name})`)) return;
     setSaving(true); setFormError("");
     try {
       await addDepreciation({ branch_id: branchId, entry_date: depreciationForm.entry_date, asset_name: depreciationForm.asset_name, amount: depreciationForm.amount, notes: depreciationForm.notes });
@@ -1015,6 +1119,7 @@ const expenseBreakdown = useMemo(() => {
     if (!branchId) return setFormError(t("finance.selectBranchFirst"));
     if (prepaymentForm.amount <= 0) return setFormError(t("finance.amountPositive"));
     if (prepaymentForm.months <= 0) return setFormError(t("finance.monthsPositive"));
+    if (!confirmHighValue(prepaymentForm.amount, "a prepayment")) return;
     setSaving(true); setFormError("");
     try {
       await addPrepayment({ branch_id: branchId, entry_date: prepaymentForm.entry_date, category: prepaymentForm.category, amount: prepaymentForm.amount, months: prepaymentForm.months, notes: prepaymentForm.notes });
@@ -1051,11 +1156,7 @@ const expenseBreakdown = useMemo(() => {
   async function handleRefreshPeriodBackups() {
     setBackupRefreshing(true);
     try {
-      await generatePeriodBackups({
-        months: 4,
-        locked_by: currentUserName,
-        notes: "Generated from Finance snapshot",
-      });
+      await generatePeriodBackups({ months: 4, locked_by: currentUserName, notes: "Generated from Finance snapshot" });
       refetchPeriodBackups();
     } finally {
       setBackupRefreshing(false);
@@ -1065,13 +1166,8 @@ const expenseBreakdown = useMemo(() => {
   async function handleSavePeriodStatus() {
     setSaving(true); setFormError("");
     try {
-      await setPeriodStatus({
-        period,
-        status: periodStatusForm.status,
-        notes: periodStatusForm.notes,
-      });
-      setModal(null);
-      refetchAll();
+      await setPeriodStatus({ period, status: periodStatusForm.status, notes: periodStatusForm.notes });
+      setModal(null); refetchAll();
     } catch {
       setFormError("Could not update period status");
     }
@@ -1081,7 +1177,6 @@ const expenseBreakdown = useMemo(() => {
   async function handleApprove(id: number) {
     try { await approveRequest(id, currentUserId); refetchApprovals(); } catch {}
   }
-
   async function handleReject(id: number) {
     try { await rejectRequest(id, currentUserId); refetchApprovals(); } catch {}
   }
@@ -1121,111 +1216,61 @@ const expenseBreakdown = useMemo(() => {
           </div>
           <Field label={t("finance.modal.subtype")}><input type="text" className={inputClass} value={expenseForm.subtype} onChange={e => setExpenseForm({ ...expenseForm, subtype: e.target.value })} /></Field>
           <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={expenseForm.notes} onChange={e => setExpenseForm({ ...expenseForm, notes: e.target.value })} /></Field>
+          {expenseForm.amount >= HIGH_VALUE_THRESHOLD && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-lg px-3 py-2">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              High-value entry — you will be asked to confirm before saving.
+            </p>
+          )}
         </Modal>
       )}
 
       {modal === "payroll" && (
-        <Modal
-          title={t("finance.modal.recordPayroll")}
-          {...modalProps}
-          onClose={() => setModal(null)}
-          onSave={handleSavePayroll}
-        >
-          {formError && (
-            <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
-              <AlertCircle className="h-3 w-3" />{formError}
-            </p>
-          )}
-
-          {/* Row 1: Date + Group */}
+        <Modal title={t("finance.modal.recordPayroll")} {...modalProps} onClose={() => setModal(null)} onSave={handleSavePayroll}>
+          {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.date")}>
-              <input
-                type="date"
-                className={inputClass}
-                value={payrollForm.entry_date}
-                onChange={e => setPayrollForm({ ...payrollForm, entry_date: e.target.value })}
-              />
+              <input type="date" className={inputClass} value={payrollForm.entry_date} onChange={e => setPayrollForm({ ...payrollForm, entry_date: e.target.value })} />
             </Field>
             <Field label={t("finance.modal.employeeGroup")}>
-              <select
-                className={inputClass}
-                value={payrollForm.employee_group}
-                onChange={e => setPayrollForm({ ...payrollForm, employee_group: e.target.value })}
-              >
-                {["Kitchen Staff","Service Staff","Management","Security","Cleaning","Drivers","Administration"]
-                  .map(g => <option key={g} value={g}>{g}</option>)}
+              <select className={inputClass} value={payrollForm.employee_group} onChange={e => setPayrollForm({ ...payrollForm, employee_group: e.target.value })}>
+                {["Kitchen Staff","Service Staff","Management","Security","Cleaning","Drivers","Administration"].map(g => <option key={g} value={g}>{g}</option>)}
               </select>
             </Field>
           </div>
-
-          {/* Row 2: Headcount + Base Salary per person */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Number of Employees">
-              <input
-                type="number"
-                min={1}
-                step={1}
-                className={inputClass}
-                value={payrollForm.headcount || ""}
-                onChange={e => setPayrollForm({ ...payrollForm, headcount: Number(e.target.value) })}
-              />
+              <input type="number" min={1} step={1} className={inputClass} value={payrollForm.headcount || ""} onChange={e => setPayrollForm({ ...payrollForm, headcount: Number(e.target.value) })} />
             </Field>
             <Field label="Base Salary (per person)">
-              <input
-                type="number"
-                min={0.01}
-                step={0.01}
-                className={inputClass}
-                value={payrollForm.base_salary || ""}
-                onChange={e => setPayrollForm({ ...payrollForm, base_salary: Number(e.target.value) })}
-              />
+              <input type="number" min={0.01} step={0.01} className={inputClass} value={payrollForm.base_salary || ""} onChange={e => setPayrollForm({ ...payrollForm, base_salary: Number(e.target.value) })} />
             </Field>
           </div>
-
-          {/* Row 3: Burden % + Burden Amount (read-only) */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Employer Burden %">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={0.1}
-                className={inputClass}
-                value={payrollForm.burden_pct || ""}
-                onChange={e => setPayrollForm({ ...payrollForm, burden_pct: Number(e.target.value) })}
-              />
+              <input type="number" min={0} max={100} step={0.1} className={inputClass} value={payrollForm.burden_pct || ""} onChange={e => setPayrollForm({ ...payrollForm, burden_pct: Number(e.target.value) })} />
             </Field>
             <Field label="Burden Amount (auto)">
-              <input
-                type="text"
-                readOnly
-                className={`${inputClass} bg-secondary/50 text-muted-foreground cursor-not-allowed`}
-                value={formatCurrency(payrollTotals.burdenAmount)}
-              />
+              <input type="text" readOnly className={`${inputClass} bg-secondary/50 text-muted-foreground cursor-not-allowed`} value={formatCurrency(payrollTotals.burdenAmount)} />
             </Field>
           </div>
-
-          {/* Total Cost to Company — prominent summary row */}
           <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between">
             <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Total Cost to Company
-              </p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total Cost to Company</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {payrollForm.headcount} × {formatCurrency(payrollForm.base_salary)} + {payrollForm.burden_pct}% burden
               </p>
             </div>
             <p className="text-xl font-bold text-primary">{formatCurrency(payrollTotals.totalCost)}</p>
           </div>
-
+          {payrollTotals.totalCost >= HIGH_VALUE_THRESHOLD && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-lg px-3 py-2">
+              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              High-value entry — you will be asked to confirm before saving.
+            </p>
+          )}
           <Field label={t("finance.modal.notes")}>
-            <textarea
-              className={inputClass}
-              rows={2}
-              value={payrollForm.notes}
-              onChange={e => setPayrollForm({ ...payrollForm, notes: e.target.value })}
-            />
+            <textarea className={inputClass} rows={2} value={payrollForm.notes} onChange={e => setPayrollForm({ ...payrollForm, notes: e.target.value })} />
           </Field>
         </Modal>
       )}
@@ -1273,6 +1318,15 @@ const expenseBreakdown = useMemo(() => {
             <Field label={t("finance.modal.amount")}><input type="number" min={0.01} step={0.01} className={inputClass} value={prepaymentForm.amount || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, amount: Number(e.target.value) })} /></Field>
             <Field label={t("finance.modal.months")}><input type="number" min={1} step={1} className={inputClass} value={prepaymentForm.months || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, months: Number(e.target.value) })} /></Field>
           </div>
+          {/* Show the calculated monthly expense preview */}
+          {prepaymentForm.amount > 0 && prepaymentForm.months > 0 && (
+            <div className="rounded-lg border border-blue-100 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-900/20 px-4 py-3 flex items-center justify-between">
+              <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">Monthly recognized expense</p>
+              <p className="text-base font-bold text-blue-700 dark:text-blue-400">
+                {formatCurrency(prepaymentForm.amount / prepaymentForm.months)} / mo
+              </p>
+            </div>
+          )}
           <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={prepaymentForm.notes} onChange={e => setPrepaymentForm({ ...prepaymentForm, notes: e.target.value })} /></Field>
         </Modal>
       )}
@@ -1301,23 +1355,25 @@ const expenseBreakdown = useMemo(() => {
         </Modal>
       )}
 
-      {/* ── Page Header ── */}
       {modal === "periodStatus" && (
         <Modal title="Period status" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePeriodStatus}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <Field label="Period"><input className={inputClass} value={period} disabled /></Field>
           <Field label="Status">
             <select className={inputClass} value={periodStatusForm.status} onChange={e => setPeriodStatusForm({ ...periodStatusForm, status: e.target.value as PeriodStatusValue })}>
-              <option value="open">Open - normal work</option>
-              <option value="closed">Closed - no edits</option>
-              <option value="locked">Locked - fully frozen</option>
+              <option value="open">Open — normal data entry</option>
+              <option value="closed">Closed — no new entries allowed</option>
+              <option value="locked">Locked — fully frozen, no changes</option>
             </select>
           </Field>
           <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={periodStatusForm.notes} onChange={e => setPeriodStatusForm({ ...periodStatusForm, notes: e.target.value })} /></Field>
-          <p className="text-xs text-muted-foreground">This applies to the selected period for the whole company. Closing or locking also refreshes the latest 4 month backups.</p>
+          <p className="text-xs text-muted-foreground">
+            Applies company-wide for {period}. Closing or locking also refreshes the last 4 period backups.
+          </p>
         </Modal>
       )}
 
+      {/* ── Page Header ── */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-primary">{t("finance.title")}</h1>
@@ -1330,9 +1386,19 @@ const expenseBreakdown = useMemo(() => {
           </select>
           <input type="month" className={`${inputClass} sm:w-40`} value={period} onChange={e => setPeriod(e.target.value)} />
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => openModal("expense")} disabled={!branchId || selectedPeriodClosed}>
-              <Plus className="h-4 w-4 mr-1" /> {t("finance.addEntry")}
-            </Button>
+            {/* FIX 4 — Tooltip on disabled Add Entry button */}
+            <div className="relative group">
+              <Button variant="outline" size="sm" onClick={() => openModal("expense")} disabled={!branchId || selectedPeriodClosed}>
+                <Plus className="h-4 w-4 mr-1" /> {t("finance.addEntry")}
+              </Button>
+              {(!branchId || selectedPeriodClosed) && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 pointer-events-none">
+                  <div className="bg-foreground text-background text-[10px] font-medium px-2 py-1 rounded whitespace-nowrap shadow-lg">
+                    {!branchId ? "Select a branch first" : "Period is closed — no new entries"}
+                  </div>
+                </div>
+              )}
+            </div>
             <Button variant="outline" size="sm" onClick={() => openModal("periodStatus")}
               className={
                 selectedPeriodLocked
@@ -1368,14 +1434,39 @@ const expenseBreakdown = useMemo(() => {
           </p>
         </Card>
       )}
+      {/* FIX 2 — Revenue source warning banner */}
+      {branchId > 0 && revenueSource === "cached" && (
+        <Card className="border-amber-200 dark:border-amber-700/40 bg-amber-50/60 dark:bg-amber-900/20 p-4">
+          <p className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            Revenue figures are sourced from a cached KPI snapshot — no approved sales data found for {period}.
+            Figures may not reflect the current period.
+          </p>
+        </Card>
+      )}
 
       {/* ── Top KPIs ── */}
       {branchId > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard label={t("finance.kpi.revenue")}     value={formatCurrency(summary.revenue)}          color="text-blue-600 dark:text-blue-400"  icon={<TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />} />
-          <KpiCard label={t("finance.kpi.grossProfit")} value={formatCurrency(summary.grossProfit)}      color={summary.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"} icon={<DollarSign className="h-5 w-5" />} sub={`${formatPercent(summary.revenue > 0 ? (summary.grossProfit / summary.revenue) * 100 : 0)} ${t("finance.pl.margin")}`} />
-          <KpiCard label={t("finance.kpi.totalCosts")}  value={formatCurrency(summary.foodCost + summary.recognizedExpenses)} color="text-amber-600 dark:text-amber-400" icon={<Receipt className="h-5 w-5 text-amber-600 dark:text-amber-400" />} />
-          <KpiCard label={t("finance.kpi.netResult")}   value={formatCurrency(Math.abs(summary.operatingResult))} color={summary.operatingResult >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"} icon={summary.operatingResult >= 0 ? <ArrowUpRight className="h-5 w-5" /> : <ArrowDownRight className="h-5 w-5" />} sub={summary.operatingResult >= 0 ? t("finance.kpi.profitable") : t("finance.kpi.loss")} />
+          <KpiCard
+            label={t("finance.kpi.revenue")}
+            value={formatCurrency(summary.revenue)}
+            color="text-blue-600 dark:text-blue-400"
+            icon={<TrendingUp className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+            warn={revenueSource === "cached"}
+            sub={revenueSource === "cached" ? "From KPI cache" : undefined}
+          />
+          <KpiCard label={t("finance.kpi.grossProfit")} value={formatCurrency(summary.grossProfit)}
+            color={summary.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+            icon={<DollarSign className="h-5 w-5" />}
+            sub={`${formatPercent(summary.revenue > 0 ? (summary.grossProfit / summary.revenue) * 100 : 0)} ${t("finance.pl.margin")}`} />
+          <KpiCard label={t("finance.kpi.totalCosts")}  value={formatCurrency(summary.foodCost + summary.recognizedExpenses)}
+            color="text-amber-600 dark:text-amber-400"
+            icon={<Receipt className="h-5 w-5 text-amber-600 dark:text-amber-400" />} />
+          <KpiCard label={t("finance.kpi.netResult")} value={formatCurrency(Math.abs(summary.operatingResult))}
+            color={summary.operatingResult >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+            icon={summary.operatingResult >= 0 ? <ArrowUpRight className="h-5 w-5" /> : <ArrowDownRight className="h-5 w-5" />}
+            sub={summary.operatingResult >= 0 ? t("finance.kpi.profitable") : t("finance.kpi.loss")} />
         </div>
       )}
 
@@ -1399,6 +1490,10 @@ const expenseBreakdown = useMemo(() => {
           <Card className="lg:col-span-2 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-foreground">{t("finance.operations")}</h2>
+              {/* FIX 4 — Inline context when no branch selected */}
+              {!branchId && (
+                <span className="text-xs text-muted-foreground italic">Select a branch above to enable entries</span>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
@@ -1408,18 +1503,23 @@ const expenseBreakdown = useMemo(() => {
                 { key: "depreciation" as ModalType, labelKey: "finance.depreciation", descKey: "finance.depreciationDesc", icon: <TrendingDown className="w-5 h-5 text-amber-600 dark:text-amber-400" />, bg: "bg-amber-50 dark:bg-amber-950/30 border-amber-100 dark:border-amber-900"     },
                 { key: "prepayment"   as ModalType, labelKey: "finance.prepayment",   descKey: "finance.prepaymentDesc",   icon: <ChevronRight className="w-5 h-5 text-teal-600 dark:text-teal-400" />,   bg: "bg-teal-50 dark:bg-teal-950/30 border-teal-100 dark:border-teal-900"        },
                 { key: "budget"       as ModalType, labelKey: "finance.budget",       descKey: "finance.budgetDesc",       icon: <BarChart2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />,   bg: "bg-indigo-50 dark:bg-indigo-950/30 border-indigo-100 dark:border-indigo-900" },
-              ].map(item => (
-                <div key={item.key} className={`flex items-center justify-between p-3 rounded-xl border ${item.bg} hover:border-primary/30 transition-colors`}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-white/80 dark:bg-white/10 flex items-center justify-center border border-white/20">{item.icon}</div>
-                    <div>
-                      <p className="font-semibold text-sm text-foreground">{t(item.labelKey)}</p>
-                      <p className="text-xs text-muted-foreground">{t(item.descKey)}</p>
+              ].map(item => {
+                const isDisabled = !branchId || selectedPeriodClosed;
+                return (
+                  <div key={item.key}
+                    className={`flex items-center justify-between p-3 rounded-xl border ${item.bg} hover:border-primary/30 transition-colors ${isDisabled ? "opacity-60" : ""}`}
+                    title={isDisabled ? (!branchId ? "Select a branch first" : "Period is closed") : undefined}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-white/80 dark:bg-white/10 flex items-center justify-center border border-white/20">{item.icon}</div>
+                      <div>
+                        <p className="font-semibold text-sm text-foreground">{t(item.labelKey)}</p>
+                        <p className="text-xs text-muted-foreground">{t(item.descKey)}</p>
+                      </div>
                     </div>
+                    <Button variant="outline" size="sm" className="bg-white/80 dark:bg-white/10" onClick={() => openModal(item.key)} disabled={isDisabled}>{t("common.add")}</Button>
                   </div>
-                  <Button variant="outline" size="sm" className="bg-white/80 dark:bg-white/10" onClick={() => openModal(item.key)} disabled={!branchId || selectedPeriodClosed}>{t("common.add")}</Button>
-                </div>
-              )))}
+                );
+              }))}
             </div>
           </Card>
 
@@ -1502,6 +1602,7 @@ const expenseBreakdown = useMemo(() => {
       {activeTab === "pl" && (
         <PLStatement
           summary={summary}
+          revenueSource={revenueSource}
           branchName={selectedBranch?.name ?? t("dashboard.allBranches")}
           period={period}
           expenseBreakdown={expenseBreakdown}
@@ -1511,18 +1612,20 @@ const expenseBreakdown = useMemo(() => {
 
       {/* ── Budget Tab ── */}
       {activeTab === "budget" && (
-        <BudgetTab
-          budgetViewRows={budgetViewRows}
-          loading={budgetLoading}
-          onSetBudget={() => openModal("budget")}
-        />
+        <BudgetTab budgetViewRows={budgetViewRows} loading={budgetLoading} onSetBudget={() => openModal("budget")} />
       )}
 
       {/* ── Activity Tab ── */}
       {activeTab === "activity" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-foreground">{t("finance.activity.title")}</h2>
+            <div>
+              <h2 className="text-lg font-bold text-foreground">{t("finance.activity.title")}</h2>
+              {/* FIX 5 — Note that prepayment amounts shown are monthly, not full */}
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Prepayment amounts show monthly recognized expense. Full prepayment total is shown in the description.
+              </p>
+            </div>
             <Button size="sm" variant="outline" onClick={() => exportActivityToPDF(selectedBranch?.name ?? "Branch", period, recentActivity)} disabled={!recentActivity.length} className="gap-2">
               <Printer className="w-4 h-4" /> {t("finance.activity.exportPdf")}
             </Button>
@@ -1553,10 +1656,10 @@ const expenseBreakdown = useMemo(() => {
                         <td className="px-4 py-3 text-sm text-foreground">{row.entry_date}</td>
                         <td className="px-4 py-3">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                            row.type === t("finance.expense")      ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"       :
-                            row.type === t("finance.payroll")      ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"   :
+                            row.type === t("finance.expense")      ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"         :
+                            row.type === t("finance.payroll")      ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"     :
                             row.type === t("finance.accrual")      ? "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300" :
-                            row.type === t("finance.depreciation") ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"   :
+                            row.type === t("finance.depreciation") ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"     :
                             "bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300"
                           }`}>{row.type}</span>
                         </td>
@@ -1571,7 +1674,9 @@ const expenseBreakdown = useMemo(() => {
                       <td colSpan={3} className="px-4 py-3 text-sm font-bold text-foreground">
                         {t("finance.activity.total").replace("{count}", String(recentActivity.length))}
                       </td>
-                      <td className="px-4 py-3 text-right font-bold text-primary">{formatCurrency(recentActivity.reduce((s, r) => s + r.amount, 0))}</td>
+                      <td className="px-4 py-3 text-right font-bold text-primary">
+                        {formatCurrency(recentActivity.reduce((s, r) => s + r.amount, 0))}
+                      </td>
                       <td />
                     </tr>
                   </tfoot>
@@ -1583,6 +1688,7 @@ const expenseBreakdown = useMemo(() => {
       )}
 
       {/* ── Approvals Tab ── */}
+      {/* FIX 6 — Show amount and description on each approval card */}
       {activeTab === "approvals" && (
         <div className="space-y-4">
           <h2 className="text-lg font-bold text-foreground">{t("finance.approvals.title")}</h2>
@@ -1599,8 +1705,18 @@ const expenseBreakdown = useMemo(() => {
               {filteredApprovals.map(approval => (
                 <Card key={approval.id} className="p-4 border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10">
                   <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="font-semibold text-sm text-foreground">{labelize(approval.entity_type)} #{approval.entity_id}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <p className="font-semibold text-sm text-foreground">{labelize(approval.entity_type)} #{approval.entity_id}</p>
+                        {/* FIX 6 — Amount is now visible on the approval card */}
+                        {approval.amount != null && (
+                          <span className="text-sm font-bold text-primary">{formatCurrency(Number(approval.amount))}</span>
+                        )}
+                      </div>
+                      {/* FIX 6 — Description / category shown if available */}
+                      {approval.description && (
+                        <p className="text-xs font-medium text-foreground mt-0.5">{approval.description}</p>
+                      )}
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {approval.branch_name ?? t("finance.approvals.unknown")} · {t("finance.approvals.requestedBy")} {approval.requested_by_name ?? t("finance.approvals.unknownBy")}
                       </p>

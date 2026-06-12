@@ -112,6 +112,33 @@ def budget_vs_actual(
             period
         )
     )
+def get_budget_summary(company_id: int, branch_id: int, period: str) -> list[dict]:
+    """Return budget vs actual for each category in the given period."""
+    from app.database.connection import get_connection  # adjust import to your project
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    b.category,
+                    b.amount        AS budgeted,
+                    COALESCE(SUM(e.amount), 0) AS actual,
+                    b.amount - COALESCE(SUM(e.amount), 0) AS variance
+                FROM budgets b
+                LEFT JOIN expenses e
+                    ON  e.company_id = b.company_id
+                    AND e.branch_id  = b.branch_id
+                    AND e.category   = b.category
+                    AND TO_CHAR(e.entry_date, 'YYYY-MM') = b.period
+                WHERE b.company_id = %s
+                  AND b.branch_id  = %s
+                  AND b.period     = %s
+                GROUP BY b.category, b.amount
+                ORDER BY b.category
+            """, (company_id, branch_id, period))
+
+            columns = [desc[0] for desc in cur.description]
+            return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 @router.post("/period-snapshots")
 def create_period_snapshot(req: PeriodSnapshotRequest, current_user: dict = Depends(require_roles("owner", "admin"))):
