@@ -1134,7 +1134,7 @@ export default function Finance() {
     setSaving(true); setFormError("");
     try {
       await setBudget({ branch_id: branchId, period: budgetForm.period, category: budgetForm.category, amount: budgetForm.amount });
-      setModal(null); refetchBudget();
+      setModal(null); refetchAll();
     } catch { setFormError(t("finance.saveFailed")); }
     setSaving(false);
   }
@@ -1702,18 +1702,17 @@ export default function Finance() {
             </Card>
           ) : (
             <div className="space-y-3">
+              {/* // Instead of approval.amount and approval.description, cast first: */}
               {filteredApprovals.map(approval => (
                 <Card key={approval.id} className="p-4 border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-3 flex-wrap">
                         <p className="font-semibold text-sm text-foreground">{labelize(approval.entity_type)} #{approval.entity_id}</p>
-                        {/* FIX 6 — Amount is now visible on the approval card */}
                         {approval.amount != null && (
                           <span className="text-sm font-bold text-primary">{formatCurrency(Number(approval.amount))}</span>
                         )}
                       </div>
-                      {/* FIX 6 — Description / category shown if available */}
                       {approval.description && (
                         <p className="text-xs font-medium text-foreground mt-0.5">{approval.description}</p>
                       )}

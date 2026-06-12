@@ -301,8 +301,9 @@ export interface ApprovalRow {
   approved_by: number | null;
   requested_at: string;
   approved_at: string | null;
+  amount?: number | null;        // ← add this
+  description?: string | null;   // ← add this
 }
-
 export interface UserRow {
   id: number;
   username: string;
