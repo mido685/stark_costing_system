@@ -1,3 +1,10 @@
+# [3.66.0](https://github.com/mido685/stark_costing_system/compare/v3.65.0...v3.66.0) (2026-06-12)
+
+
+### Features
+
+* updating the cloud fare api ([f859609](https://github.com/mido685/stark_costing_system/commit/f859609170976d4234f0b79be1b259c422d8ad5a))
+
 # [3.65.0](https://github.com/mido685/stark_costing_system/compare/v3.64.0...v3.65.0) (2026-06-12)
 
 
