@@ -10,7 +10,7 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to xlocalhost:8085
-export const API_BASE = "https://visitor-drums-remain-lined.trycloudflare.com";
+export const API_BASE = "https://learn-francis-occupation-ment.trycloudflare.com";
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
   if (!path) return "";
@@ -1080,25 +1080,18 @@ export async function setBudget(data: {
     return false;
   }
 }
-
-type BudgetVsActualResponse = {
-  budget: BudgetVsActualRow[]
-}
-
 export async function getBudgetVsActual(
   branchId: number,
   period: string
 ): Promise<BudgetVsActualRow[]> {
   try {
-    const res = await apiCall<BudgetVsActualResponse>(
-      `/api/budgets/${branchId}/${period}`
-    )
-
-    return res.budget ?? []
+    const res = await apiCall<any>(`/api/budgets/${branchId}/${period}`);
+    return Array.isArray(res) ? res : (res?.budget ?? []);
   } catch {
-    return []
+    return [];
   }
 }
+
 export async function getFinanceKpi(
   branchId: number,
   period: string

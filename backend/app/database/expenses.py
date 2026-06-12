@@ -608,7 +608,6 @@ def set_budget(
     finally:
         cur.close()
         conn.close()
-# Period Snapshots
 def get_budget_summary(company_id: int, branch_id: int, period: str):
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -619,7 +618,7 @@ def get_budget_summary(company_id: int, branch_id: int, period: str):
         cur.execute("""
             SELECT
                 b.category,
-                b.amount AS budgeted,
+                b.amount AS budget_amount,
 
                 COALESCE((
                     SELECT SUM(e.amount)
@@ -628,28 +627,33 @@ def get_budget_summary(company_id: int, branch_id: int, period: str):
                     AND TO_CHAR(e.entry_date,'YYYY-MM') = b.period
                     AND LOWER(TRIM(e.category))
                         = LOWER(TRIM(b.category))
-                ),0) AS actual
+                ), 0) AS actual_amount
 
             FROM budgets b
 
-            WHERE b.branch_id=%s
-            AND b.period=%s
+            WHERE b.branch_id = %s
+            AND b.period = %s
 
             ORDER BY b.category
         """, (branch_id, period))
 
-        rows=[]
+        rows = []
 
         for r in cur.fetchall():
-            row=dict(r)
-            row["variance"]=row["budgeted"]-row["actual"]
+            row = dict(r)
+            budget_amount = float(row["budget_amount"] or 0)
+            actual_amount = float(row["actual_amount"] or 0)
+
+            row["variance"] = budget_amount - actual_amount
+            row["pct_used"] = (actual_amount / budget_amount * 100) if budget_amount > 0 else 0
+
             rows.append(_row(row))
 
         return rows
 
     finally:
         cur.close()
-        conn.close()# ─────────────────────────────────────────────────────────────────────────────
+        conn.close()
 
 def create_period_snapshot(
     company_id: int,

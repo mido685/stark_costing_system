@@ -22,10 +22,7 @@ import type {
   PeriodBackupRow, PeriodStatusRow, PeriodStatusValue, PrepaymentEntryRow, SaleRow,
 } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
-import {
-  formatCurrency as formatCurrencyValue,
-  formatDateTime,
-} from "@/lib/localization";
+import { formatCurrency, formatPercent, labelize, today, currentPeriod, getPeriodEnd, defaultDateForPeriod, formatDateTime } from "@/lib/format";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -122,22 +119,6 @@ function Modal({ title, saving, onClose, onSave, children, tCancel, tSave }: {
   );
 }
 
-function today() { return new Date().toISOString().split("T")[0]; }
-function currentPeriod() { return today().slice(0, 7); }
-function getPeriodEnd(period: string) {
-  const [year, month] = period.split("-").map(Number);
-  return new Date(year, month, 0).toISOString().split("T")[0];
-}
-function defaultDateForPeriod(period: string) {
-  return period === currentPeriod() ? today() : `${period}-01`;
-}
-function formatCurrency(value: number) {
-  return formatCurrencyValue(value, { maximumFractionDigits: 2 });
-}
-function formatPercent(value: number) { return `${value.toFixed(1)}%`; }
-function labelize(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-}
 function emptyKpi(branchId: number, period: string): FinanceKpiRow {
   return {
     branch_id: branchId, period, revenue: 0, food_cost: 0,
@@ -145,7 +126,6 @@ function emptyKpi(branchId: number, period: string): FinanceKpiRow {
     waste_cost: 0, gross_profit: 0, net_profit: 0,
   };
 }
-
 // ─── PDF Export ───────────────────────────────────────────────────────────────
 
 function exportPLtoPDF(
@@ -1144,7 +1124,6 @@ export default function Finance() {
       });
 
       setModal(null);
-
       await refetchAll(); // 👈 IMPORTANT FIX
     } catch {
       setFormError(t("finance.saveFailed"));
