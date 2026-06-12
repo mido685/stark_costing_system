@@ -1,3 +1,10 @@
+# [3.69.0](https://github.com/mido685/stark_costing_system/compare/v3.68.0...v3.69.0) (2026-06-12)
+
+
+### Features
+
+* updating the budget tab ([5c64c6e](https://github.com/mido685/stark_costing_system/commit/5c64c6e54e9fd9c39db575d02f740bbf2223fddc))
+
 # [3.68.0](https://github.com/mido685/stark_costing_system/compare/v3.67.0...v3.68.0) (2026-06-12)
 
 
