@@ -1131,12 +1131,26 @@ export default function Finance() {
   async function handleSaveBudget() {
     if (!branchId) return setFormError(t("finance.selectBranchFirst"));
     if (budgetForm.amount <= 0) return setFormError(t("finance.budgetPositive"));
-    setSaving(true); setFormError("");
+
+    setSaving(true);
+    setFormError("");
+
     try {
-      await setBudget({ branch_id: branchId, period: budgetForm.period, category: budgetForm.category, amount: budgetForm.amount });
-      setModal(null); refetchAll();
-    } catch { setFormError(t("finance.saveFailed")); }
-    setSaving(false);
+      await setBudget({
+        branch_id: branchId,
+        period: budgetForm.period,
+        category: budgetForm.category,
+        amount: budgetForm.amount,
+      });
+
+      setModal(null);
+
+      await refetchAll(); // 👈 IMPORTANT FIX
+    } catch {
+      setFormError(t("finance.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleClosePeriod() {

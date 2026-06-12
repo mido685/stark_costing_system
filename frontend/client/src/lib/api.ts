@@ -1081,17 +1081,24 @@ export async function setBudget(data: {
   }
 }
 
+type BudgetVsActualResponse = {
+  budget: BudgetVsActualRow[]
+}
+
 export async function getBudgetVsActual(
   branchId: number,
   period: string
 ): Promise<BudgetVsActualRow[]> {
   try {
-    return await apiCall<BudgetVsActualRow[]>(`/api/budgets/${branchId}/${period}`);
+    const res = await apiCall<BudgetVsActualResponse>(
+      `/api/budgets/${branchId}/${period}`
+    )
+
+    return res.budget ?? []
   } catch {
-    return [];
+    return []
   }
 }
-
 export async function getFinanceKpi(
   branchId: number,
   period: string

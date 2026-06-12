@@ -608,13 +608,8 @@ def set_budget(
     finally:
         cur.close()
         conn.close()
-def get_budget_summary(
-    company_id: int,
-    branch_id: int,
-    period: str
-) -> list[dict[str, Any]]:
-    """Return budget vs actual for each category in the given period."""
-
+# Period Snapshots
+def get_budget_summary(company_id: int, branch_id: int, period: str):
     conn = get_connection()
     cur = dict_cursor(conn)
 
@@ -626,38 +621,35 @@ def get_budget_summary(
                 b.category,
                 b.amount AS budgeted,
 
-                COALESCE(SUM(e.amount), 0) AS actual,
-
-                b.amount - COALESCE(SUM(e.amount), 0) AS variance
+                COALESCE((
+                    SELECT SUM(e.amount)
+                    FROM expenses e
+                    WHERE e.branch_id = b.branch_id
+                    AND TO_CHAR(e.entry_date,'YYYY-MM') = b.period
+                    AND LOWER(TRIM(e.category))
+                        = LOWER(TRIM(b.category))
+                ),0) AS actual
 
             FROM budgets b
 
-            LEFT JOIN expenses e
-                ON e.branch_id = b.branch_id
-                AND LOWER(TRIM(e.category)) =
-                    LOWER(TRIM(b.category))
-                AND TO_CHAR(e.entry_date, 'YYYY-MM') = %s
-
-            WHERE b.branch_id = %s
-              AND b.period = %s
-
-            GROUP BY
-                b.branch_id,
-                b.category,
-                b.amount
+            WHERE b.branch_id=%s
+            AND b.period=%s
 
             ORDER BY b.category
-        """, (period, branch_id, period))
+        """, (branch_id, period))
 
-        rows = cur.fetchall()
+        rows=[]
 
-        return [_row(dict(r)) for r in rows]
+        for r in cur.fetchall():
+            row=dict(r)
+            row["variance"]=row["budgeted"]-row["actual"]
+            rows.append(_row(row))
+
+        return rows
 
     finally:
         cur.close()
         conn.close()# ─────────────────────────────────────────────────────────────────────────────
-# Period Snapshots
-# ─────────────────────────────────────────────────────────────────────────────
 
 def create_period_snapshot(
     company_id: int,
