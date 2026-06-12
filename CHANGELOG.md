@@ -1,3 +1,10 @@
+# [3.65.0](https://github.com/mido685/stark_costing_system/compare/v3.64.0...v3.65.0) (2026-06-12)
+
+
+### Features
+
+* updating the finance page ([4fefb6b](https://github.com/mido685/stark_costing_system/commit/4fefb6b3bddbe13fa4aaba3a8ed895b8d381f64a))
+
 # [3.64.0](https://github.com/mido685/stark_costing_system/compare/v3.63.0...v3.64.0) (2026-06-11)
 
 
