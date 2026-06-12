@@ -1,3 +1,11 @@
+# [3.71.0](https://github.com/mido685/stark_costing_system/compare/v3.70.0...v3.71.0) (2026-06-12)
+
+
+### Features
+
+* your change description ([26c27a4](https://github.com/mido685/stark_costing_system/commit/26c27a4682ddef1e8d32dfb2b682c85f85394010))
+* your change description ([642f4d4](https://github.com/mido685/stark_costing_system/commit/642f4d43cef76c19a533eb34124cb33c7348fbf5))
+
 # [3.70.0](https://github.com/mido685/stark_costing_system/compare/v3.69.0...v3.70.0) (2026-06-12)
 
 
