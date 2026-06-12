@@ -400,208 +400,302 @@ function PLStatement({ summary, revenueSource, branchName, period, expenseBreakd
       </div>
 
       {/* ── Income Statement Tab ── */}
-      {plTab === "pl" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="overflow-hidden">
-            <div className="px-5 py-4 border-b border-border bg-secondary/20">
-              <h3 className="font-semibold text-sm text-foreground">{t("finance.pl.incomeStatement")}</h3>
-            </div>
-            <div className="p-4 space-y-0.5">
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-secondary/30">
-                <span className="text-sm font-medium text-foreground">{t("finance.pl.netSales")}</span>
-                <span className="text-sm font-bold font-mono text-blue-600 dark:text-blue-400">{formatCurrency(summary.revenue)}</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-secondary/30">
-                <span className="text-sm font-medium text-foreground" style={{ paddingLeft: 14 }}>
-                  <span className="text-muted-foreground mr-1">─</span>{t("finance.pl.foodCostCogs")}
-                </span>
-                <span className="text-sm font-bold font-mono text-red-500 dark:text-red-400">({formatCurrency(summary.foodCost)})</span>
-              </div>
-              <div className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-secondary/30">
-                <span className="text-sm font-medium text-foreground" style={{ paddingLeft: 14 }}>
-                  <span className="text-muted-foreground mr-1">─</span>{t("finance.pl.wasteAndDamage")}
-                </span>
-                <span className="text-sm font-bold font-mono text-red-400 dark:text-red-300">({formatCurrency(summary.wasteCost)})</span>
-              </div>
-              <div className="my-1.5 border-t border-border/60" />
-              <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border
-                ${summary.grossProfit >= 0
-                  ? "bg-green-50 dark:bg-green-900/20 border-green-100 dark:border-green-800/40"
-                  : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"}`}>
-                <span className="text-sm font-bold text-foreground">
-                  {t("finance.pl.grossProfit")}
-                  <span className="text-[10px] text-muted-foreground font-normal ml-2">({formatPercent(gpMargin)} {t("finance.pl.margin")})</span>
-                </span>
-                <span className={`text-sm font-bold font-mono ${summary.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                  {formatCurrency(summary.grossProfit)}
-                </span>
-              </div>
-              <div className="pt-2">
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-3 py-1">
-                  {t("finance.pl.operatingExp")}
-                </p>
-                {topExpenses.map((r: any) => (
-                  <div key={r.category} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-secondary/20">
-                    <span className="text-sm font-medium text-foreground flex items-center gap-2" style={{ paddingLeft: 14 }}>
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${expenseColor(r.category)}`} />
-                      {expenseLabel(r.category)}
-                    </span>
-                    <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-400">({formatCurrency(r.amount)})</span>
-                  </div>
-                ))}
-                {expenseBreakdown.length > 5 && (
-                  <button onClick={() => setShowAllExpenses(s => !s)}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-5 py-1">
-                    <ChevronRight className={`w-3 h-3 transition-transform ${showAllExpenses ? "rotate-90" : ""}`} />
-                    {showAllExpenses
-                      ? t("finance.pl.showLess")
-                      : t("finance.pl.moreCategories").replace("{count}", String(expenseBreakdown.length - 5))}
-                  </button>
-                )}
-              </div>
-              <div className="my-1.5 border-t border-border/60" />
-              <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border
-                ${ebitda >= 0
-                  ? "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800/40"
-                  : "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/40"}`}>
-                <span className="text-sm font-bold text-foreground">{t("finance.pl.ebitda")}</span>
-                <span className={`text-sm font-bold font-mono ${ebitda >= 0 ? "text-indigo-600 dark:text-indigo-400" : "text-red-600 dark:text-red-400"}`}>
-                  {formatCurrency(ebitda)}
-                </span>
-              </div>
-              <div className="my-1.5 border-t border-border/60" />
-              <div className={`flex items-center justify-between px-3 py-2.5 rounded-lg border
-                ${isProfit
-                  ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/40"
-                  : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40"}`}>
-                <span className="text-sm font-bold text-foreground">
-                  {isProfit ? t("finance.pl.netProfit") : t("finance.pl.netLoss")}
-                  <span className="text-[10px] text-muted-foreground font-normal ml-2">({formatPercent(Math.abs(netMargin))} {t("finance.pl.margin")})</span>
-                </span>
-                <span className={`text-sm font-bold font-mono ${isProfit ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                  {summary.operatingResult < 0
-                    ? `(${formatCurrency(Math.abs(summary.operatingResult))})`
-                    : formatCurrency(summary.operatingResult)}
-                </span>
-              </div>
-            </div>
-            <div className="px-5 py-4 border-t border-border bg-secondary/10">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">{t("finance.pl.keyRatios")}</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: t("finance.kpi.foodCostPct"),    value: formatPercent(summary.foodCostPct),  warn: summary.foodCostPct > 35,  bench: "< 35%" },
-                  { label: t("finance.kpi.laborCostPct"),   value: formatPercent(summary.laborCostPct), warn: summary.laborCostPct > 30, bench: "< 30%" },
-                  { label: t("finance.ratio.grossMargin"),  value: formatPercent(gpMargin),             warn: gpMargin < 50,             bench: "> 50%" },
-                  { label: t("finance.ratio.netMargin"),    value: formatPercent(netMargin),            warn: netMargin < 10,            bench: "> 10%" },
-                  { label: t("finance.ratio.ebitdaMargin"), value: formatPercent(ebitdaMargin),         warn: ebitda < 0,                bench: "> 15%" },
-                  { label: t("finance.ratio.opexRatio"),    value: formatPercent(opexRatio),            warn: opexRatio > 50,            bench: "< 50%" },
-                ].map(r => (
-                  <div key={r.label} className={`rounded-lg px-3 py-2 border ${
-                    r.warn
-                      ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/40"
-                      : "bg-secondary/30 border-border"
-                  }`}>
-                    <p className="text-[10px] text-muted-foreground">{r.label}</p>
-                    <p className={`text-sm font-bold ${r.warn ? "text-amber-700 dark:text-amber-400" : "text-foreground"}`}>{r.value}</p>
-                    <p className="text-[9px] text-muted-foreground">{t("finance.pl.benchmark")}: {r.bench}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Card>
-
-          {/* Cost Waterfall */}
-          <Card className="p-5">
-            <p className="text-sm font-semibold text-foreground mb-4">{t("finance.pl.costWaterfall")}</p>
-            <div className="space-y-3">
-              {[
-                { label: t("finance.kpi.revenue"),   value: summary.revenue,            pct: summary.revenue > 0 ? 100 : 0,                                                                            color: "bg-blue-500" },
-                { label: t("finance.pl.foodCost"),   value: summary.foodCost,           pct: summary.revenue > 0 ? (summary.foodCost / summary.revenue) * 100 : 0,                                     color: "bg-red-400"   },
-                { label: t("finance.pl.waste"),      value: summary.wasteCost,          pct: summary.revenue > 0 ? (summary.wasteCost / summary.revenue) * 100 : 0,                                    color: "bg-orange-400"},
-                { label: t("finance.pl.opex"),       value: summary.recognizedExpenses, pct: summary.revenue > 0 ? (summary.recognizedExpenses / summary.revenue) * 100 : 0,                           color: "bg-amber-400" },
-                { label: t("finance.pl.netResult"),  value: Math.abs(summary.operatingResult), pct: summary.revenue > 0 ? Math.abs(summary.operatingResult / summary.revenue) * 100 : 0,              color: isProfit ? "bg-green-500" : "bg-red-500" },
-              ].map(r => (
-                <div key={r.label} className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-20 flex-shrink-0">{r.label}</span>
-                  <div className="flex-1 h-2.5 bg-secondary rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${r.color}`} style={{ width: `${Math.min(100, r.pct)}%`, opacity: 0.8 }} />
-                  </div>
-                  <span className="text-xs font-mono font-semibold text-foreground w-28 text-right flex-shrink-0">
-                    {formatCurrency(r.value)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
+      <Card className="overflow-hidden">
+        <div className="px-5 py-4 border-b border-border bg-secondary/20 flex items-center justify-between">
+          <h3 className="font-semibold text-sm text-foreground">{t("finance.pl.incomeStatement")}</h3>
+          <span className="text-[10px] text-muted-foreground font-medium">{branchName} · {period}</span>
         </div>
-      )}
 
+        <div className="divide-y divide-border/40">
+
+          {/* ── Revenue ── */}
+          <div className="flex items-center justify-between px-5 py-3 bg-blue-50/40 dark:bg-blue-900/10">
+            <span className="text-sm font-semibold text-foreground">{t("finance.pl.netSales")}</span>
+            <span className="text-sm font-bold font-mono text-blue-600 dark:text-blue-400">
+              {formatCurrency(summary.revenue)}
+            </span>
+          </div>
+
+          {/* ── COGS section ── */}
+          <div className="px-5 py-1.5 bg-secondary/10">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              Cost of goods sold
+            </p>
+          </div>
+          <div className="flex items-center justify-between px-5 py-2.5 hover:bg-secondary/20 transition-colors">
+            <span className="text-sm text-muted-foreground pl-3 flex items-center gap-1.5">
+              <span className="text-border">─</span> {t("finance.pl.foodCostCogs")}
+            </span>
+            <span className="text-sm font-semibold font-mono text-red-500 dark:text-red-400">
+              ({formatCurrency(summary.foodCost)})
+            </span>
+          </div>
+          <div className="flex items-center justify-between px-5 py-2.5 hover:bg-secondary/20 transition-colors">
+            <span className="text-sm text-muted-foreground pl-3 flex items-center gap-1.5">
+              <span className="text-border">─</span> {t("finance.pl.wasteAndDamage")}
+            </span>
+            <span className="text-sm font-semibold font-mono text-red-400 dark:text-red-300">
+              ({formatCurrency(summary.wasteCost)})
+            </span>
+          </div>
+
+          {/* ── Gross Profit ── */}
+          <div className={`flex items-center justify-between px-5 py-3 border-l-4 ${
+            summary.grossProfit >= 0
+              ? "bg-green-50 dark:bg-green-900/20 border-l-green-500"
+              : "bg-red-50 dark:bg-red-900/20 border-l-red-500"
+          }`}>
+            <div>
+              <span className="text-sm font-bold text-foreground">{t("finance.pl.grossProfit")}</span>
+              <span className="text-[10px] text-muted-foreground font-normal ml-2">
+                {formatPercent(gpMargin)} {t("finance.pl.margin")}
+              </span>
+            </div>
+            <span className={`text-sm font-bold font-mono ${
+              summary.grossProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            }`}>
+              {formatCurrency(summary.grossProfit)}
+            </span>
+          </div>
+
+          {/* ── OpEx section ── */}
+          <div className="px-5 py-1.5 bg-secondary/10">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              {t("finance.pl.operatingExp")}
+            </p>
+          </div>
+          {topExpenses.map((r: any) => (
+            <div key={r.category} className="flex items-center justify-between px-5 py-2.5 hover:bg-secondary/20 transition-colors">
+              <span className="text-sm text-muted-foreground pl-3 flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${expenseColor(r.category)}`} />
+                {expenseLabel(r.category)}
+              </span>
+              <span className="text-sm font-semibold font-mono text-amber-700 dark:text-amber-400">
+                ({formatCurrency(r.amount)})
+              </span>
+            </div>
+          ))}
+          {expenseBreakdown.length > 5 && (
+            <div className="px-5 py-1">
+              <button
+                onClick={() => setShowAllExpenses(s => !s)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <ChevronRight className={`w-3 h-3 transition-transform ${showAllExpenses ? "rotate-90" : ""}`} />
+                {showAllExpenses
+                  ? t("finance.pl.showLess")
+                  : t("finance.pl.moreCategories").replace("{count}", String(expenseBreakdown.length - 5))}
+              </button>
+            </div>
+          )}
+
+          {/* ── EBITDA ── */}
+          <div className={`flex items-center justify-between px-5 py-3 border-l-4 ${
+            ebitda >= 0
+              ? "bg-indigo-50 dark:bg-indigo-900/20 border-l-indigo-500"
+              : "bg-red-50 dark:bg-red-900/20 border-l-red-500"
+          }`}>
+            <div>
+              <span className="text-sm font-bold text-foreground">{t("finance.pl.ebitda")}</span>
+              <span className="text-[10px] text-muted-foreground font-normal ml-2">
+                {formatPercent(ebitdaMargin)} {t("finance.pl.margin")}
+              </span>
+            </div>
+            <span className={`text-sm font-bold font-mono ${
+              ebitda >= 0 ? "text-indigo-600 dark:text-indigo-400" : "text-red-600 dark:text-red-400"
+            }`}>
+              {formatCurrency(ebitda)}
+            </span>
+          </div>
+
+          {/* ── Net Result ── */}
+          <div className={`flex items-center justify-between px-5 py-4 border-l-4 ${
+            isProfit
+              ? "bg-green-50 dark:bg-green-900/20 border-l-green-600"
+              : "bg-red-50 dark:bg-red-900/20 border-l-red-600"
+          }`}>
+            <div>
+              <span className="text-base font-bold text-foreground">
+                {isProfit ? t("finance.pl.netProfit") : t("finance.pl.netLoss")}
+              </span>
+              <span className="text-[10px] text-muted-foreground font-normal ml-2">
+                {formatPercent(Math.abs(netMargin))} {t("finance.pl.margin")}
+              </span>
+            </div>
+            <span className={`text-base font-bold font-mono ${
+              isProfit ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+            }`}>
+              {summary.operatingResult < 0
+                ? `(${formatCurrency(Math.abs(summary.operatingResult))})`
+                : formatCurrency(summary.operatingResult)}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Key Ratios ── */}
+        <div className="px-5 py-4 border-t border-border bg-secondary/10">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
+            {t("finance.pl.keyRatios")}
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: t("finance.kpi.foodCostPct"),    value: formatPercent(summary.foodCostPct),  warn: summary.foodCostPct > 35,  bench: "< 35%" },
+              { label: t("finance.kpi.laborCostPct"),   value: formatPercent(summary.laborCostPct), warn: summary.laborCostPct > 30, bench: "< 30%" },
+              { label: t("finance.ratio.grossMargin"),  value: formatPercent(gpMargin),             warn: gpMargin < 50,             bench: "> 50%" },
+              { label: t("finance.ratio.netMargin"),    value: formatPercent(netMargin),            warn: netMargin < 10,            bench: "> 10%" },
+              { label: t("finance.ratio.ebitdaMargin"), value: formatPercent(ebitdaMargin),         warn: ebitda < 0,                bench: "> 15%" },
+              { label: t("finance.ratio.opexRatio"),    value: formatPercent(opexRatio),            warn: opexRatio > 50,            bench: "< 50%" },
+            ].map(r => (
+              <div key={r.label} className={`rounded-lg px-3 py-2.5 border ${
+                r.warn
+                  ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/40"
+                  : "bg-background border-border"
+              }`}>
+                <p className="text-[10px] text-muted-foreground leading-tight">{r.label}</p>
+                <p className={`text-sm font-bold mt-0.5 ${
+                  r.warn ? "text-amber-700 dark:text-amber-400" : "text-foreground"
+                }`}>{r.value}</p>
+                <p className="text-[9px] text-muted-foreground mt-0.5">
+                  {t("finance.pl.benchmark")}: {r.bench}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
       {/* ── Cost Breakdown Tab ── */}
       {plTab === "expenses" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          {/* Summary strip */}
+          <div className="grid grid-cols-3 gap-3">
             <Card className="p-4">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{t("finance.pl.totalOpex")}</p>
-              <p className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1">{formatCurrency(summary.recognizedExpenses)}</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{t("finance.pl.totalOpex")}</p>
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">{formatCurrency(summary.recognizedExpenses)}</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {formatPercent(summary.revenue > 0 ? (summary.recognizedExpenses / summary.revenue) * 100 : 0)} of revenue
               </p>
             </Card>
             <Card className="p-4">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{t("finance.pl.categories")}</p>
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400 mt-1">{expenseBreakdown.length}</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{t("finance.pl.categories")}</p>
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{expenseBreakdown.length}</p>
               <p className="text-xs text-muted-foreground mt-0.5">{t("finance.pl.categoriesDesc")}</p>
             </Card>
+            <Card className="p-4">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Largest item</p>
+              {expenseBreakdown.length > 0 ? (
+                <>
+                  <p className="text-sm font-bold text-foreground truncate">{expenseLabel(expenseBreakdown[0].category)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {formatPercent(summary.recognizedExpenses > 0 ? (expenseBreakdown[0].amount / summary.recognizedExpenses) * 100 : 0)} of OpEx
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">—</p>
+              )}
+            </Card>
           </div>
+
+          {/* Breakdown list */}
           <Card className="overflow-hidden">
-            <div className="px-4 py-3 border-b border-border bg-secondary/20">
-              <h3 className="font-semibold text-sm">{t("finance.pl.detailedBreakdown")}</h3>
+            <div className="px-4 py-3 border-b border-border bg-secondary/20 flex items-center justify-between">
+              <h3 className="font-semibold text-sm text-foreground">{t("finance.pl.detailedBreakdown")}</h3>
+              {expenseBreakdown.length > 0 && (
+                <span className="text-[10px] text-muted-foreground font-medium">
+                  % = share of total OpEx
+                </span>
+              )}
             </div>
+
             {!expenseBreakdown.length ? (
-              <div className="p-8 text-center">
+              <div className="p-10 text-center">
+                <Receipt className="w-8 h-8 text-muted-foreground/20 mx-auto mb-2" />
                 <p className="text-sm text-muted-foreground">{t("finance.pl.noExpenseData")}</p>
               </div>
             ) : (
-              <div className="p-4 space-y-3">
-                {expenseBreakdown.map((row: any) => {
-                  const pct = summary.recognizedExpenses > 0 ? (row.amount / summary.recognizedExpenses) * 100 : 0;
+              <div className="divide-y divide-border">
+                {expenseBreakdown.map((row: any, idx: number) => {
+                  const pct = summary.recognizedExpenses > 0
+                    ? (row.amount / summary.recognizedExpenses) * 100
+                    : 0;
+                  const isTop = idx === 0;
+
+                  // Map category to a tinted icon background + dot color
+                  const categoryStyle: Record<string, { iconBg: string; dotColor: string; barColor: string }> = {
+                    labor:        { iconBg: "bg-green-100 dark:bg-green-900/40",   dotColor: "bg-green-500",  barColor: "bg-green-500"  },
+                    rent:         { iconBg: "bg-blue-100 dark:bg-blue-900/40",     dotColor: "bg-blue-500",   barColor: "bg-blue-500"   },
+                    utilities:    { iconBg: "bg-yellow-100 dark:bg-yellow-900/40", dotColor: "bg-yellow-500", barColor: "bg-yellow-500" },
+                    marketing:    { iconBg: "bg-purple-100 dark:bg-purple-900/40", dotColor: "bg-purple-500", barColor: "bg-purple-500" },
+                    food_cost:    { iconBg: "bg-red-100 dark:bg-red-900/40",       dotColor: "bg-red-500",    barColor: "bg-red-500"    },
+                    depreciation: { iconBg: "bg-gray-100 dark:bg-gray-800/60",     dotColor: "bg-gray-500",   barColor: "bg-gray-400"   },
+                    delivery:     { iconBg: "bg-orange-100 dark:bg-orange-900/40", dotColor: "bg-orange-500", barColor: "bg-orange-500" },
+                    other:        { iconBg: "bg-slate-100 dark:bg-slate-800/40",   dotColor: "bg-slate-400",  barColor: "bg-slate-400"  },
+                  };
+                  const style = categoryStyle[row.category] ?? categoryStyle["other"];
+
                   return (
-                    <div key={row.category}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${expenseColor(row.category)}`} />
-                          <span className="text-sm font-medium text-foreground">{expenseLabel(row.category)}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-muted-foreground">{formatPercent(pct)}</span>
-                          <span className="text-sm font-bold text-foreground w-28 text-right">{formatCurrency(row.amount)}</span>
-                        </div>
+                    <div
+                      key={row.category}
+                      className={`flex items-center gap-4 px-4 py-3 hover:bg-secondary/30 transition-colors ${isTop ? "bg-secondary/10" : ""}`}
+                    >
+                      {/* Icon bubble */}
+                      <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${style.iconBg}`}>
+                        <div className={`w-2.5 h-2.5 rounded-full ${style.dotColor}`} />
                       </div>
-                      <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${expenseColor(row.category)}`}
-                          style={{ width: `${Math.min(100, pct)}%`, opacity: 0.7 }} />
+
+                      {/* Label + bar */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-sm text-foreground truncate ${isTop ? "font-semibold" : "font-medium"}`}>
+                            {expenseLabel(row.category)}
+                            {isTop && (
+                              <span className="ml-2 text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded-full">
+                                top
+                              </span>
+                            )}
+                          </span>
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                            <span className="text-[11px] text-muted-foreground w-10 text-right">
+                              {pct.toFixed(1)}%
+                            </span>
+                            <span className="text-sm font-bold font-mono text-foreground w-28 text-right">
+                              {formatCurrency(row.amount)}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${style.barColor}`}
+                            style={{ width: `${Math.min(100, pct)}%`, opacity: 0.75 }}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
                 })}
-                <div className="pt-3 border-t border-border flex justify-between text-sm font-bold">
-                  <span>{t("finance.pl.totalOpexRow")}</span>
-                  <span className="text-amber-600 dark:text-amber-400">{formatCurrency(summary.recognizedExpenses)}</span>
+
+                {/* Total row */}
+                <div className="flex items-center gap-4 px-4 py-3 bg-secondary/30">
+                  <div className="w-8 h-8 flex-shrink-0" />
+                  <div className="flex-1 flex items-center justify-between">
+                    <span className="text-sm font-bold text-foreground">{t("finance.pl.totalOpexRow")}</span>
+                    <span className="text-sm font-bold font-mono text-amber-600 dark:text-amber-400">
+                      {formatCurrency(summary.recognizedExpenses)}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
           </Card>
-          {expenseBreakdown.length > 0 && (
+
+          {/* Insights banner */}
+          {(summary.foodCostPct > 35 || summary.laborCostPct > 30) && (
             <Card className="p-4 border-amber-200 dark:border-amber-700/40 bg-amber-50/50 dark:bg-amber-900/20">
-              <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide mb-2">{t("finance.pl.insights")}</p>
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                <strong>{expenseLabel(expenseBreakdown[0].category)}</strong>{" "}
-                {t("finance.pl.largestCost")
-                  .replace("{cat}", "")
-                  .replace("{pct}", formatPercent(summary.recognizedExpenses > 0 ? (expenseBreakdown[0].amount / summary.recognizedExpenses) * 100 : 0))}
+              <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide mb-2">
+                {t("finance.pl.insights")}
               </p>
               {summary.foodCostPct > 35 && (
-                <p className="text-xs text-red-700 dark:text-red-400 mt-1">
+                <p className="text-xs text-red-700 dark:text-red-400">
                   {t("finance.pl.foodCostWarn").replace("{pct}", formatPercent(summary.foodCostPct))}
                 </p>
               )}
@@ -614,7 +708,6 @@ function PLStatement({ summary, revenueSource, branchName, period, expenseBreakd
           )}
         </div>
       )}
-
       {/* ── vs Budget Tab ── */}
       {plTab === "comparison" && (
         <div className="space-y-4">
