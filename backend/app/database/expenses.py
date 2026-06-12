@@ -608,33 +608,54 @@ def set_budget(
     finally:
         cur.close()
         conn.close()
-def get_budget_summary(company_id: int, branch_id: int, period: str) -> list[dict[str, Any]]:
+def get_budget_summary(
+    company_id: int,
+    branch_id: int,
+    period: str
+) -> list[dict[str, Any]]:
     """Return budget vs actual for each category in the given period."""
+
     conn = get_connection()
     cur = dict_cursor(conn)
+
     try:
         _verify_branch(cur, branch_id, company_id)
+
         cur.execute("""
             SELECT
                 b.category,
-                b.amount                       AS budgeted,
-                COALESCE(SUM(e.amount), 0)     AS actual,
+                b.amount AS budgeted,
+
+                COALESCE(SUM(e.amount), 0) AS actual,
+
                 b.amount - COALESCE(SUM(e.amount), 0) AS variance
+
             FROM budgets b
+
             LEFT JOIN expenses e
-                ON  e.branch_id = b.branch_id
-                AND e.category  = b.category
-                AND TO_CHAR(e.entry_date, 'YYYY-MM') = b.period
+                ON e.branch_id = b.branch_id
+                AND LOWER(TRIM(e.category)) =
+                    LOWER(TRIM(b.category))
+                AND TO_CHAR(e.entry_date, 'YYYY-MM') = %s
+
             WHERE b.branch_id = %s
-              AND b.period    = %s
-            GROUP BY b.category, b.amount
+              AND b.period = %s
+
+            GROUP BY
+                b.branch_id,
+                b.category,
+                b.amount
+
             ORDER BY b.category
-        """, (branch_id, period))
-        return [_row(dict(r)) for r in cur.fetchall()]
+        """, (period, branch_id, period))
+
+        rows = cur.fetchall()
+
+        return [_row(dict(r)) for r in rows]
+
     finally:
         cur.close()
-        conn.close()
-# ─────────────────────────────────────────────────────────────────────────────
+        conn.close()# ─────────────────────────────────────────────────────────────────────────────
 # Period Snapshots
 # ─────────────────────────────────────────────────────────────────────────────
 
