@@ -1,3 +1,10 @@
+# [3.67.0](https://github.com/mido685/stark_costing_system/compare/v3.66.0...v3.67.0) (2026-06-12)
+
+
+### Features
+
+* update the error ([c3dd0fd](https://github.com/mido685/stark_costing_system/commit/c3dd0fdc4f07db0822b4ce067e76943ecddec851))
+
 # [3.66.0](https://github.com/mido685/stark_costing_system/compare/v3.65.0...v3.66.0) (2026-06-12)
 
 
