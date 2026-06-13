@@ -2,7 +2,7 @@
  * Procurement.tsx — STARK AI Costing
  * Enterprise Purchase Order & Returns Management
  * Tabs: Standard POs · Cash Purchases · Petty Cash · Invoices · PO Fulfillment
- * Features: Edit pending POs · Record GRN from fulfillment tab
+ * Features: Edit pending POs · Record GRN from fulfillment tab · Universal Eye viewer
  */
 
 import { PROCUREMENT_PO_EVENT } from "./Governance";
@@ -264,6 +264,129 @@ function openPoAsHtml(purchase: Purchase, currencyLabel: string): void {
   const url=URL.createObjectURL(blob);
   window.open(url,"_blank");
   setTimeout(()=>URL.revokeObjectURL(url),15000);
+}
+
+// ─── Universal Record HTML Viewer ─────────────────────────────────────────────
+
+const SHARED_HTML_STYLES = `
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',sans-serif;font-size:13px;color:#1e293b;background:#f8fafc}
+  .page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;padding:40px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:28px}
+  .brand{font-size:10px;font-weight:800;letter-spacing:4px;color:#1e3a5f;text-transform:uppercase;margin-bottom:6px}
+  .doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}
+  .doc-sub{font-size:12px;color:#64748b}
+  .meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}
+  .status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px}
+  .section{margin-bottom:24px}
+  .section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}
+  .info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}
+  .info-value{font-size:13px;font-weight:600;color:#0f172a}
+  .totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:20px}
+  .totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}
+  .totals-row.highlight{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}
+  .totals-row.highlight span{color:#93c5fd}
+  .notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}
+  .footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}
+  .footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}
+  .footer-note{font-size:10px;color:#94a3b8}
+  .print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+  .print-btn:hover{background:#1e40af}
+  @media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}
+`;
+
+interface HtmlViewerParams {
+  title: string;
+  subtitle: string;
+  ref: string;
+  badge?: { label: string; color: string; bg: string };
+  sections: { heading: string; rows: { label: string; value: string }[] }[];
+  totals?: { label: string; value: string; highlight?: boolean }[];
+  notes?: string;
+}
+
+function openRecordAsHtml(params: HtmlViewerParams): void {
+  const { title, subtitle, ref, badge, sections, totals, notes } = params;
+  const now = new Date().toLocaleDateString();
+
+  const badgeHtml = badge
+    ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>`
+    : "";
+
+  const sectionsHtml = sections.map(sec => `
+    <div class="section">
+      <div class="section-title">${sec.heading}</div>
+      <div class="info-grid">
+        ${sec.rows.map(r => `
+          <div class="info-block">
+            <div class="info-label">${r.label}</div>
+            <div class="info-value">${r.value}</div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+
+  const totalsHtml = totals?.length ? `
+    <div class="totals">
+      ${totals.map(t => `
+        <div class="totals-row${t.highlight ? " highlight" : ""}">
+          <span>${t.label}</span><span>${t.value}</span>
+        </div>`).join("")}
+    </div>` : "";
+
+  const notesHtml = notes
+    ? `<div class="section"><div class="section-title">Notes</div><div class="notes-box">${notes}</div></div>`
+    : "";
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<title>${ref} — STARK AI</title>
+<style>${SHARED_HTML_STYLES}</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand">STARK AI — Costing Platform</div>
+      <div class="doc-title">${title}</div>
+      <div class="doc-sub">${subtitle}</div>
+    </div>
+    <div class="meta">
+      ${badgeHtml ? `<div>${badgeHtml}</div>` : ""}
+      <div style="margin-top:8px">Generated: ${now}</div>
+      <div>Ref: ${ref}</div>
+    </div>
+  </div>
+  ${sectionsHtml}
+  ${totalsHtml}
+  ${notesHtml}
+  <div class="footer">
+    <div class="footer-brand">STARK AI</div>
+    <div class="footer-note">Confidential · ${now} · ${ref}</div>
+  </div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+
+// ─── Shared Eye button ────────────────────────────────────────────────────────
+
+function EyeBtn({ onClick, loading = false }: { onClick: () => void; loading?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      title="View record"
+      className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
+    >
+      {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+    </button>
+  );
 }
 
 // ─── Fulfillment Badge ────────────────────────────────────────────────────────
@@ -548,6 +671,126 @@ export default function Procurement() {
       if (purchase) openPoAsHtml(purchase, currencyLabel);
     } finally { setOpeningPoId(null); }
   }, [purchases, currencyLabel]);
+
+  // ── Eye viewers for other tabs ─────────────────────────────────────────────
+
+  const handleOpenCashHtml = useCallback((row: CashPurchase) => {
+    openRecordAsHtml({
+      title: "Cash Purchase",
+      subtitle: `${row.purchase_type === "emergency" ? "Emergency" : "Branch Cash"} · ${row.entry_date}`,
+      ref: `CASH-${String(row.id).padStart(6, "0")}`,
+      badge: {
+        label: (row.status ?? "PENDING").toUpperCase(),
+        color: row.status === "approved" ? "#16a34a" : row.status === "rejected" ? "#dc2626" : "#d97706",
+        bg:    row.status === "approved" ? "#dcfce7" : row.status === "rejected" ? "#fee2e2"  : "#fef3c7",
+      },
+      sections: [{
+        heading: "Details",
+        rows: [
+          { label: "Branch",    value: row.branch_name ?? `Branch #${row.branch_id}` },
+          { label: "Supplier",  value: row.supplier_name ?? "Walk-in" },
+          { label: "Item",      value: row.category_name ?? row.ingredient_name ?? "—" },
+          { label: "Date",      value: row.entry_date },
+          { label: "Quantity",  value: Number(row.quantity).toFixed(3) },
+          { label: "Unit Cost", value: fmt(row.unit_cost) },
+        ],
+      }],
+      totals: [
+        { label: "Gross Amount", value: fmt(Number(row.quantity) * Number(row.unit_cost)) },
+        { label: "Tax",          value: fmt(row.tax_amount) },
+        { label: "Payable",      value: fmt(row.payable_amount), highlight: true },
+      ],
+      notes: row.notes,
+    });
+  }, []);
+
+  const handleOpenPettyHtml = useCallback((row: PettyCashEntry, branchName: string) => {
+    openRecordAsHtml({
+      title: "Petty Cash Entry",
+      subtitle: `${row.txn_type === "top_up" ? "Top-Up" : row.txn_type === "spend" ? "Spend" : "Adjustment"} · ${row.entry_date}`,
+      ref: `PETTY-${String(row.id).padStart(6, "0")}`,
+      sections: [{
+        heading: "Transaction",
+        rows: [
+          { label: "Branch",        value: branchName },
+          { label: "Type",          value: row.txn_type === "top_up" ? "Top-Up" : row.txn_type === "spend" ? "Spend" : "Adjustment" },
+          { label: "Amount",        value: fmt(row.amount) },
+          { label: "Balance After", value: fmt(row.balance_after) },
+          { label: "Date",          value: row.entry_date },
+        ],
+      }],
+      notes: row.notes,
+    });
+  }, []);
+
+  const handleOpenInvoiceHtml = useCallback((inv: Invoice) => {
+    openRecordAsHtml({
+      title: "Invoice Record",
+      subtitle: `${inv.invoice_number ?? inv.file_name} · ${inv.invoice_date ?? "—"}`,
+      ref: `INV-${String(inv.id).padStart(6, "0")}`,
+      sections: [{
+        heading: "Invoice Details",
+        rows: [
+          { label: "Invoice Number", value: inv.invoice_number ?? "—" },
+          { label: "Invoice Date",   value: inv.invoice_date   ?? "—" },
+          { label: "Supplier",       value: inv.supplier_name  ?? "—" },
+          { label: "Branch",         value: inv.branch_name    ?? "—" },
+          { label: "File",           value: inv.file_name },
+          { label: "Type",           value: INVOICE_REF_OPTIONS.find(o => o.value === inv.ref_table)?.label ?? inv.ref_table ?? "—" },
+        ],
+      }],
+      totals: inv.amount != null
+        ? [{ label: "Invoice Amount", value: fmt(inv.amount), highlight: true }]
+        : undefined,
+      notes: inv.notes,
+    });
+  }, []);
+
+  const handleOpenFulfillmentHtml = useCallback((row: FulfillmentRow) => {
+    openRecordAsHtml({
+      title: "PO Fulfillment",
+      subtitle: `PO-${String(row.po_id).padStart(5, "0")} · ${row.ingredient_name}`,
+      ref: `PO-${String(row.po_id).padStart(5, "0")}`,
+      badge: {
+        label: row.fulfillment_status === "fully_received" ? "FULLY RECEIVED"
+             : row.fulfillment_status === "partially_received" ? "PARTIAL"
+             : "NOT RECEIVED",
+        color: row.fulfillment_status === "fully_received" ? "#16a34a"
+             : row.fulfillment_status === "partially_received" ? "#d97706"
+             : "#dc2626",
+        bg:    row.fulfillment_status === "fully_received" ? "#dcfce7"
+             : row.fulfillment_status === "partially_received" ? "#fef3c7"
+             : "#fee2e2",
+      },
+      sections: [
+        {
+          heading: "Order Info",
+          rows: [
+            { label: "Branch",     value: row.branch_name },
+            { label: "Supplier",   value: row.supplier_name },
+            { label: "Ingredient", value: `${row.ingredient_name} (${row.unit})` },
+            { label: "PO Date",    value: row.po_date },
+            { label: "Last GRN",   value: row.last_grn_date ?? "—" },
+            { label: "GRN Count",  value: String(row.grn_count) },
+          ],
+        },
+        {
+          heading: "Quantities",
+          rows: [
+            { label: "PO Quantity",   value: `${Number(row.po_qty).toFixed(3)} ${row.unit}` },
+            { label: "Received",      value: `${Number(row.total_received).toFixed(3)} ${row.unit}` },
+            { label: "Pending",       value: `${Number(row.pending_qty).toFixed(3)} ${row.unit}` },
+            { label: "Cost Variance", value: `${row.cost_variance_pct > 0 ? "+" : ""}${Number(row.cost_variance_pct).toFixed(1)}%` },
+          ],
+        },
+      ],
+      totals: [
+        { label: "PO Unit Cost",    value: fmt(row.po_unit_cost) },
+        { label: "Avg Actual Cost", value: fmt(row.avg_grn_unit_cost) },
+        { label: "Total PO Value",  value: fmt(row.po_value), highlight: true },
+      ],
+    });
+  }, []);
 
   // ── Edit PO ────────────────────────────────────────────────────────────────
   const [editingPurchase,  setEditingPurchase]  = useState<Purchase | null>(null);
@@ -995,15 +1238,12 @@ export default function Procurement() {
           saveLabel="Save Changes"
         >
           <div ref={errorRef as any}><FormError message={formError}/></div>
-
-          {/* Context — read-only info */}
           <div className="bg-secondary/40 rounded-xl p-4 border border-border space-y-1.5 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Ingredient</span><span className="font-medium">{editingPurchase.ingredient_name ?? editingPurchase.item_name ?? "—"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Supplier</span><span className="font-medium">{editingPurchase.supplier_name ?? "—"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Branch</span><span className="font-medium">{editingPurchase.branch_name ?? "—"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span className="font-medium">{editingPurchase.entry_date}</span></div>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Quantity (${editingPurchase.ingredient_name ? "units" : ""})`} hint="Original: " htmlFor="edit-qty">
               <input id="edit-qty" type="number" min={0} step={0.001} className={inputCls} placeholder="0.000"
@@ -1016,19 +1256,16 @@ export default function Procurement() {
               <p className="text-[11px] text-muted-foreground mt-1">Original: {fmt(editingPurchase.unit_cost)}</p>
             </Field>
           </div>
-
           <div className="bg-muted/30 rounded-xl p-3 border border-border/60 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">New Gross Amount</span>
               <span className="font-bold text-primary">{fmt(editPurchaseForm.quantity * editPurchaseForm.unit_cost)}</span>
             </div>
           </div>
-
           <Field label="Notes" htmlFor="edit-notes">
             <textarea id="edit-notes" className={inputCls} rows={2} placeholder="Reason for change…"
               value={editPurchaseForm.notes} onChange={e=>setEditPurchaseForm(f=>({ ...f, notes:e.target.value }))}/>
           </Field>
-
           <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 flex items-center gap-2">
             <Lock className="w-3 h-3 flex-shrink-0"/>
             Only quantity, unit cost, and notes can be changed. To change ingredient or supplier, reject this PO and create a new one.
@@ -1048,15 +1285,12 @@ export default function Procurement() {
           saveLabel="Record Receipt"
         >
           <div ref={errorRef as any}><FormError message={formError}/></div>
-
-          {/* PO context */}
           <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-1.5 text-sm">
             <p className="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-2">PO Details</p>
             <div className="flex justify-between"><span className="text-muted-foreground">Ingredient</span><span className="font-medium">{grnForm.ingredient_name} <span className="text-muted-foreground">({grnForm.unit})</span></span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">PO Quantity</span><span className="font-medium">{Number(grnForm.po_qty).toFixed(3)} {grnForm.unit}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">PO Unit Cost</span><span className="font-medium">{fmt(grnForm.po_unit_cost)}</span></div>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <Field label={`Received Qty (${grnForm.unit})`} htmlFor="grn-qty" hint="Can differ from PO qty">
               <input id="grn-qty" type="number" min={0.001} step={0.001} className={inputCls} placeholder="0.000"
@@ -1067,13 +1301,10 @@ export default function Procurement() {
                 value={grnForm.unit_cost||""} onChange={e=>setGrnForm(f=>({ ...f, unit_cost:Number(e.target.value) }))}/>
             </Field>
           </div>
-
           <Field label="Receipt Date" htmlFor="grn-date">
             <input id="grn-date" type="date" className={inputCls} value={grnForm.entry_date}
               onChange={e=>setGrnForm(f=>({ ...f, entry_date:e.target.value }))}/>
           </Field>
-
-          {/* Live cost variance warning */}
           {grnForm.unit_cost > 0 && grnForm.po_unit_cost > 0 && Math.abs(grnForm.unit_cost - grnForm.po_unit_cost) > 0.01 && (
             <div className={`rounded-xl p-3 border text-sm flex items-center justify-between ${grnForm.unit_cost > grnForm.po_unit_cost ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800" : "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"}`}>
               <span className="text-muted-foreground text-xs">Cost variance vs PO</span>
@@ -1083,12 +1314,10 @@ export default function Procurement() {
               </span>
             </div>
           )}
-
           <Field label="Notes" htmlFor="grn-notes">
             <textarea id="grn-notes" className={inputCls} rows={2} placeholder="Delivery notes, batch number, condition…"
               value={grnForm.notes} onChange={e=>setGrnForm(f=>({ ...f, notes:e.target.value }))}/>
           </Field>
-
           <p className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2">
             Stock will increase by the received quantity immediately after saving.
           </p>
@@ -1396,12 +1625,7 @@ export default function Procurement() {
                       <Td center><StatusBadge status={(row.status as PurchaseStatus)??"pending"}/></Td>
                       <Td center>
                         <div className="flex items-center justify-center gap-1">
-                          {/* Open HTML */}
-                          <button onClick={()=>handleOpenPoHtml(row.id)} disabled={openingPoId===row.id} title="Open as printable page"
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40">
-                            {openingPoId===row.id?<Loader2 className="w-3.5 h-3.5 animate-spin"/>:<Eye className="w-3.5 h-3.5"/>}
-                          </button>
-                          {/* Edit — pending only */}
+                          <EyeBtn onClick={()=>handleOpenPoHtml(row.id)} loading={openingPoId===row.id}/>
                           {row.status==="pending" && !selectedPeriodClosed && (
                             <button onClick={()=>openEditPurchase(row)} title="Edit this pending PO"
                               className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-amber-600 hover:text-amber-700 hover:border-amber-300 hover:bg-amber-50 transition-colors">
@@ -1456,7 +1680,7 @@ export default function Procurement() {
               <EmptyState icon={<Banknote className="w-6 h-6 text-muted-foreground"/>} title="No cash purchases found" desc="Record branch cash or emergency buys — inventory or expense credited on approval." cta={<Button size="sm" onClick={()=>openModal("cash")} disabled={selectedPeriodClosed} title={lockedTitle} className="gap-1.5"><Plus className="w-4 h-4"/>New Cash Purchase</Button>}/>
             ):(
               <TableWrap>
-                <thead><tr className="border-b border-border"><Th>Date</Th><Th>Branch</Th><Th>Type</Th><Th>Item / Category</Th><Th>Supplier</Th><Th right>Qty</Th><Th right>Unit Cost</Th><Th right>Payable</Th><Th center>Petty Cash</Th><Th center>Status</Th>{canApprove&&<Th center>Action</Th>}</tr></thead>
+                <thead><tr className="border-b border-border"><Th>Date</Th><Th>Branch</Th><Th>Type</Th><Th>Item / Category</Th><Th>Supplier</Th><Th right>Qty</Th><Th right>Unit Cost</Th><Th right>Payable</Th><Th center>Petty Cash</Th><Th center>Status</Th><Th center>View</Th>{canApprove&&<Th center>Action</Th>}</tr></thead>
                 <tbody className="divide-y divide-border/60">
                   {cashPurchases.map((row,i)=>(
                     <tr key={row.id??i} className="hover:bg-muted/30 transition-colors">
@@ -1470,11 +1694,12 @@ export default function Procurement() {
                       <Td right mono className="font-semibold text-foreground">{fmt(Number(row.payable_amount))}</Td>
                       <Td center>{row.petty_cash_used?<span className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 dark:text-violet-400"><Wallet className="w-3 h-3"/>Yes</span>:<span className="text-xs text-muted-foreground/50">—</span>}</Td>
                       <Td center><StatusBadge status={row.status??"pending"}/></Td>
+                      <Td center><EyeBtn onClick={()=>handleOpenCashHtml(row)}/></Td>
                       {canApprove&&<Td center>{row.status==="pending"?<Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20" disabled={approvingId===row.id} onClick={()=>handleApproveCash(row.id)}>{approvingId===row.id?<Loader2 className="w-3 h-3 animate-spin"/>:"Approve"}</Button>:<span className="text-xs text-muted-foreground/50">—</span>}</Td>}
                     </tr>
                   ))}
                 </tbody>
-                <tfoot><tr className="border-t-2 border-border bg-muted/20"><td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({cashPurchases.length} records)</td><td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{fmt(cashStats.total)}</td><td colSpan={canApprove?3:2}/></tr></tfoot>
+                <tfoot><tr className="border-t-2 border-border bg-muted/20"><td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({cashPurchases.length} records)</td><td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{fmt(cashStats.total)}</td><td colSpan={canApprove?4:3}/></tr></tfoot>
               </TableWrap>
             )}
           </Card>
@@ -1509,14 +1734,18 @@ export default function Procurement() {
             <SectionHeader title="Ledger" action={pettyBranchId>0?<Button variant="outline" size="sm" onClick={()=>{fetchPettyBalance(pettyBranchId);fetchPettyLedger(pettyBranchId);}} disabled={pettyLedgerLoad}><RefreshCw className={`w-4 h-4 ${pettyLedgerLoad?"animate-spin":""}`}/></Button>:undefined}/>
             {!pettyBranchId?<EmptyState icon={<Wallet className="w-6 h-6 text-muted-foreground"/>} title="No branch selected" desc="Select a branch to view the petty cash ledger."/>:pettyLedgerLoad?<SkeletonRows count={5}/>:!pettyLedger.length?<EmptyState icon={<Wallet className="w-6 h-6 text-muted-foreground"/>} title="No transactions yet" desc="Top up this branch's petty cash to get started."/>:(
               <TableWrap>
-                <thead><tr className="border-b border-border"><Th>Date</Th><Th>Type</Th><Th right>Amount</Th><Th right>Balance After</Th><Th>Notes</Th></tr></thead>
+                <thead><tr className="border-b border-border"><Th>Date</Th><Th>Type</Th><Th right>Amount</Th><Th right>Balance After</Th><Th>Notes</Th><Th center>View</Th></tr></thead>
                 <tbody className="divide-y divide-border/60">
                   {pettyLedger.map((row,i)=>(
                     <tr key={row.id??i} className="hover:bg-muted/30 transition-colors">
-                      <Td muted>{row.entry_date}</Td><Td><LedgerTypeBadge type={row.txn_type}/></Td>
+                      <Td muted>{row.entry_date}</Td>
+                      <Td><LedgerTypeBadge type={row.txn_type}/></Td>
                       <Td right mono className={`font-semibold ${row.txn_type==="top_up"?"text-emerald-600 dark:text-emerald-400":"text-red-600 dark:text-red-400"}`}>{row.txn_type==="top_up"?"+":" -"}{fmt(Math.abs(Number(row.amount)))}</Td>
                       <Td right mono className="font-medium text-foreground">{fmt(Number(row.balance_after))}</Td>
                       <Td muted className="truncate max-w-[200px]">{row.notes||"—"}</Td>
+                      <Td center>
+                        <EyeBtn onClick={()=>handleOpenPettyHtml(row, branches.find(b=>b.id===pettyBranchId)?.name??`Branch #${pettyBranchId}`)}/>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -1553,7 +1782,7 @@ export default function Procurement() {
               <EmptyState icon={<Receipt className="w-6 h-6 text-muted-foreground"/>} title="No invoices found" desc="Use the filters above to search, or upload a new invoice." cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}/>
             ):(
               <TableWrap>
-                <thead><tr className="border-b border-border"><Th>Invoice #</Th><Th>Date</Th><Th>File</Th><Th>Type</Th><Th>Branch</Th><Th>Supplier</Th><Th right>Amount</Th><Th center>Download</Th></tr></thead>
+                <thead><tr className="border-b border-border"><Th>Invoice #</Th><Th>Date</Th><Th>File</Th><Th>Type</Th><Th>Branch</Th><Th>Supplier</Th><Th right>Amount</Th><Th center>Actions</Th></tr></thead>
                 <tbody className="divide-y divide-border/60">
                   {invoices.map(inv=>{
                     const isPdf=inv.mime_type==="application/pdf";
@@ -1566,7 +1795,15 @@ export default function Procurement() {
                         <Td muted>{inv.branch_name??"—"}</Td>
                         <Td muted>{inv.supplier_name??"—"}</Td>
                         <Td right mono className="font-semibold text-foreground">{inv.amount!=null?fmt(inv.amount):"—"}</Td>
-                        <Td center><button onClick={()=>handleInvoiceDownload(inv)} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/60 bg-background text-xs font-medium text-foreground hover:bg-muted hover:border-border transition-colors"><Download className="w-3.5 h-3.5"/> Download</button></Td>
+                        <Td center>
+                          <div className="flex items-center justify-center gap-1">
+                            <EyeBtn onClick={()=>handleOpenInvoiceHtml(inv)}/>
+                            <button onClick={()=>handleInvoiceDownload(inv)} title="Download file"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
+                              <Download className="w-3.5 h-3.5"/>
+                            </button>
+                          </div>
+                        </Td>
                       </tr>
                     );
                   })}
@@ -1620,7 +1857,7 @@ export default function Procurement() {
                     <Th right>PO Qty</Th><Th right>Received</Th><Th right>Pending</Th>
                     <Th center>GRNs</Th><Th>Last GRN</Th>
                     <Th right>PO Cost</Th><Th right>Actual Cost</Th><Th right>Variance</Th>
-                    <Th center>Status</Th><Th center>Record GRN</Th>
+                    <Th center>Status</Th><Th center>Actions</Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -1647,14 +1884,17 @@ export default function Procurement() {
                         </Td>
                         <Td center><FulfillmentBadge status={row.fulfillment_status}/></Td>
                         <Td center>
-                          {canGRN ? (
-                            <button onClick={()=>openGRNModal(row)} title="Record goods receipt for this PO"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs font-semibold hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors">
-                              <ArrowDownToLine className="w-3.5 h-3.5"/>GRN
-                            </button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/40">—</span>
-                          )}
+                          <div className="flex items-center justify-center gap-1">
+                            <EyeBtn onClick={()=>handleOpenFulfillmentHtml(row)}/>
+                            {canGRN ? (
+                              <button onClick={()=>openGRNModal(row)} title="Record goods receipt for this PO"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs font-semibold hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors">
+                                <ArrowDownToLine className="w-3.5 h-3.5"/>GRN
+                              </button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/40">—</span>
+                            )}
+                          </div>
                         </Td>
                       </tr>
                     );
