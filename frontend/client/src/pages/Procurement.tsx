@@ -670,22 +670,18 @@ export default function Procurement() {
     sessionStorage.setItem(FILTER_KEY, String(id));
   }, []);
   const handleOpenHistory = useCallback(async (row: Purchase) => {
-    setHistoryPurchase(row);
-    setHistoryLoading(true);
-    setModal("history");
-    try {
-      const token = localStorage.getItem("token") ?? "";
-      const resp  = await fetch(`/api/purchases/${row.id}/history`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await resp.json();
-      setPurchaseHistory(json.data ?? []);  // ← changed from json.history
-    } catch {
-      setPurchaseHistory([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, []);
+  setHistoryPurchase(row);
+  setHistoryLoading(true);
+  setModal("history");
+  try {
+    const data = await apiCall<PurchaseHistory[]>(`/api/purchases/${row.id}/history`);
+    setPurchaseHistory(data ?? []);
+  } catch {
+    setPurchaseHistory([]);
+  } finally {
+    setHistoryLoading(false);
+  }
+}, []);
 
   const fetchPurchases = useCallback(async () => {
     setPurchasesLoading(true);
@@ -1275,7 +1271,7 @@ export default function Procurement() {
                   Modification History
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  PO-{String(historyPurchase.po_number ?? historyPurchase.id).padStart(5, "0")} ·{" "}
+                  PO-{String(historyPurchase.po_number || historyPurchase.id).padStart(5, "0")} ·{" "}
                   {historyPurchase.ingredient_name ?? historyPurchase.item_name} ·{" "}
                   {historyPurchase.branch_name}
                 </p>
