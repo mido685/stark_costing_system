@@ -372,17 +372,17 @@ function Toast({ toast, onDismiss }: { toast: ToastMessage; onDismiss: (id: stri
 }
 
 function SkeletonRow() {
-  return <div className="h-16 bg-muted rounded-md animate-pulse" />;
+  return <div className="h-11 bg-muted/40 rounded-lg animate-pulse" />;
 }
 
 function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
   const styles = {
-    high:   "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
-    medium: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
-    low:    "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+    high:   "bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-800",
+    medium: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:ring-amber-800",
+    low:    "bg-muted text-muted-foreground ring-1 ring-border",
   };
   return (
-    <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${styles[priority]}`}>
+    <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md uppercase tracking-wide ${styles[priority]}`}>
       {priority}
     </span>
   );
@@ -390,9 +390,11 @@ function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="gov-fade-in flex flex-col items-center justify-center py-10 text-center gap-2">
-      <ShieldCheck className="w-10 h-10 text-green-400 dark:text-green-500 opacity-70" />
-      <p className="text-sm text-muted-foreground">{message}</p>
+    <div className="gov-fade-in py-16 text-center space-y-3">
+      <div className="w-12 h-12 bg-muted/60 rounded-xl flex items-center justify-center mx-auto">
+        <ShieldCheck className="w-6 h-6 text-muted-foreground" />
+      </div>
+      <p className="text-sm font-semibold text-foreground">{message}</p>
     </div>
   );
 }
@@ -421,19 +423,19 @@ function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
   if (s === "approved")
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-950/50 px-2 py-0.5 rounded-full">
-        <BadgeCheck className="w-3 h-3" /> Approved
+      <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:ring-emerald-800">
+        approved
       </span>
     );
   if (s === "rejected" || s === "reject")
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-950/50 px-2 py-0.5 rounded-full">
-        <Ban className="w-3 h-3" /> Rejected
+      <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-800">
+        rejected
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5 rounded-full">
-      <Clock className="w-3 h-3" /> Pending
+    <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:ring-amber-800">
+      pending
     </span>
   );
 }
@@ -791,45 +793,92 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
           <EmptyState message="No purchase orders found." />
         ) : (
           <>
-            <div className="overflow-x-auto -mx-1">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto -mx-5 px-5">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    {["PO #", "Branch", "Supplier", "Item", "Date", "Qty", "Unit Cost", "Gross", "Tax", "Payable", "Status", ""].map((h) => (
-                      <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground pb-2 px-2 whitespace-nowrap">{h}</th>
-                    ))}
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">PO #</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Branch</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Supplier</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Ingredient</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Date</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Qty</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Unit Cost</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Gross</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Tax</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Payable</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Status</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Export</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border/60">
                   {pageItems.map((row) => {
                     const gross = row.gross_amount ?? row.quantity * row.unit_cost;
                     return (
-                      <tr key={row.id} className="gov-row-hover border-b border-border/50 group">
-                        <td className="py-2.5 px-2 font-mono font-semibold text-foreground">#{row.id}</td>
-                        <td className="py-2.5 px-2">
-                          <div className="flex items-center gap-1.5">
-                            <Building2 className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-                            <span className="truncate max-w-[90px]">{row.branch_name}</span>
-                          </div>
+                      <tr key={row.id} className="hover:bg-muted/30 transition-colors group">
+                        <td className="px-3 py-3 text-sm font-mono font-semibold text-foreground">
+                          PO-{String(row.id).padStart(5, "0")}
                         </td>
-                        <td className="py-2.5 px-2 text-muted-foreground truncate max-w-[90px]">{row.supplier_name}</td>
-                        <td className="py-2.5 px-2 font-medium text-foreground truncate max-w-[100px]">{row.ingredient_name}</td>
-                        <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{formatDateShort(row.entry_date)}</td>
-                        <td className="py-2.5 px-2 text-right">{formatNumber(row.quantity)} {row.unit}</td>
-                        <td className="py-2.5 px-2 text-right">{formatNumber(row.unit_cost, 2)}</td>
-                        <td className="py-2.5 px-2 text-right font-medium text-foreground">{formatNumber(gross, 2)}</td>
-                        <td className="py-2.5 px-2 text-right text-muted-foreground">{row.tax_amount != null ? formatNumber(row.tax_amount, 2) : "—"}</td>
-                        <td className="py-2.5 px-2 text-right font-semibold text-blue-700 dark:text-blue-400">{row.payable_amount != null ? formatNumber(row.payable_amount, 2) : "—"}</td>
-                        <td className="py-2.5 px-2"><StatusBadge status={row.status} /></td>
-                        <td className="py-2.5 px-2">
-                          <Button size="sm" variant="ghost" onClick={() => handleDownloadPDF(row)} className="gov-btn-press h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/40" title={`Export PO #${row.id}`}>
-                            <FileText className="w-3 h-3" />
-                          </Button>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">
+                          {row.branch_name}
+                        </td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">
+                          {row.supplier_name}
+                        </td>
+                        <td className="px-3 py-3 text-sm font-medium text-foreground">
+                          {row.ingredient_name}
+                        </td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatDateShort(row.entry_date)}
+                        </td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">
+                          {formatNumber(row.quantity)} <span className="text-xs">{row.unit}</span>
+                        </td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">
+                          {formatNumber(row.unit_cost, 2)}
+                        </td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums font-semibold text-foreground">
+                          {formatNumber(gross, 2)}
+                        </td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">
+                          {row.tax_amount != null ? formatNumber(row.tax_amount, 2) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums font-bold text-foreground">
+                          {row.payable_amount != null ? formatNumber(row.payable_amount, 2) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <StatusBadge status={row.status} />
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <button
+                            onClick={() => handleDownloadPDF(row)}
+                            title={`Export PO-${String(row.id).padStart(5, "0")}`}
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/20">
+                    <td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                      Total ({filtered.length} records)
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">
+                      {formatNumber(filtered.reduce((s, r) => s + (r.gross_amount ?? r.quantity * r.unit_cost), 0), 2)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums text-xs">
+                      {formatNumber(filtered.reduce((s, r) => s + (r.tax_amount ?? 0), 0), 2)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">
+                      {formatNumber(filtered.reduce((s, r) => s + (r.payable_amount ?? 0), 0), 2)}
+                    </td>
+                    <td colSpan={2}/>
+                  </tr>
+                </tfoot>
               </table>
             </div>
             <Pagination page={page} totalPages={totalPages} totalItems={filtered.length} pageSize={HISTORY_PAGE_SIZE} onPage={setPage} />
@@ -1444,7 +1493,15 @@ export default function Governance() {
                         return (
                           <div key={a.id} className="gov-fade-in flex items-center gap-2 px-4 py-2.5 bg-muted/30 border border-border rounded-md opacity-60">
                             {a.status === "approved" ? <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
-                            <p className="text-xs text-muted-foreground truncate flex-1">{t(a.typeKey)} #{a.id}{a.desc && ` — ${a.desc}`}</p>
+                            <p className="text-xs text-muted-foreground truncate flex-1">
+                              {t(a.typeKey)}{" "}
+                              <span className="font-mono">
+                                {a.fromProcurement && a.purchaseId
+                                  ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+                                  : `#${a.id}`}
+                              </span>
+                              {a.desc && ` — ${a.desc}`}
+                            </p>
                             {a.fromProcurement && (
                               <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0">
                                 <ShoppingCart className="w-2.5 h-2.5" /> PO
@@ -1471,7 +1528,11 @@ export default function Governance() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.fromProcurement ? "bg-blue-500 dark:bg-blue-400" : "bg-amber-500 dark:bg-amber-400"}`} />
                               <p className="text-sm font-medium text-foreground">{t(a.typeKey)}</p>
-                              <span className="text-xs text-muted-foreground">#{a.id}</span>
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {a.fromProcurement && a.purchaseId
+                                  ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+                                  : `#${a.id}`}
+                              </span>
                               {a.fromProcurement && (
                                 <span className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                                   <ShoppingCart className="w-2.5 h-2.5" /> Procurement
