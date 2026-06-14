@@ -438,6 +438,7 @@ class SkuPrefixRequest(BaseModel):
     prefix: str
     item_type: Literal["raw_material", "finished_good", "both"] = "raw_material"
 class PurchaseUpdateRequest(BaseModel):
-    quantity:   float
-    unit_cost:  float
-    notes:      str = ""
+    quantity:      float
+    unit_cost:     float
+    notes:         str = ""
+    change_reason: str = ""   # ← add this

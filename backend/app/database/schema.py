@@ -232,6 +232,7 @@ def init_db() -> None:
 
         # ── 17. Purchases (PO) ────────────────────────────────────────────────
         # PO approval does NOT affect stock. Stock increases only via GRN (table 18).
+        # ── 17. Purchases (PO) ────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS purchases (
                 id             SERIAL PRIMARY KEY,
@@ -249,7 +250,16 @@ def init_db() -> None:
                 status         VARCHAR(20) NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending','approved','rejected')),
                 created_by     INTEGER REFERENCES app_users(id),
-                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                po_number      INTEGER
+            )
+        """)
+
+        # ── 17b. Per-company PO sequence tracker ─────────────────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS company_po_sequences (
+                company_id  INTEGER PRIMARY KEY REFERENCES companies(id),
+                last_number INTEGER NOT NULL DEFAULT 0
             )
         """)
 
@@ -668,6 +678,33 @@ def init_db() -> None:
                 uploaded_by    INTEGER REFERENCES app_users(id),
                 uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
+        """)
+# ── 17c. Purchase History (modification audit trail) ──────────────────
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_history (
+                id            SERIAL PRIMARY KEY,
+                purchase_id   INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+                company_id    INTEGER NOT NULL REFERENCES companies(id),
+                changed_by    INTEGER NOT NULL REFERENCES app_users(id),
+                changed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                old_quantity  NUMERIC(12,3),
+                new_quantity  NUMERIC(12,3),
+                old_unit_cost NUMERIC(12,4),
+                new_unit_cost NUMERIC(12,4),
+                old_gross     NUMERIC(12,2),
+                new_gross     NUMERIC(12,2),
+                old_notes     TEXT,
+                new_notes     TEXT,
+                change_reason TEXT
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_purchase_history_purchase
+                ON purchase_history(purchase_id)
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_purchase_history_company
+                ON purchase_history(company_id, changed_at)
         """)
 
         # ── 41. Budgets ───────────────────────────────────────────────────────

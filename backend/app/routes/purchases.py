@@ -180,10 +180,12 @@ def reject_purchase(
 # ─────────────────────────────────────────────────────────────────────────────
 # EDIT  —  only pending POs
 # ─────────────────────────────────────────────────────────────────────────────
+# Update the existing PUT route to pass new params
 @router.put("/{purchase_id}")
 def update_purchase(
     purchase_id: int,
     req: PurchaseUpdateRequest,
+    request: Request,
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
@@ -193,12 +195,26 @@ def update_purchase(
             quantity=req.quantity,
             unit_cost=req.unit_cost,
             notes=req.notes,
+            user_id=current_user["id"],
+            change_reason=getattr(req, "change_reason", ""),
+            ip_address=request.client.host,
         )
         return success("Purchase updated", purchase=row)
     except ValueError as e:
         return error(str(e))
 
 
+# Add new history endpoint
+@router.get("/{purchase_id}/history")
+def get_purchase_history(
+    purchase_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    history = purchases_db.get_purchase_history(
+        purchase_id=purchase_id,
+        company_id=current_user["company_id"],
+    )
+    return success("Purchase history retrieved", history=history)
 # ─────────────────────────────────────────────────────────────────────────────
 # DELETE  —  cascades to GRNs and inventory movements
 # ─────────────────────────────────────────────────────────────────────────────
@@ -310,7 +326,7 @@ def export_purchase_pdf(
     elements.append(Paragraph("STARK AI — Purchase Order", styles["Title"]))
     elements.append(Spacer(1, 0.4 * cm))
     elements.append(Paragraph(
-        f"<b>PO #:</b> {purchase['id']} &nbsp;&nbsp; "
+        f"<b>PO #:</b> {str(purchase.get('po_number') or purchase['id']).zfill(5)} &nbsp;&nbsp; "
         f"<b>Date:</b> {purchase['entry_date']} &nbsp;&nbsp; "
         f"<b>Status:</b> {str(purchase.get('status', '')).upper()}",
         styles["Normal"],

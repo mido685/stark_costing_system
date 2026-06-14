@@ -17,10 +17,10 @@ import {
   Plus, X, Loader2, AlertCircle, RefreshCw,
   ShoppingCart, RotateCcw, TrendingUp, Package,
   FileDown, Filter, ChevronRight, ArrowUpRight,
-  ArrowDownRight, Lock, Wallet, Banknote, Receipt,
+  ArrowDownRight, ArrowRight, Lock, Wallet, Banknote, Receipt,
   Upload, FileText, Eye, Download, Zap, Check,
   ClipboardList, CheckCircle, XCircle, Clock, Pencil,
-  ArrowDownToLine,
+  ArrowDownToLine,History
 } from "lucide-react";
 import { useApi }         from "@/hooks/useApi";
 import { getBranches, getSuppliers, addPurchase, apiCall, getPeriodStatus } from "@/lib/api";
@@ -36,7 +36,7 @@ type PurchaseMode    = "ingredient" | "expense";
 type TabKey          = "po" | "cash" | "petty" | "invoices" | "fulfillment";
 type InvoiceRefTable = "cash_purchases" | "expenses" | "inventory_movements";
 type CategoryType    = "inventory" | "expense" | "asset" | "service";
-type ModalType       = "purchase" | "editPurchase" | "return" | "cash" | "petty_topup" | "invoice_upload" | "grn" | null;
+type ModalType       = "purchase" | "editPurchase" | "return" | "cash" | "petty_topup" | "invoice_upload" | "grn" |"history"| null;
 
 interface Purchase {
   id: number;
@@ -49,8 +49,26 @@ interface Purchase {
   tax_amount: number;     payable_amount: number;
   gross_amount: number;   notes: string;
   status: PurchaseStatus;
+  po_number?: number;
 }
-
+interface PurchaseHistory {
+  id: number;
+  purchase_id: number;
+  changed_by: number;
+  changed_by_name: string;
+  changed_by_username: string;
+  changed_at: string;
+  old_quantity: number;
+  new_quantity: number;
+  old_unit_cost: number;
+  new_unit_cost: number;
+  old_gross: number;
+  new_gross: number;
+  old_notes: string;
+  new_notes: string;
+  change_reason: string;
+  po_number?: number; 
+}
 interface CashPurchase {
   id: number;
   branch_id: number;      branch_name?: string;
@@ -620,6 +638,9 @@ export default function Procurement() {
   const branches    = (branchesRaw    ?? []) as Branch[];
   const suppliers   = (suppliersRaw   ?? []) as Supplier[];
   const ingredients = (ingredientsRaw ?? []) as Ingredient[];
+  const [historyPurchase,  setHistoryPurchase]  = useState<Purchase | null>(null);
+  const [purchaseHistory,  setPurchaseHistory]  = useState<PurchaseHistory[]>([]);
+  const [historyLoading,   setHistoryLoading]   = useState(false);
 
   const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([]);
   const categoriesInitialized = useRef(false);
@@ -648,6 +669,24 @@ export default function Procurement() {
     setFilterBranchId(id);
     sessionStorage.setItem(FILTER_KEY, String(id));
   }, []);
+
+  const handleOpenHistory = useCallback(async (row: Purchase) => {
+  setHistoryPurchase(row);
+  setHistoryLoading(true);
+  setModal("history");
+  try {
+    const token = localStorage.getItem("token") ?? "";
+    const resp  = await fetch(`/api/purchases/${row.id}/history`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await resp.json();
+    setPurchaseHistory(json.history ?? []);
+  } catch {
+    setPurchaseHistory([]);
+  } finally {
+    setHistoryLoading(false);
+  }
+}, []);
 
   const fetchPurchases = useCallback(async () => {
     setPurchasesLoading(true);
@@ -1225,6 +1264,151 @@ export default function Procurement() {
           <Field label={t("proc.field.notes")} htmlFor="pur-notes"><textarea id="pur-notes" className={inputCls} rows={2} placeholder={t("proc.ph.notes")} value={purchaseForm.notes} onChange={e=>dispatchPurchase({type:"SET",field:"notes",value:e.target.value})}/></Field>
         </Modal>
       )}
+      {/* ══ PURCHASE HISTORY MODAL ═══════════════════════════════════════════ */}
+      {modal === "history" && historyPurchase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[2px] p-4" role="dialog" aria-modal="true">
+          <div className="bg-background rounded-2xl shadow-2xl w-full max-w-2xl border border-border/60 overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground tracking-tight">
+                  Modification History
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  PO-{String(historyPurchase.po_number ?? historyPurchase.id).padStart(5, "0")} ·{" "}
+                  {historyPurchase.ingredient_name ?? historyPurchase.item_name} ·{" "}
+                  {historyPurchase.branch_name}
+                </p>
+              </div>
+              <button
+                onClick={() => { setModal(null); setHistoryPurchase(null); setPurchaseHistory([]); }}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <X className="w-4 h-4"/>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 max-h-[65vh] overflow-y-auto space-y-3">
+              {historyLoading ? (
+                <SkeletonRows count={3}/>
+              ) : !purchaseHistory.length ? (
+                <div className="py-12 text-center space-y-2">
+                  <div className="w-10 h-10 bg-muted/60 rounded-xl flex items-center justify-center mx-auto">
+                    <Clock className="w-5 h-5 text-muted-foreground"/>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No modifications yet</p>
+                  <p className="text-xs text-muted-foreground">This PO has not been edited since creation.</p>
+                </div>
+              ) : (
+                purchaseHistory.map((h, i) => (
+                  <div key={h.id} className="rounded-xl border border-border/60 overflow-hidden">
+                    {/* Change header */}
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border/60">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">
+                          {i + 1}
+                        </div>
+                        <span className="text-xs font-semibold text-foreground">
+                          {h.changed_by_name ?? h.changed_by_username}
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(h.changed_at).toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* Change details */}
+                    <div className="px-4 py-3 space-y-2">
+                      {/* Quantity */}
+                      {Number(h.old_quantity) !== Number(h.new_quantity) && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Quantity</span>
+                          <div className="flex items-center gap-2">
+                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">
+                              {Number(h.old_quantity).toFixed(3)}
+                            </span>
+                            <ArrowRight className="w-3 h-3 text-muted-foreground"/>
+                            <span className="font-semibold text-foreground text-xs tabular-nums">
+                              {Number(h.new_quantity).toFixed(3)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Unit Cost */}
+                      {Number(h.old_unit_cost) !== Number(h.new_unit_cost) && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Unit Cost</span>
+                          <div className="flex items-center gap-2">
+                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">
+                              {fmt(h.old_unit_cost)}
+                            </span>
+                            <ArrowRight className="w-3 h-3 text-muted-foreground"/>
+                            <span className="font-semibold text-foreground text-xs tabular-nums">
+                              {fmt(h.new_unit_cost)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Gross Amount */}
+                      {Number(h.old_gross) !== Number(h.new_gross) && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Gross Amount</span>
+                          <div className="flex items-center gap-2">
+                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">
+                              {fmt(h.old_gross)}
+                            </span>
+                            <ArrowRight className="w-3 h-3 text-muted-foreground"/>
+                            <span className={`font-bold text-xs tabular-nums ${Number(h.new_gross) > Number(h.old_gross) ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                              {fmt(h.new_gross)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Notes */}
+                      {h.old_notes !== h.new_notes && (
+                        <div className="space-y-1">
+                          <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Notes</span>
+                          <div className="grid grid-cols-2 gap-2 mt-1">
+                            <div className="bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900 rounded-lg px-2.5 py-1.5 text-xs text-red-700 dark:text-red-400 line-through">
+                              {h.old_notes || "—"}
+                            </div>
+                            <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900 rounded-lg px-2.5 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                              {h.new_notes || "—"}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Change Reason */}
+                      {h.change_reason && (
+                        <div className="flex items-start gap-2 mt-1 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900 rounded-lg px-2.5 py-1.5">
+                          <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0"/>
+                          <span className="text-xs text-amber-700 dark:text-amber-400">{h.change_reason}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-border bg-muted/20 flex justify-between items-center">
+              <span className="text-xs text-muted-foreground">
+                {purchaseHistory.length} modification{purchaseHistory.length !== 1 ? "s" : ""} recorded
+              </span>
+              <Button variant="outline" size="sm" onClick={() => { setModal(null); setHistoryPurchase(null); setPurchaseHistory([]); }}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ══ EDIT PO MODAL (pending only) ══════════════════════════════════════ */}
       {modal === "editPurchase" && editingPurchase && (
@@ -1626,6 +1810,13 @@ export default function Procurement() {
                       <Td center>
                         <div className="flex items-center justify-center gap-1">
                           <EyeBtn onClick={()=>handleOpenPoHtml(row.id)} loading={openingPoId===row.id}/>
+                           <button
+                            onClick={() => handleOpenHistory(row)}
+                            title="View modification history"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                          >
+                            <History className="w-3.5 h-3.5"/>
+                          </button>    
                           {row.status==="pending" && !selectedPeriodClosed && (
                             <button onClick={()=>openEditPurchase(row)} title="Edit this pending PO"
                               className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-amber-600 hover:text-amber-700 hover:border-amber-300 hover:bg-amber-50 transition-colors">

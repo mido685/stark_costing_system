@@ -112,15 +112,29 @@ def add_purchase(
         gross_amount = quantity * unit_cost
         payable = payable_amount or gross_amount + tax_amount
 
+        # ── Atomic per-company PO number ──────────────────────────────────────
+        # Uses INSERT ... ON CONFLICT to atomically increment the counter.
+        # Two simultaneous inserts can never get the same po_number.
+        cur.execute("""
+            INSERT INTO company_po_sequences (company_id, last_number)
+            VALUES (%s, 1)
+            ON CONFLICT (company_id) DO UPDATE
+                SET last_number = company_po_sequences.last_number + 1
+            RETURNING last_number
+        """, (company_id,))
+        po_number = cur.fetchone()["last_number"]
+        # ─────────────────────────────────────────────────────────────────────
+
         cur.execute("""
             INSERT INTO purchases
-                (branch_id, supplier_id, ingredient_id, entry_date, quantity,
-                 unit_cost, gross_amount, tax_amount, payable_amount,
-                 notes, status, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
+                (company_id, branch_id, supplier_id, ingredient_id, entry_date,
+                 quantity, unit_cost, gross_amount, tax_amount, payable_amount,
+                 notes, status, created_by, po_number)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s)
             RETURNING *
-        """, (branch_id, supplier_id, ingredient_id, entry_date, quantity,
-              unit_cost, gross_amount, tax_amount, payable, notes, user_id))
+        """, (company_id, branch_id, supplier_id, ingredient_id, entry_date,
+              quantity, unit_cost, gross_amount, tax_amount, payable,
+              notes, user_id, po_number))
         purchase = dict(cur.fetchone())
 
         # ✅ No inventory_movements insert here.
@@ -265,38 +279,117 @@ def update_purchase(
     quantity: float,
     unit_cost: float,
     notes: str,
+    user_id: int,
+    change_reason: str = "",
+    ip_address: str | None = None,
 ) -> dict:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
+        # Fetch old values before update
+        cur.execute("""
+            SELECT * FROM purchases
+            WHERE id = %s AND company_id = %s AND status = 'pending'
+        """, (purchase_id, company_id))
+        old = cur.fetchone()
+        if not old:
+            raise ValueError("PO not found, already approved, or access denied")
+        old = dict(old)
+
+        new_gross = quantity * unit_cost
+
         cur.execute("""
             UPDATE purchases
             SET quantity       = %s,
                 unit_cost      = %s,
-                gross_amount   = %s * %s,
-                payable_amount = %s * %s,
+                gross_amount   = %s,
+                payable_amount = %s,
                 notes          = %s
             WHERE id = %s
-              AND (SELECT company_id FROM branches WHERE id = branch_id) = %s
+              AND company_id = %s
               AND status = 'pending'
             RETURNING *
-        """, (quantity, unit_cost,
-              quantity, unit_cost,
-              quantity, unit_cost,
-              notes, purchase_id, company_id))
+        """, (quantity, unit_cost, new_gross, new_gross, notes,
+              purchase_id, company_id))
         row = cur.fetchone()
         if not row:
             raise ValueError("PO not found, already approved, or access denied")
+        new = dict(row)
+
+        # ── Write to purchase_history ─────────────────────────────────────
+        cur.execute("""
+            INSERT INTO purchase_history
+                (purchase_id, company_id, changed_by,
+                 old_quantity,  new_quantity,
+                 old_unit_cost, new_unit_cost,
+                 old_gross,     new_gross,
+                 old_notes,     new_notes,
+                 change_reason)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            purchase_id, company_id, user_id,
+            old["quantity"],    quantity,
+            old["unit_cost"],   unit_cost,
+            old["gross_amount"], new_gross,
+            old["notes"],       notes,
+            change_reason,
+        ))
+        # ─────────────────────────────────────────────────────────────────
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=new["branch_id"],
+            action="UPDATE",
+            table_name="purchases",
+            record_id=purchase_id,
+            old_data={
+                "quantity":     float(old["quantity"]),
+                "unit_cost":    float(old["unit_cost"]),
+                "gross_amount": float(old["gross_amount"]),
+                "notes":        old["notes"],
+            },
+            new_data={
+                "quantity":     float(new["quantity"]),
+                "unit_cost":    float(new["unit_cost"]),
+                "gross_amount": float(new["gross_amount"]),
+                "notes":        new["notes"],
+            },
+            ip_address=ip_address,
+        )
+
         conn.commit()
-        return dict(row)
+        return new
     except Exception:
         conn.rollback()
         raise
     finally:
         cur.close()
         conn.close()
-
-
+        
+def get_purchase_history(
+    purchase_id: int,
+    company_id: int,
+) -> list[dict[str, Any]]:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT
+                ph.*,
+                u.display_name AS changed_by_name,
+                u.username     AS changed_by_username
+            FROM purchase_history ph
+            LEFT JOIN app_users u ON u.id = ph.changed_by
+            WHERE ph.purchase_id = %s
+              AND ph.company_id  = %s
+            ORDER BY ph.changed_at DESC
+        """, (purchase_id, company_id))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
 # ---------------------------------------------------------------------------
 # Delete  —  cascades to GRNs and their inventory movements
 # ---------------------------------------------------------------------------
@@ -311,8 +404,7 @@ def delete_purchase(
     try:
         cur.execute("""
             SELECT p.id, p.branch_id FROM purchases p
-            JOIN branches b ON b.id = p.branch_id
-            WHERE p.id = %s AND b.company_id = %s
+            WHERE p.id = %s AND p.company_id = %s
         """, (purchase_id, company_id))
         purchase = cur.fetchone()
         if not purchase:
