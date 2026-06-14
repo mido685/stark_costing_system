@@ -1299,7 +1299,6 @@ export default function Procurement() {
               ) : (
                 purchaseHistory.map((h, i) => (
                   <div key={h.id} className="rounded-xl border border-border/60 overflow-hidden">
-                    {/* Change header */}
                     <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border/60">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold">
@@ -1314,48 +1313,36 @@ export default function Procurement() {
                       </span>
                     </div>
 
-                    {/* Change details */}
                     <div className="px-4 py-3 space-y-2">
-                      {/* Quantity */}
-                      {Number(h.old_quantity) !== Number(h.new_quantity) && (
+                      {Math.abs(Number(h.old_quantity) - Number(h.new_quantity)) > 0.0001 && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Quantity</span>
                           <div className="flex items-center gap-2">
-                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">
-                              {Number(h.old_quantity).toFixed(3)}
-                            </span>
+                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">{Number(h.old_quantity).toFixed(3)}</span>
                             <ArrowRight className="w-3 h-3 text-muted-foreground"/>
-                            <span className="font-semibold text-foreground text-xs tabular-nums">
-                              {Number(h.new_quantity).toFixed(3)}
-                            </span>
+                            <span className="font-semibold text-foreground text-xs tabular-nums">{Number(h.new_quantity).toFixed(3)}</span>
                           </div>
                         </div>
                       )}
 
-                      {/* Unit Cost */}
-                      {Number(h.old_unit_cost) !== Number(h.new_unit_cost) && (
+                      {Math.abs(Number(h.old_unit_cost) - Number(h.new_unit_cost)) > 0.0001 && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Unit Cost</span>
                           <div className="flex items-center gap-2">
-                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">
-                              {fmt(h.old_unit_cost)}
-                            </span>
+                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">{fmt(h.old_unit_cost)}</span>
                             <ArrowRight className="w-3 h-3 text-muted-foreground"/>
-                            <span className="font-semibold text-foreground text-xs tabular-nums">
+                            <span className={`font-bold text-xs tabular-nums ${Number(h.new_unit_cost) > Number(h.old_unit_cost) ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                               {fmt(h.new_unit_cost)}
                             </span>
                           </div>
                         </div>
                       )}
 
-                      {/* Gross Amount */}
-                      {Number(h.old_gross) !== Number(h.new_gross) && (
+                      {Math.abs(Number(h.old_gross) - Number(h.new_gross)) > 0.0001 && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Gross Amount</span>
                           <div className="flex items-center gap-2">
-                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">
-                              {fmt(h.old_gross)}
-                            </span>
+                            <span className="line-through text-muted-foreground/60 text-xs tabular-nums">{fmt(h.old_gross)}</span>
                             <ArrowRight className="w-3 h-3 text-muted-foreground"/>
                             <span className={`font-bold text-xs tabular-nums ${Number(h.new_gross) > Number(h.old_gross) ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                               {fmt(h.new_gross)}
@@ -1364,7 +1351,6 @@ export default function Procurement() {
                         </div>
                       )}
 
-                      {/* Notes */}
                       {h.old_notes !== h.new_notes && (
                         <div className="space-y-1">
                           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Notes</span>
@@ -1379,7 +1365,6 @@ export default function Procurement() {
                         </div>
                       )}
 
-                      {/* Change Reason */}
                       {h.change_reason && (
                         <div className="flex items-start gap-2 mt-1 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900 rounded-lg px-2.5 py-1.5">
                           <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0"/>
@@ -1404,7 +1389,6 @@ export default function Procurement() {
           </div>
         </div>
       )}
-
       {/* ══ EDIT PO MODAL (pending only) ══════════════════════════════════════ */}
       {modal === "editPurchase" && editingPurchase && (
         <Modal
