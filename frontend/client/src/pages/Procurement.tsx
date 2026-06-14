@@ -669,24 +669,23 @@ export default function Procurement() {
     setFilterBranchId(id);
     sessionStorage.setItem(FILTER_KEY, String(id));
   }, []);
-
   const handleOpenHistory = useCallback(async (row: Purchase) => {
-  setHistoryPurchase(row);
-  setHistoryLoading(true);
-  setModal("history");
-  try {
-    const token = localStorage.getItem("token") ?? "";
-    const resp  = await fetch(`/api/purchases/${row.id}/history`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const json = await resp.json();
-    setPurchaseHistory(json.history ?? []);
-  } catch {
-    setPurchaseHistory([]);
-  } finally {
-    setHistoryLoading(false);
-  }
-}, []);
+    setHistoryPurchase(row);
+    setHistoryLoading(true);
+    setModal("history");
+    try {
+      const token = localStorage.getItem("token") ?? "";
+      const resp  = await fetch(`/api/purchases/${row.id}/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await resp.json();
+      setPurchaseHistory(json.data ?? []);  // ← changed from json.history
+    } catch {
+      setPurchaseHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   const fetchPurchases = useCallback(async () => {
     setPurchasesLoading(true);
