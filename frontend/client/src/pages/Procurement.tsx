@@ -641,6 +641,14 @@ export default function Procurement() {
   const [historyPurchase,  setHistoryPurchase]  = useState<Purchase | null>(null);
   const [purchaseHistory,  setPurchaseHistory]  = useState<PurchaseHistory[]>([]);
   const [historyLoading,   setHistoryLoading]   = useState(false);
+  const [historySearch, setHistorySearch] = useState("");
+  const historySearchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+  if (!historyLoading && purchaseHistory.length > 0) {
+    historySearchRef.current?.focus();
+  }
+  }, [historyLoading, purchaseHistory.length]);
+  
 
   const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([]);
   const categoriesInitialized = useRef(false);
@@ -660,7 +668,8 @@ export default function Procurement() {
   const [purchasesLoading, setPurchasesLoading] = useState(true);
   const [exporting,        setExporting]        = useState(false);
   const [openingPoId,      setOpeningPoId]      = useState<number|null>(null);
-
+  const [approvingPoId,    setApprovingPoId]    = useState<number|null>(null);
+  const [poSearch, setPoSearch] = useState("");
   const [filterBranchId, setFilterBranchId] = useState<number>(() => {
     const saved = sessionStorage.getItem(FILTER_KEY);
     return saved ? Number(saved) : 0;
@@ -683,12 +692,31 @@ export default function Procurement() {
   }
 }, []);
 
+
   const fetchPurchases = useCallback(async () => {
     setPurchasesLoading(true);
     try { const data = await apiCall<Purchase[]>("/api/purchases"); setPurchases(data ?? []); }
     catch { setPurchases([]); }
     finally { setPurchasesLoading(false); }
   }, []);
+  const handleApprovePo = useCallback(async (id: number) => {
+  setApprovingPoId(id);
+  try {
+    await apiCall(`/api/purchases/${id}/approve`, { method: "POST" });
+    await fetchPurchases();
+  } catch { alert("Failed to approve PO. Please try again."); }
+  finally { setApprovingPoId(null); }
+}, [fetchPurchases]);
+
+  const handleRejectPo = useCallback(async (id: number) => {
+    if (!window.confirm("Reject this PO? This cannot be undone.")) return;
+    setApprovingPoId(id);
+    try {
+      await apiCall(`/api/purchases/${id}/reject`, { method: "POST" });
+      await fetchPurchases();
+    } catch { alert("Failed to reject PO. Please try again."); }
+    finally { setApprovingPoId(null); }
+  }, [fetchPurchases]);
 
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
 
@@ -1057,10 +1085,20 @@ export default function Procurement() {
   useEffect(() => { if (formError) errorRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [formError]);
 
   // ── Derived data ───────────────────────────────────────────────────────────
-  const filteredPurchases = useMemo(
-    () => filterBranchId===0 ? purchases : purchases.filter(p => Number(p.branch_id)===filterBranchId),
-    [purchases, filterBranchId],
-  );
+  const filteredPurchases = useMemo(() => {
+    let result = filterBranchId === 0 ? purchases : purchases.filter(p => Number(p.branch_id) === filterBranchId);
+    if (poSearch.trim()) {
+      const q = poSearch.toLowerCase();
+      result = result.filter(p =>
+        (p.ingredient_name ?? p.item_name ?? "").toLowerCase().includes(q) ||
+        (p.supplier_name ?? "").toLowerCase().includes(q) ||
+        (p.branch_name ?? "").toLowerCase().includes(q) ||
+        (p.entry_date ?? "").includes(q) ||
+        (p.status ?? "").toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [purchases, filterBranchId, poSearch]);
 
   const stats = useMemo(() => {
     const thisMonth = todayISO().slice(0,7);
@@ -1072,6 +1110,19 @@ export default function Procurement() {
     const trend   = prevMT>0 ? ((thisMT-prevMT)/prevMT)*100 : thisMT>0 ? 100 : 0;
     return { total, thisMonth:thisMT, trend };
   }, [filteredPurchases]);
+  const filteredHistory = useMemo(() => {
+    if (!historySearch.trim()) return purchaseHistory;
+    const q = historySearch.toLowerCase ();
+    return purchaseHistory.filter(h =>
+      (h.changed_by_name ?? "").toLowerCase().includes(q) ||
+      (h.changed_by_username ?? "").toLowerCase().includes(q) ||
+      (h.change_reason ?? "").toLowerCase().includes(q) ||
+      (h.old_notes ?? "").toLowerCase().includes(q) ||
+      (h.new_notes ?? "").toLowerCase().includes(q) ||
+      (Math.abs(Number(h.old_unit_cost) - Number(h.new_unit_cost)) > 0.0001 && "unit cost price".includes(q)) ||
+      (Math.abs(Number(h.old_quantity) - Number(h.new_quantity)) > 0.0001 && "quantity".includes(q))
+    );
+  }, [purchaseHistory, historySearch]);
 
   const cashStats = useMemo(() => ({
     total:   cashPurchases.reduce((s,p)=>s+Number(p.payable_amount||0),0),
@@ -1283,7 +1334,30 @@ export default function Procurement() {
                 <X className="w-4 h-4"/>
               </button>
             </div>
-
+            {/* Search bar */}
+            {!historyLoading && purchaseHistory.length > 0 && (
+            <div className="px-6 py-3 border-b border-border bg-muted/10">
+              <div className="relative">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
+                <input
+                  ref={historySearchRef}
+                  type="text"
+                  placeholder="Search by field changed, user, reason…"
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  className="w-full pl-9 pr-9 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
+                />
+                {historySearch !== "" && (
+                  <button
+                    onClick={() => setHistorySearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5"/>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
             {/* Body */}
             <div className="px-6 py-5 max-h-[65vh] overflow-y-auto space-y-3">
               {historyLoading ? (
@@ -1296,8 +1370,25 @@ export default function Procurement() {
                   <p className="text-sm font-semibold text-foreground">No modifications yet</p>
                   <p className="text-xs text-muted-foreground">This PO has not been edited since creation.</p>
                 </div>
+                ) : filteredHistory.length === 0 ? (
+                <div className="py-10 text-center space-y-2">
+                  <div className="w-10 h-10 bg-muted/60 rounded-xl flex items-center justify-center mx-auto">
+                    <Filter className="w-5 h-5 text-muted-foreground"/>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No results</p>
+                  <p className="text-xs text-muted-foreground">
+                    No modifications match{" "}
+                    <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{historySearch}</span>
+                  </p>
+                  <button
+                    onClick={() => setHistorySearch("")}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Clear search
+                  </button>
+                </div>
               ) : (
-                purchaseHistory.map((h, i) => (
+                filteredHistory.map((h, i) => (
                   <div key={h.id} className="rounded-xl border border-border/60 overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border/60">
                       <div className="flex items-center gap-2">
@@ -1313,7 +1404,14 @@ export default function Procurement() {
                       </span>
                     </div>
 
-                    <div className="px-4 py-3 space-y-2">
+                     <div className="px-4 py-3 space-y-2">
+                      {Math.abs(Number(h.old_quantity) - Number(h.new_quantity)) <= 0.0001 &&
+
+                      Math.abs(Number(h.old_gross) - Number(h.new_gross)) <= 0.0001 &&
+                      h.old_notes === h.new_notes &&
+                      !h.change_reason && (
+                        <p className="text-xs text-muted-foreground italic">No field changes recorded.</p>
+                      )}
                       {Math.abs(Number(h.old_quantity) - Number(h.new_quantity)) > 0.0001 && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Quantity</span>
@@ -1380,9 +1478,12 @@ export default function Procurement() {
             {/* Footer */}
             <div className="px-6 py-4 border-t border-border bg-muted/20 flex justify-between items-center">
               <span className="text-xs text-muted-foreground">
-                {purchaseHistory.length} modification{purchaseHistory.length !== 1 ? "s" : ""} recorded
+                {historySearch
+                  ? `${filteredHistory.length} of ${purchaseHistory.length} modification${purchaseHistory.length !== 1 ? "s" : ""}`
+                  : `${purchaseHistory.length} modification${purchaseHistory.length !== 1 ? "s" : ""} recorded`
+                }
               </span>
-              <Button variant="outline" size="sm" onClick={() => { setModal(null); setHistoryPurchase(null); setPurchaseHistory([]); }}>
+              <Button variant="outline" size="sm" onClick={() => { setModal(null); setHistoryPurchase(null); setPurchaseHistory([]); setHistorySearch(""); }}>
                 Close
               </Button>
             </div>
@@ -1707,10 +1808,27 @@ export default function Procurement() {
                 <option value={0}>All Branches ({purchases.length})</option>
                 {branches.map(b=><option key={b.id} value={b.id}>{b.name} ({branchPurchaseCounts[b.id]??0})</option>)}
               </select>
-              {filterBranchId!==0&&(<>
-                <button onClick={()=>updateFilter(0)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Clear</button>
-                <span className="text-xs text-muted-foreground ml-auto"><strong className="text-foreground">{activeBranchLabel}</strong> — {filteredPurchases.length} record{filteredPurchases.length!==1?"s":""}</span>
-              </>)}
+              <div className="relative ml-auto">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
+                <input
+                  type="text"
+                  placeholder="Search ingredient, supplier, date…"
+                  value={poSearch}
+                  onChange={e => setPoSearch(e.target.value)}
+                  className="pl-9 pr-8 py-1.5 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground w-64"
+                />
+                {poSearch && (
+                  <button onClick={() => setPoSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                    <X className="w-3.5 h-3.5"/>
+                  </button>
+                )}
+              </div>
+              {filterBranchId !== 0 && (
+                <>
+                  <button onClick={() => updateFilter(0)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Clear</button>
+                  <span className="text-xs text-muted-foreground"><strong className="text-foreground">{activeBranchLabel}</strong> — {filteredPurchases.length} record{filteredPurchases.length !== 1 ? "s" : ""}</span>
+                </>
+              )}
             </div>
           </Card>
 
@@ -1804,6 +1922,34 @@ export default function Procurement() {
                           )}
                         </div>
                       </Td>
+                      {canApprove && (
+                        <Td center>
+                          {row.status === "pending" ? (
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handleApprovePo(row.id)}
+                                disabled={approvingPoId === row.id}
+                                title="Approve this PO"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400 transition-colors disabled:opacity-40"
+                              >
+                                {approvingPoId === row.id ? <Loader2 className="w-3 h-3 animate-spin"/> : <CheckCircle className="w-3 h-3"/>}
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectPo(row.id)}
+                                disabled={approvingPoId === row.id}
+                                title="Reject this PO"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-red-200 bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400 transition-colors disabled:opacity-40"
+                              >
+                                <XCircle className="w-3 h-3"/>
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground/40">—</span>
+                          )}
+                        </Td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1812,7 +1958,7 @@ export default function Procurement() {
                     <tr className="border-t-2 border-border bg-muted/20">
                       <td colSpan={6} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({filteredPurchases.length} records)</td>
                       <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{fmt(stats.total)}</td>
-                      <td colSpan={2}/>
+                      <td colSpan={canApprove ? 3 : 2}/>
                     </tr>
                   </tfoot>
                 )}
@@ -1891,9 +2037,37 @@ export default function Procurement() {
             </Field>
             {pettyBranchId>0&&(
               <div className="mt-5 space-y-4">
-                <div className="bg-muted/30 border border-border/60 rounded-xl p-5 text-center">
+                <div className={`border rounded-xl p-5 text-center transition-colors ${
+                  pettyBalance !== null && pettyBalance <= 0
+                    ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                    : pettyBalance !== null && pettyBalance < 50
+                    ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+                    : "bg-muted/30 border-border/60"
+                }`}>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Current Balance</p>
-                  {pettyBalanceLoad?<div className="h-9 w-28 bg-muted/50 rounded animate-pulse mx-auto"/>:<p className="text-3xl font-bold text-foreground">{pettyBalance!==null?fmt(pettyBalance):"—"}</p>}
+                  {pettyBalanceLoad ? (
+                    <div className="h-9 w-28 bg-muted/50 rounded animate-pulse mx-auto"/>
+                  ) : (
+                    <p className={`text-3xl font-bold ${
+                      pettyBalance !== null && pettyBalance <= 0
+                        ? "text-red-600 dark:text-red-400"
+                        : pettyBalance !== null && pettyBalance < 50
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-foreground"
+                    }`}>
+                      {pettyBalance !== null ? fmt(pettyBalance) : "—"}
+                    </p>
+                  )}
+                  {!pettyBalanceLoad && pettyBalance !== null && pettyBalance <= 0 && (
+                    <p className="text-xs font-semibold text-red-600 dark:text-red-400 mt-2 flex items-center justify-center gap-1">
+                      <AlertCircle className="w-3 h-3"/>Balance is empty — top up required
+                    </p>
+                  )}
+                  {!pettyBalanceLoad && pettyBalance !== null && pettyBalance > 0 && pettyBalance < 50 && (
+                    <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-2 flex items-center justify-center gap-1">
+                      <AlertCircle className="w-3 h-3"/>Low balance — consider topping up
+                    </p>
+                  )}
                 </div>
                 <Button className="w-full gap-2" onClick={()=>openModal("petty_topup")} disabled={selectedPeriodClosed} title={lockedTitle}>{selectedPeriodClosed?<Lock className="w-4 h-4"/>:<Plus className="w-4 h-4"/>}Top Up Petty Cash</Button>
               </div>
@@ -1948,9 +2122,21 @@ export default function Procurement() {
           </Card>
           <Card className="p-6 border border-border/60">
             <SectionHeader title={invoices.length>0?`${invoices.length} Invoice${invoices.length!==1?"s":""} Found`:"Invoices"}/>
-            {invoicesLoading?<SkeletonRows count={4}/>:!invoices.length?(
-              <EmptyState icon={<Receipt className="w-6 h-6 text-muted-foreground"/>} title="No invoices found" desc="Use the filters above to search, or upload a new invoice." cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}/>
-            ):(
+            {invoicesLoading ? <SkeletonRows count={4}/> : invoices.length === 0 && !invoiceRefTable && !invoiceFilterBranchId && !invoiceFilterSupplierId && !invoiceNumberFilter && !invoiceDateFrom && !invoiceDateTo ? (
+              <EmptyState
+                icon={<Filter className="w-6 h-6 text-muted-foreground"/>}
+                title="Use filters to search invoices"
+                desc="Select a branch, supplier, date range, or invoice number above and click Search to find invoices."
+                cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}
+              />
+            ) : invoicesLoading ? null : !invoices.length ? (
+              <EmptyState
+                icon={<Receipt className="w-6 h-6 text-muted-foreground"/>}
+                title="No invoices found"
+                desc="No invoices match your search filters. Try adjusting the criteria or upload a new invoice."
+                cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}
+              />
+            ) : (
               <TableWrap>
                 <thead><tr className="border-b border-border"><Th>Invoice #</Th><Th>Date</Th><Th>File</Th><Th>Type</Th><Th>Branch</Th><Th>Supplier</Th><Th right>Amount</Th><Th center>Actions</Th></tr></thead>
                 <tbody className="divide-y divide-border/60">
@@ -2027,7 +2213,7 @@ export default function Procurement() {
                     <Th right>PO Qty</Th><Th right>Received</Th><Th right>Pending</Th>
                     <Th center>GRNs</Th><Th>Last GRN</Th>
                     <Th right>PO Cost</Th><Th right>Actual Cost</Th><Th right>Variance</Th>
-                    <Th center>Status</Th><Th center>Actions</Th>
+                    <Th center>Status</Th><Th center>Actions</Th>{canApprove && <Th center>Approval</Th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
