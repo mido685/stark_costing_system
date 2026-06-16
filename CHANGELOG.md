@@ -1,3 +1,10 @@
+# [3.84.0](https://github.com/mido685/stark_costing_system/compare/v3.83.0...v3.84.0) (2026-06-16)
+
+
+### Features
+
+* updating the governece file ([18ae839](https://github.com/mido685/stark_costing_system/commit/18ae8396d7d4d3459b25dc279f62ef27e84d97ef))
+
 # [3.83.0](https://github.com/mido685/stark_costing_system/compare/v3.82.0...v3.83.0) (2026-06-16)
 
 
