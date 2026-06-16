@@ -39,16 +39,17 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 i.name              AS ingredient_name,
                 i.unit              AS unit
             FROM approval_requests ar
-            LEFT JOIN branches    b ON b.id = ar.branch_id
-            LEFT JOIN app_users   u ON u.id = ar.requested_by
-            LEFT JOIN purchases   p ON ar.entity_type = 'purchase'
-                                    AND ar.entity_id = p.id
-            LEFT JOIN suppliers   s ON s.id = p.supplier_id
-            LEFT JOIN ingredients i ON i.id = p.ingredient_id
-            WHERE (b.company_id = %s OR ar.branch_id IS NULL)
+            LEFT JOIN branches      b        ON b.id       = ar.branch_id
+            LEFT JOIN app_users     u        ON u.id       = ar.requested_by
+            LEFT JOIN purchases     p        ON ar.entity_type = 'purchase'
+                                             AND ar.entity_id = p.id
+            LEFT JOIN branches      p_branch ON p_branch.id = p.branch_id
+            LEFT JOIN suppliers     s        ON s.id       = p.supplier_id
+            LEFT JOIN ingredients   i        ON i.id       = p.ingredient_id
+            WHERE (b.company_id = %s OR p_branch.company_id = %s)
               AND ar.status = 'pending'
             ORDER BY ar.requested_at DESC
-        """, (current_user["company_id"],))
+        """, (current_user["company_id"], current_user["company_id"]))
         return success("Pending approvals retrieved",
                        approvals=[dict(r) for r in cur.fetchall()])
     finally:
@@ -70,8 +71,9 @@ def approvals_history(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        where = ["(b.company_id = %s OR ar.branch_id IS NULL)"]
-        params: list = [current_user["company_id"]]
+        where = ["(b.company_id = %s OR p_branch.company_id = %s)"]
+        params: list = [current_user["company_id"], current_user["company_id"]]
+
         if branch_id:
             where.append("ar.branch_id = %s")
             params.append(branch_id)
@@ -107,13 +109,14 @@ def approvals_history(
                 i.name              AS ingredient_name,
                 i.unit
             FROM approval_requests ar
-            LEFT JOIN branches    b  ON b.id  = ar.branch_id
-            LEFT JOIN app_users   u  ON u.id  = ar.requested_by
-            LEFT JOIN app_users   ab ON ab.id = ar.approved_by
-            LEFT JOIN purchases   p  ON ar.entity_type = 'purchase'
-                                     AND ar.entity_id = p.id
-            LEFT JOIN suppliers   s  ON s.id = p.supplier_id
-            LEFT JOIN ingredients i  ON i.id = p.ingredient_id
+            LEFT JOIN branches      b        ON b.id       = ar.branch_id
+            LEFT JOIN app_users     u        ON u.id       = ar.requested_by
+            LEFT JOIN app_users     ab       ON ab.id      = ar.approved_by
+            LEFT JOIN purchases     p        ON ar.entity_type = 'purchase'
+                                             AND ar.entity_id = p.id
+            LEFT JOIN branches      p_branch ON p_branch.id = p.branch_id
+            LEFT JOIN suppliers     s        ON s.id       = p.supplier_id
+            LEFT JOIN ingredients   i        ON i.id       = p.ingredient_id
             WHERE {" AND ".join(where)}
             ORDER BY ar.requested_at DESC
             LIMIT %s
@@ -158,8 +161,9 @@ def governance_history(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        where = ["(b.company_id = %s OR gal.branch_id IS NULL)"]
+        where = ["gal.company_id = %s"]
         params: list = [current_user["company_id"]]
+
         if branch_id:
             where.append("gal.branch_id = %s")
             params.append(branch_id)
@@ -183,16 +187,15 @@ def governance_history(
                 i.unit,
                 sub.display_name    AS submitter_name
             FROM governance_action_log gal
-            LEFT JOIN branches    b   ON b.id  = gal.branch_id
-            LEFT JOIN app_users   u   ON u.id  = gal.actor_id
-            LEFT JOIN purchases   p   ON gal.entity_type = 'purchase'
-                                      AND gal.item_id::integer = p.id
-            LEFT JOIN suppliers   s   ON s.id = p.supplier_id
-            LEFT JOIN ingredients i   ON i.id = p.ingredient_id
-            LEFT JOIN approval_requests ar
-                                      ON gal.entity_type = ar.entity_type
-                                      AND gal.item_id::integer = ar.entity_id
-            LEFT JOIN app_users   sub ON sub.id = ar.requested_by
+            LEFT JOIN branches          b   ON b.id   = gal.branch_id
+            LEFT JOIN app_users         u   ON u.id   = gal.actor_id
+            LEFT JOIN purchases         p   ON gal.entity_type = 'purchase'
+                                           AND gal.item_id::integer = p.id
+            LEFT JOIN suppliers         s   ON s.id   = p.supplier_id
+            LEFT JOIN ingredients       i   ON i.id   = p.ingredient_id
+            LEFT JOIN approval_requests ar  ON gal.entity_type = ar.entity_type
+                                           AND gal.item_id::integer = ar.entity_id
+            LEFT JOIN app_users         sub ON sub.id = ar.requested_by
             WHERE {" AND ".join(where)}
             ORDER BY gal.action_date DESC
             LIMIT 500
@@ -268,29 +271,25 @@ def _set_approval_status(
         """, (status, current_user["id"], request_id))
         row = dict(cur.fetchone())
 
-        # ── Sync source table status ONLY — no inventory movement here ────────
+        # ── Sync source table status ──────────────────────────────────────────
         # Stock only increases when a GRN is recorded against this PO.
         if old["entity_type"] == "purchase":
             cur.execute(
                 "UPDATE purchases SET status = %s WHERE id = %s",
                 (status, old["entity_id"]),
             )
-            # ✅ No inventory_movements insert here.
-            # ✅ No cost_per_unit update here (cost is set at GRN time).
-
         elif old["entity_type"] == "transfer":
             cur.execute(
                 "UPDATE transfers SET status = %s WHERE id = %s",
                 (status, old["entity_id"]),
             )
-
         elif old["entity_type"] == "expense":
             cur.execute(
                 "UPDATE expenses SET status = %s WHERE id = %s",
                 (status, old["entity_id"]),
             )
 
-        # ── Governance log ────────────────────────────────────────────────────
+        # ── Build governance log description ──────────────────────────────────
         if old["entity_type"] == "purchase":
             description = (
                 f"{status.title()} purchase of "
@@ -303,11 +302,13 @@ def _set_approval_status(
         else:
             description = f"{status.title()} {old['entity_type']} #{old['entity_id']}"
 
+        # ── Insert governance log with company_id ─────────────────────────────
         cur.execute("""
             INSERT INTO governance_action_log
                 (item_id, entity_type, description, submitted_by, original_date,
-                 action, amount, currency, from_procurement, actor_id, branch_id)
-            VALUES (%s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s)
+                 action, amount, currency, from_procurement, actor_id, branch_id,
+                 company_id)
+            VALUES (%s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
         """, (
             str(old["entity_id"]),
             old["entity_type"],
@@ -320,6 +321,7 @@ def _set_approval_status(
             old["entity_type"] == "purchase",
             current_user["id"],
             old["branch_id"],
+            current_user["company_id"],
         ))
 
         conn.commit()

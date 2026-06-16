@@ -25,7 +25,7 @@ import {
   Package,
   BadgeCheck,
   Ban,
-  Building2,
+  Eye,
   User,
   DollarSign,
 } from "lucide-react";
@@ -205,6 +205,225 @@ function purchaseToApprovalItem(po: any): ApprovalItem {
     priority:     toPriority(po),
     fromProcurement: true,
   };
+}
+
+// ─── Universal Record HTML Viewer (shared visual language with Procurement) ──
+
+const SHARED_HTML_STYLES = `
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',sans-serif;font-size:13px;color:#1e293b;background:#f8fafc}
+  .page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;padding:40px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:28px}
+  .brand{font-size:10px;font-weight:800;letter-spacing:4px;color:#1e3a5f;text-transform:uppercase;margin-bottom:6px}
+  .doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}
+  .doc-sub{font-size:12px;color:#64748b}
+  .meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}
+  .status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px}
+  .section{margin-bottom:24px}
+  .section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}
+  .info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}
+  .info-value{font-size:13px;font-weight:600;color:#0f172a}
+  .totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:20px}
+  .totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}
+  .totals-row.highlight{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}
+  .totals-row.highlight span{color:#93c5fd}
+  .notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}
+  .footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}
+  .footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}
+  .footer-note{font-size:10px;color:#94a3b8}
+  .print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+  .print-btn:hover{background:#1e40af}
+  @media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}
+`;
+
+interface HtmlViewerParams {
+  title: string;
+  subtitle: string;
+  ref: string;
+  badge?: { label: string; color: string; bg: string };
+  sections: { heading: string; rows: { label: string; value: string }[] }[];
+  totals?: { label: string; value: string; highlight?: boolean }[];
+  notes?: string;
+}
+
+function openRecordAsHtml(params: HtmlViewerParams): void {
+  const { title, subtitle, ref, badge, sections, totals, notes } = params;
+  const now = new Date().toLocaleDateString();
+
+  const badgeHtml = badge
+    ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>`
+    : "";
+
+  const sectionsHtml = sections.map(sec => `
+    <div class="section">
+      <div class="section-title">${sec.heading}</div>
+      <div class="info-grid">
+        ${sec.rows.map(r => `
+          <div class="info-block">
+            <div class="info-label">${r.label}</div>
+            <div class="info-value">${r.value}</div>
+          </div>`).join("")}
+      </div>
+    </div>`).join("");
+
+  const totalsHtml = totals?.length ? `
+    <div class="totals">
+      ${totals.map(t => `
+        <div class="totals-row${t.highlight ? " highlight" : ""}">
+          <span>${t.label}</span><span>${t.value}</span>
+        </div>`).join("")}
+    </div>` : "";
+
+  const notesHtml = notes
+    ? `<div class="section"><div class="section-title">Notes</div><div class="notes-box">${notes}</div></div>`
+    : "";
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<title>${ref} — STARK AI</title>
+<style>${SHARED_HTML_STYLES}</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="brand">STARK AI — Costing Platform</div>
+      <div class="doc-title">${title}</div>
+      <div class="doc-sub">${subtitle}</div>
+    </div>
+    <div class="meta">
+      ${badgeHtml ? `<div>${badgeHtml}</div>` : ""}
+      <div style="margin-top:8px">Generated: ${now}</div>
+      <div>Ref: ${ref}</div>
+    </div>
+  </div>
+  ${sectionsHtml}
+  ${totalsHtml}
+  ${notesHtml}
+  <div class="footer">
+    <div class="footer-brand">STARK AI</div>
+    <div class="footer-note">Confidential · ${now} · ${ref}</div>
+  </div>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url  = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
+}
+
+// ─── Record-specific viewer builders ──────────────────────────────────────────
+
+function statusBadgeColors(status: string) {
+  const s = status.toLowerCase();
+  if (s === "approved") return { color: "#16a34a", bg: "#dcfce7" };
+  if (s === "rejected" || s === "reject") return { color: "#dc2626", bg: "#fee2e2" };
+  return { color: "#d97706", bg: "#fef3c7" };
+}
+
+function openPurchaseOrderHtml(row: PurchaseHistoryRow): void {
+  const gross   = row.gross_amount ?? row.quantity * row.unit_cost;
+  const tax     = row.tax_amount ?? 0;
+  const payable = row.payable_amount ?? gross + tax;
+  const badgeColors = statusBadgeColors(row.status);
+
+  openRecordAsHtml({
+    title: "Purchase Order",
+    subtitle: `PO-${String(row.id).padStart(5, "0")} · ${String(row.entry_date).slice(0, 10)}`,
+    ref: `PO-${String(row.id).padStart(5, "0")}`,
+    badge: { label: row.status.toUpperCase(), color: badgeColors.color, bg: badgeColors.bg },
+    sections: [{
+      heading: "Order Details",
+      rows: [
+        { label: "Branch",     value: row.branch_name ?? "—" },
+        { label: "Supplier",   value: row.supplier_name ?? "—" },
+        { label: "Ingredient", value: `${row.ingredient_name ?? "—"}${row.unit ? ` (${row.unit})` : ""}` },
+        { label: "Date",       value: String(row.entry_date).slice(0, 10) },
+        { label: "Quantity",   value: Number(row.quantity).toFixed(3) },
+        { label: "Unit Cost",  value: formatNumber(row.unit_cost, 2) },
+      ],
+    }],
+    totals: [
+      { label: "Gross Amount", value: formatNumber(gross, 2) },
+      { label: "Tax",          value: formatNumber(tax, 2) },
+      { label: "Total Payable", value: formatNumber(payable, 2), highlight: true },
+    ],
+    notes: row.notes,
+  });
+}
+
+function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
+  const badgeColors = statusBadgeColors(a.status);
+  const ref = a.fromProcurement && a.purchaseId
+    ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+    : `APR-${String(a.id).padStart(5, "0")}`;
+
+  openRecordAsHtml({
+    title: t(a.typeKey),
+    subtitle: `${ref} · ${formatDateShort(a.date)}`,
+    ref,
+    badge: { label: a.status.toUpperCase(), color: badgeColors.color, bg: badgeColors.bg },
+    sections: [{
+      heading: "Approval Details",
+      rows: [
+        { label: "Type",         value: t(a.typeKey) },
+        { label: "Submitted By", value: a.submitted_by || "—" },
+        { label: "Date",         value: formatDate(a.date) },
+        { label: "Priority",     value: (a.priority ?? "medium").toUpperCase() },
+        { label: "Source",       value: a.fromProcurement ? "Procurement" : "System" },
+      ],
+    }],
+    totals: a.amount != null
+      ? [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }]
+      : undefined,
+    notes: a.desc,
+  });
+}
+
+function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
+  const badgeColors = statusBadgeColors(row.action === "approve" ? "approved" : "rejected");
+
+  openRecordAsHtml({
+    title: "Governance Action",
+    subtitle: `${row.item_id} · ${formatDateShort(row.action_date)}`,
+    ref: `GOV-${String(row.id).padStart(5, "0")}`,
+    badge: { label: row.action === "approve" ? "APPROVED" : "REJECTED", color: badgeColors.color, bg: badgeColors.bg },
+    sections: [{
+      heading: "Action Details",
+      rows: [
+        { label: "Item",         value: row.item_id },
+        { label: "Entity Type",  value: row.entity_type },
+        { label: "Actor",        value: row.actor_name ?? "—" },
+        { label: "Submitted By", value: row.submitted_by ?? "—" },
+        { label: "Supplier",     value: row.supplier_name ?? "—" },
+        { label: "Ingredient",   value: row.ingredient_name ?? "—" },
+        { label: "Date",         value: formatDate(row.action_date) },
+        { label: "Source",       value: row.from_procurement ? "Procurement" : "System" },
+      ],
+    }],
+    totals: row.amount != null
+      ? [{ label: "Amount", value: formatCurrency(row.amount, row.currency) ?? "—", highlight: true }]
+      : undefined,
+    notes: row.description,
+  });
+}
+
+// ─── Shared Eye button (same component as Procurement.tsx) ──────────────────
+
+function EyeBtn({ onClick, loading = false }: { onClick: () => void; loading?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      title="View record"
+      className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
+    >
+      {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+    </button>
+  );
 }
 
 function downloadPOPdf(
@@ -621,7 +840,7 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {["#", "Item", "Entity", "Action", "Actor", "Submitted By", "Supplier", "Item/Ingredient", "Date", "Amount", "Source"].map((h) => (
+                    {["#", "Item", "Entity", "Action", "Actor", "Submitted By", "Supplier", "Item/Ingredient", "Date", "Amount", "Source", "View"].map((h) => (
                       <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground pb-2 px-2 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -652,6 +871,9 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
                         ) : (
                           <span className="text-[10px] text-muted-foreground">System</span>
                         )}
+                      </td>
+                      <td className="py-2.5 px-2">
+                        <EyeBtn onClick={() => openGovernanceHistoryHtml(row)} />
                       </td>
                     </tr>
                   ))}
@@ -716,8 +938,6 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
   const pageItems = useMemo(() => filtered.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE), [filtered, page]);
-
-  const handleDownloadPDF = useCallback((row: PurchaseHistoryRow) => { downloadPOPdf(row, addToast); }, [addToast]);
 
   const handleExportCSV = useCallback(() => {
     const headers = ["ID", "Branch", "Supplier", "Ingredient", "Unit", "Date", "Qty", "Unit Cost", "Gross Amount", "Tax", "Payable", "Status"];
@@ -808,7 +1028,7 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
                     <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Tax</th>
                     <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Payable</th>
                     <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Status</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Export</th>
+                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -850,13 +1070,16 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
                           <StatusBadge status={row.status} />
                         </td>
                         <td className="px-3 py-3 text-center">
-                          <button
-                            onClick={() => handleDownloadPDF(row)}
-                            title={`Export PO-${String(row.id).padStart(5, "0")}`}
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors opacity-0 group-hover:opacity-100"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <EyeBtn onClick={() => openPurchaseOrderHtml(row)} />
+                            <button
+                              onClick={() => downloadPOPdf(row, addToast)}
+                              title={`Download PO-${String(row.id).padStart(5, "0")}`}
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -908,7 +1131,6 @@ export default function Governance() {
   const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [approvalsError, setApprovalsError] = useState<string | null>(null);
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
-  const [pdfLoadingIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<ApprovalStatus | "all">("pending");
@@ -1483,7 +1705,6 @@ export default function Governance() {
                   <div className="space-y-2">
                     {currentPageItems.map((a) => {
                       const isLoading   = loadingIds.has(a.id);
-                      const isPdfLoading = pdfLoadingIds.has(a.id);
                       const formattedAmount = formatCurrency(a.amount, a.currency);
                       const formattedDate   = formatDate(a.date);
                       const pendingIdx = pendingPageItems.findIndex((p) => p.id === a.id);
@@ -1507,6 +1728,7 @@ export default function Governance() {
                                 <ShoppingCart className="w-2.5 h-2.5" /> PO
                               </span>
                             )}
+                            <EyeBtn onClick={() => openApprovalHtml(a, t)} />
                             <span className={`text-xs font-medium ${a.status === "approved" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
                               {a.status === "approved" ? t("gov.pending.approved") : t("gov.pending.rejected")}
                             </span>
@@ -1549,18 +1771,7 @@ export default function Governance() {
                           </div>
 
                           <div className="flex gap-2 flex-shrink-0">
-                            {a.fromProcurement && (
-                              <Button size="sm" variant="outline" disabled={isPdfLoading || isLoading}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  downloadPOPdf({ id: a.purchaseId?? Number(a.id.replace("po-", "")), branch_name: "", supplier_name: "", ingredient_name: a.desc, unit: "", entry_date: a.date, quantity: 0, unit_cost: 0, gross_amount: a.amount, payable_amount: a.amount, status: a.status }, addToast);
-                                }}
-                                className="gov-btn-press gov-ripple h-7 text-xs px-3 border-blue-300 text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
-                                title={`Export PO #${a.id.replace("po-", "")} as PDF`}
-                              >
-                                {isPdfLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <><FileText className="w-3 h-3 me-1" />PDF</>}
-                              </Button>
-                            )}
+                            <EyeBtn onClick={(e?: any) => { e?.stopPropagation?.(); openApprovalHtml(a, t); }} />
                             <Button size="sm" variant="outline" disabled={isLoading}
                               onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "reject" }); }}
                               className="gov-btn-press gov-ripple h-7 text-xs px-3 border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"

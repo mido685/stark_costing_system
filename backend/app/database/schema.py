@@ -867,6 +867,7 @@ def init_db() -> None:
                 id               SERIAL PRIMARY KEY,
                 item_id          VARCHAR(80)  NOT NULL,
                 entity_type      VARCHAR(80)  NOT NULL,
+                company_id       INTEGER NOT NULL REFERENCES companies(id),
                 description      TEXT,
                 submitted_by     VARCHAR(120),
                 original_date    DATE,
