@@ -3,116 +3,97 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  CheckCircle,
-  XCircle,
-  Loader2,
-  RefreshCw,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  ChevronLeft,
-  ChevronRight,
-  Search,
-  Filter,
-  Download,
-  Clock,
-  ShieldCheck,
-  Calendar,
-  TrendingUp,
-  ShoppingCart,
-  FileText,
-  History,
-  Package,
-  BadgeCheck,
-  Ban,
-  Eye,
-  User,
-  DollarSign,
+  CheckCircle, XCircle, Loader2, RefreshCw, AlertTriangle,
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Search, Filter, Download, Clock, ShieldCheck, Calendar,
+  TrendingUp, ShoppingCart, History, Package, BadgeCheck,
+  Ban, Eye, User, DollarSign,
 } from "lucide-react";
 import { apiCall } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ApprovalStatus = "pending" | "approved" | "rejected";
+type CategoryType   = "expense" | "inventory" | "asset" | "service";
+
+type ExpenseCategory = { id: number; name: string; type: CategoryType };
 
 type ApprovalItem = {
-  id: string;           // ALWAYS the approval_request.id — used for API calls
-  purchaseId?: number;  // purchase.id — used only for PDF export filename
-  typeKey: string;
-  desc: string;
-  submitted_by: string;
-  date: string;
-  status: ApprovalStatus;
-  amount?: number;
-  currency?: string;
-  priority?: "high" | "medium" | "low";
+  id:               string;
+  purchaseId?:      number;
+  typeKey:          string;
+  desc:             string;
+  submitted_by:     string;
+  date:             string;
+  status:           ApprovalStatus;
+  amount?:          number;
+  currency?:        string;
+  priority?:        "high" | "medium" | "low";
   fromProcurement?: boolean;
 };
 
 type GovernanceHistoryRow = {
-  id: number;
-  item_id: string;
-  entity_type: string;
-  action: "approve" | "reject";
-  action_date: string;
-  actor_name?: string;
-  actor_id?: number;
-  description?: string;
-  submitted_by?: string;
-  original_date?: string;
-  amount?: number;
-  currency?: string;
+  id:               number;
+  item_id:          string;
+  entity_type:      string;
+  action:           "approve" | "reject";
+  action_date:      string;
+  actor_name?:      string;
+  actor_id?:        number;
+  description?:     string;
+  submitted_by?:    string;
+  original_date?:   string;
+  amount?:          number;
+  currency?:        string;
   from_procurement: boolean;
-  branch_id?: number;
-  supplier_name?: string;
+  branch_id?:       number;
+  supplier_name?:   string;
   ingredient_name?: string;
 };
 
 type PurchaseHistoryRow = {
-  id: number;
-  branch_name: string;
-  supplier_name: string;
+  id:              number;
+  branch_name:     string;
+  supplier_name:   string;
   ingredient_name: string;
-  unit: string;
-  entry_date: string;
-  quantity: number;
-  unit_cost: number;
-  gross_amount?: number;
-  tax_amount?: number;
+  unit:            string;
+  entry_date:      string;
+  quantity:        number;
+  unit_cost:       number;
+  gross_amount?:   number;
+  tax_amount?:     number;
   payable_amount?: number;
-  status: string;
-  notes?: string;
+  status:          string;
+  notes?:          string;
 };
 
 type ActiveTab = "approvals" | "gov-history" | "po-history";
 type SortField = "date" | "typeKey" | "submitted_by" | "priority";
-type SortDir = "asc" | "desc";
-
-type ToastMessage = {
-  id: string;
-  type: "success" | "error" | "warning";
-  message: string;
-};
+type SortDir   = "asc" | "desc";
+type ToastMessage = { id: string; type: "success" | "error" | "warning"; message: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE         = 20;
 const HISTORY_PAGE_SIZE = 25;
-
 export const PROCUREMENT_PO_EVENT = "procurement:po-created";
 
+const CATEGORY_TYPES: { value: CategoryType; label: string }[] = [
+  { value: "expense",   label: "Expense"   },
+  { value: "inventory", label: "Inventory" },
+  { value: "asset",     label: "Asset"     },
+  { value: "service",   label: "Service"   },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toTypeKey(row: any): string {
-  const src = String(
-    row.table_name ?? row.type ?? row.record_type ?? row.kind ?? row.entity_type ?? ""
-  ).toLowerCase();
+  const src = String(row.table_name ?? row.type ?? row.record_type ?? row.kind ?? row.entity_type ?? "").toLowerCase();
   if (src.includes("purchase") || src.includes("po")) return "gov.approvalType.purchase";
-  if (src.includes("expense")) return "gov.approvalType.expense";
-  if (src.includes("transfer")) return "gov.approvalType.transfer";
+  if (src.includes("expense"))                         return "gov.approvalType.expense";
+  if (src.includes("transfer"))                        return "gov.approvalType.transfer";
   if (src.includes("adjustment") || src.includes("adj")) return "gov.approvalType.stockAdj";
-  if (src.includes("sale")) return "gov.approvalType.sale";
+  if (src.includes("sale"))                            return "gov.approvalType.sale";
   return "gov.approvalType.other";
 }
 
@@ -126,7 +107,7 @@ function normalizeStatus(raw: unknown): ApprovalStatus {
 function toPriority(row: any): "high" | "medium" | "low" {
   const p = String(row.priority ?? "").toLowerCase();
   if (p === "high" || p === "urgent") return "high";
-  if (p === "low") return "low";
+  if (p === "low")                    return "low";
   return "medium";
 }
 
@@ -134,80 +115,35 @@ function formatDate(dateStr: string): string {
   if (!dateStr) return "—";
   try {
     return new Intl.DateTimeFormat(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     }).format(new Date(dateStr));
-  } catch {
-    return dateStr;
-  }
+  } catch { return dateStr; }
 }
 
 function formatDateShort(dateStr: string): string {
   if (!dateStr) return "—";
   try {
-    return new Intl.DateTimeFormat(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    }).format(new Date(dateStr));
-  } catch {
-    return dateStr;
-  }
+    return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(new Date(dateStr));
+  } catch { return dateStr; }
 }
 
 function formatCurrency(amount?: number, currency?: string): string | null {
   if (amount == null) return null;
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: currency ?? "USD",
-      minimumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${currency ?? "$"} ${amount.toLocaleString()}`;
-  }
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency ?? "USD", minimumFractionDigits: 2 }).format(amount);
+  } catch { return `${currency ?? "$"} ${amount.toLocaleString()}`; }
 }
 
 function formatNumber(n?: number, decimals = 3): string {
   if (n == null) return "—";
-  return n.toLocaleString(undefined, {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+  return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function generateToastId(): string {
   return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function purchaseToApprovalItem(po: any): ApprovalItem {
-  const ingredient = po.ingredient_name ?? po.item_name ?? (po.item_id ? `Item #${po.item_id}` : "");
-  const supplier   = po.supplier_name  ?? (po.supplier_id  ? `Supplier #${po.supplier_id}`  : "");
-  const branch     = po.branch_name    ?? (po.branch_id    ? `Branch #${po.branch_id}`      : "");
-  const desc       = [ingredient, supplier, branch].filter(Boolean).join(" · ");
- 
-  return {
-    // Use approval_request id if provided by the event payload, otherwise
-    // fall back to a temporary placeholder — fetchApprovals() will replace it.
-    id:           String(po.approval_request_id ?? `tmp-po-${po.id}`),
-    purchaseId:   Number(po.id),
-    typeKey:      "gov.approvalType.purchase",
-    desc,
-    submitted_by: po.submitted_by ?? po.user_name ?? "",
-    date:         po.entry_date   ?? po.created_at ?? new Date().toISOString(),
-    status:       normalizeStatus(po.status),
-    amount:       po.payable_amount != null ? Number(po.payable_amount)
-                : po.gross_amount   != null ? Number(po.gross_amount) : undefined,
-    currency:     po.currency ?? undefined,
-    priority:     toPriority(po),
-    fromProcurement: true,
-  };
-}
-
-// ─── Universal Record HTML Viewer (shared visual language with Procurement) ──
+// ─── HTML Viewer ──────────────────────────────────────────────────────────────
 
 const SHARED_HTML_STYLES = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -239,9 +175,7 @@ const SHARED_HTML_STYLES = `
 `;
 
 interface HtmlViewerParams {
-  title: string;
-  subtitle: string;
-  ref: string;
+  title: string; subtitle: string; ref: string;
   badge?: { label: string; color: string; bg: string };
   sections: { heading: string; rows: { label: string; value: string }[] }[];
   totals?: { label: string; value: string; highlight?: boolean }[];
@@ -250,302 +184,108 @@ interface HtmlViewerParams {
 
 function openRecordAsHtml(params: HtmlViewerParams): void {
   const { title, subtitle, ref, badge, sections, totals, notes } = params;
-  const now = new Date().toLocaleDateString();
-
-  const badgeHtml = badge
-    ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>`
-    : "";
-
+  const now       = new Date().toLocaleDateString();
+  const badgeHtml = badge ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>` : "";
   const sectionsHtml = sections.map(sec => `
-    <div class="section">
-      <div class="section-title">${sec.heading}</div>
-      <div class="info-grid">
-        ${sec.rows.map(r => `
-          <div class="info-block">
-            <div class="info-label">${r.label}</div>
-            <div class="info-value">${r.value}</div>
-          </div>`).join("")}
-      </div>
-    </div>`).join("");
-
-  const totalsHtml = totals?.length ? `
-    <div class="totals">
-      ${totals.map(t => `
-        <div class="totals-row${t.highlight ? " highlight" : ""}">
-          <span>${t.label}</span><span>${t.value}</span>
-        </div>`).join("")}
-    </div>` : "";
-
-  const notesHtml = notes
-    ? `<div class="section"><div class="section-title">Notes</div><div class="notes-box">${notes}</div></div>`
-    : "";
-
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
-<title>${ref} — STARK AI</title>
-<style>${SHARED_HTML_STYLES}</style>
-</head>
-<body>
-<button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
+    <div class="section"><div class="section-title">${sec.heading}</div><div class="info-grid">
+      ${sec.rows.map(r => `<div class="info-block"><div class="info-label">${r.label}</div><div class="info-value">${r.value}</div></div>`).join("")}
+    </div></div>`).join("");
+  const totalsHtml = totals?.length ? `<div class="totals">${totals.map(t => `<div class="totals-row${t.highlight ? " highlight" : ""}"><span>${t.label}</span><span>${t.value}</span></div>`).join("")}</div>` : "";
+  const notesHtml  = notes ? `<div class="section"><div class="section-title">Notes</div><div class="notes-box">${notes}</div></div>` : "";
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${ref} — STARK AI</title><style>${SHARED_HTML_STYLES}</style></head>
+<body><button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
 <div class="page">
   <div class="header">
-    <div>
-      <div class="brand">STARK AI — Costing Platform</div>
-      <div class="doc-title">${title}</div>
-      <div class="doc-sub">${subtitle}</div>
-    </div>
-    <div class="meta">
-      ${badgeHtml ? `<div>${badgeHtml}</div>` : ""}
-      <div style="margin-top:8px">Generated: ${now}</div>
-      <div>Ref: ${ref}</div>
-    </div>
+    <div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">${title}</div><div class="doc-sub">${subtitle}</div></div>
+    <div class="meta">${badgeHtml ? `<div>${badgeHtml}</div>` : ""}<div style="margin-top:8px">Generated: ${now}</div><div>Ref: ${ref}</div></div>
   </div>
-  ${sectionsHtml}
-  ${totalsHtml}
-  ${notesHtml}
-  <div class="footer">
-    <div class="footer-brand">STARK AI</div>
-    <div class="footer-note">Confidential · ${now} · ${ref}</div>
-  </div>
-</div>
-</body></html>`;
-
+  ${sectionsHtml}${totalsHtml}${notesHtml}
+  <div class="footer"><div class="footer-brand">STARK AI</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div>
+</div></body></html>`;
   const blob = new Blob([html], { type: "text/html" });
   const url  = URL.createObjectURL(blob);
   window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 15000);
 }
 
-// ─── Record-specific viewer builders ──────────────────────────────────────────
-
 function statusBadgeColors(status: string) {
   const s = status.toLowerCase();
-  if (s === "approved") return { color: "#16a34a", bg: "#dcfce7" };
+  if (s === "approved")                   return { color: "#16a34a", bg: "#dcfce7" };
   if (s === "rejected" || s === "reject") return { color: "#dc2626", bg: "#fee2e2" };
   return { color: "#d97706", bg: "#fef3c7" };
 }
 
 function openPurchaseOrderHtml(row: PurchaseHistoryRow): void {
-  const gross   = row.gross_amount ?? row.quantity * row.unit_cost;
-  const tax     = row.tax_amount ?? 0;
-  const payable = row.payable_amount ?? gross + tax;
-  const badgeColors = statusBadgeColors(row.status);
-
+  const gross = row.gross_amount ?? row.quantity * row.unit_cost;
+  const tax   = row.tax_amount ?? 0;
+  const pay   = row.payable_amount ?? gross + tax;
+  const bc    = statusBadgeColors(row.status);
   openRecordAsHtml({
-    title: "Purchase Order",
-    subtitle: `PO-${String(row.id).padStart(5, "0")} · ${String(row.entry_date).slice(0, 10)}`,
-    ref: `PO-${String(row.id).padStart(5, "0")}`,
-    badge: { label: row.status.toUpperCase(), color: badgeColors.color, bg: badgeColors.bg },
-    sections: [{
-      heading: "Order Details",
-      rows: [
-        { label: "Branch",     value: row.branch_name ?? "—" },
-        { label: "Supplier",   value: row.supplier_name ?? "—" },
-        { label: "Ingredient", value: `${row.ingredient_name ?? "—"}${row.unit ? ` (${row.unit})` : ""}` },
-        { label: "Date",       value: String(row.entry_date).slice(0, 10) },
-        { label: "Quantity",   value: Number(row.quantity).toFixed(3) },
-        { label: "Unit Cost",  value: formatNumber(row.unit_cost, 2) },
-      ],
-    }],
+    title: "Purchase Order", subtitle: `PO-${String(row.id).padStart(5,"0")} · ${String(row.entry_date).slice(0,10)}`,
+    ref: `PO-${String(row.id).padStart(5,"0")}`, badge: { label: row.status.toUpperCase(), color: bc.color, bg: bc.bg },
+    sections: [{ heading: "Order Details", rows: [
+      { label: "Branch", value: row.branch_name ?? "—" }, { label: "Supplier", value: row.supplier_name ?? "—" },
+      { label: "Ingredient", value: `${row.ingredient_name ?? "—"}${row.unit ? ` (${row.unit})` : ""}` },
+      { label: "Date", value: String(row.entry_date).slice(0,10) },
+      { label: "Quantity", value: Number(row.quantity).toFixed(3) }, { label: "Unit Cost", value: formatNumber(row.unit_cost, 2) },
+    ]}],
     totals: [
-      { label: "Gross Amount", value: formatNumber(gross, 2) },
-      { label: "Tax",          value: formatNumber(tax, 2) },
-      { label: "Total Payable", value: formatNumber(payable, 2), highlight: true },
+      { label: "Gross Amount", value: formatNumber(gross, 2) }, { label: "Tax", value: formatNumber(tax, 2) },
+      { label: "Total Payable", value: formatNumber(pay, 2), highlight: true },
     ],
     notes: row.notes,
   });
 }
 
 function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
-  const badgeColors = statusBadgeColors(a.status);
-  const ref = a.fromProcurement && a.purchaseId
-    ? `PO-${String(a.purchaseId).padStart(5, "0")}`
-    : `APR-${String(a.id).padStart(5, "0")}`;
-
+  const bc  = statusBadgeColors(a.status);
+  const ref = a.fromProcurement && a.purchaseId ? `PO-${String(a.purchaseId).padStart(5,"0")}` : `APR-${String(a.id).padStart(5,"0")}`;
   openRecordAsHtml({
-    title: t(a.typeKey),
-    subtitle: `${ref} · ${formatDateShort(a.date)}`,
-    ref,
-    badge: { label: a.status.toUpperCase(), color: badgeColors.color, bg: badgeColors.bg },
-    sections: [{
-      heading: "Approval Details",
-      rows: [
-        { label: "Type",         value: t(a.typeKey) },
-        { label: "Submitted By", value: a.submitted_by || "—" },
-        { label: "Date",         value: formatDate(a.date) },
-        { label: "Priority",     value: (a.priority ?? "medium").toUpperCase() },
-        { label: "Source",       value: a.fromProcurement ? "Procurement" : "System" },
-      ],
-    }],
-    totals: a.amount != null
-      ? [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }]
-      : undefined,
+    title: t(a.typeKey), subtitle: `${ref} · ${formatDateShort(a.date)}`, ref,
+    badge: { label: a.status.toUpperCase(), color: bc.color, bg: bc.bg },
+    sections: [{ heading: "Approval Details", rows: [
+      { label: "Type", value: t(a.typeKey) }, { label: "Submitted By", value: a.submitted_by || "—" },
+      { label: "Date", value: formatDate(a.date) }, { label: "Priority", value: (a.priority ?? "medium").toUpperCase() },
+      { label: "Source", value: a.fromProcurement ? "Procurement" : "System" },
+    ]}],
+    totals: a.amount != null ? [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }] : undefined,
     notes: a.desc,
   });
 }
 
 function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
-  const badgeColors = statusBadgeColors(row.action === "approve" ? "approved" : "rejected");
-
+  const bc = statusBadgeColors(row.action === "approve" ? "approved" : "rejected");
   openRecordAsHtml({
-    title: "Governance Action",
-    subtitle: `${row.item_id} · ${formatDateShort(row.action_date)}`,
-    ref: `GOV-${String(row.id).padStart(5, "0")}`,
-    badge: { label: row.action === "approve" ? "APPROVED" : "REJECTED", color: badgeColors.color, bg: badgeColors.bg },
-    sections: [{
-      heading: "Action Details",
-      rows: [
-        { label: "Item",         value: row.item_id },
-        { label: "Entity Type",  value: row.entity_type },
-        { label: "Actor",        value: row.actor_name ?? "—" },
-        { label: "Submitted By", value: row.submitted_by ?? "—" },
-        { label: "Supplier",     value: row.supplier_name ?? "—" },
-        { label: "Ingredient",   value: row.ingredient_name ?? "—" },
-        { label: "Date",         value: formatDate(row.action_date) },
-        { label: "Source",       value: row.from_procurement ? "Procurement" : "System" },
-      ],
-    }],
-    totals: row.amount != null
-      ? [{ label: "Amount", value: formatCurrency(row.amount, row.currency) ?? "—", highlight: true }]
-      : undefined,
+    title: "Governance Action", subtitle: `${row.item_id} · ${formatDateShort(row.action_date)}`,
+    ref: `GOV-${String(row.id).padStart(5,"0")}`,
+    badge: { label: row.action === "approve" ? "APPROVED" : "REJECTED", color: bc.color, bg: bc.bg },
+    sections: [{ heading: "Action Details", rows: [
+      { label: "Item", value: row.item_id }, { label: "Entity Type", value: row.entity_type },
+      { label: "Actor", value: row.actor_name ?? "—" }, { label: "Submitted By", value: row.submitted_by ?? "—" },
+      { label: "Supplier", value: row.supplier_name ?? "—" }, { label: "Ingredient", value: row.ingredient_name ?? "—" },
+      { label: "Date", value: formatDate(row.action_date) }, { label: "Source", value: row.from_procurement ? "Procurement" : "System" },
+    ]}],
+    totals: row.amount != null ? [{ label: "Amount", value: formatCurrency(row.amount, row.currency ?? undefined) ?? "—", highlight: true }] : undefined,
     notes: row.description,
   });
 }
 
-// ─── Shared Eye button (same component as Procurement.tsx) ──────────────────
-
-function EyeBtn({ onClick, loading = false }: { onClick: () => void; loading?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={loading}
-      title="View record"
-      className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
-    >
-      {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
-    </button>
-  );
-}
-
-function downloadPOPdf(
-  row: PurchaseHistoryRow,
-  addToast: (type: ToastMessage["type"], message: string) => void
-) {
-  const gross = row.gross_amount ?? row.quantity * row.unit_cost;
-  const tax = row.tax_amount ?? 0;
-  const payable = row.payable_amount ?? gross + tax;
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<title>PO-${row.id}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;display:flex;justify-content:center;padding:40px 20px}
-  .card{background:#fff;width:480px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}
-  .header{background:#1e3a5f;color:#f8fafc;padding:24px 28px}
-  .header h1{font-size:20px;font-weight:700}
-  .header p{font-size:12px;color:#94a3b8;margin-top:4px}
-  .meta{display:flex;justify-content:space-between;margin-top:14px}
-  .meta .id{font-size:13px;font-weight:600;color:#e2e8f0}
-  .meta .status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#16a34a22;color:#16a34a;border:1px solid #16a34a55}
-  .section{padding:20px 28px;border-bottom:1px solid #f1f5f9}
-  .section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:12px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .item label{font-size:10px;color:#94a3b8;display:block;margin-bottom:2px}
-  .item span{font-size:13px;font-weight:600;color:#1e293b}
-  .line{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#475569;border-bottom:1px solid #f1f5f9}
-  .line.total{font-size:15px;font-weight:700;color:#1e3a5f;padding-top:12px;margin-top:4px;border-top:2px solid #e2e8f0;border-bottom:none}
-  .footer{padding:16px 28px;text-align:center;background:#f8fafc}
-  .footer p{font-size:10px;color:#94a3b8}
-  .print-btn{display:block;margin:0 auto 20px;padding:9px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit}
-  @media print{.print-btn{display:none}body{background:#fff;padding:0}.card{box-shadow:none;width:100%;border-radius:0}@page{margin:0;size:A5}}
-</style></head><body>
-<button class="print-btn" onclick="window.print()">🖨 Print / Save as PDF</button>
-<div class="card">
-  <div class="header">
-    <h1>Purchase Order</h1>
-    <p>STARK AI Enterprise Costing System</p>
-    <div class="meta">
-      <span class="id">PO #${row.id}</span>
-      <span class="status">${row.status.toUpperCase()}</span>
-    </div>
-  </div>
-  <div class="section">
-    <div class="section-title">Details</div>
-    <div class="grid">
-      <div class="item"><label>Branch</label><span>${row.branch_name ?? "—"}</span></div>
-      <div class="item"><label>Supplier</label><span>${row.supplier_name ?? "—"}</span></div>
-      <div class="item"><label>Item</label><span>${row.ingredient_name ?? "—"}</span></div>
-      <div class="item"><label>Date</label><span>${String(row.entry_date).slice(0, 10)}</span></div>
-      <div class="item"><label>Quantity</label><span>${Number(row.quantity).toFixed(3)} ${row.unit ?? ""}</span></div>
-      <div class="item"><label>Unit Cost</label><span>${Number(row.unit_cost).toFixed(2)}</span></div>
-    </div>
-  </div>
-  <div class="section">
-    <div class="section-title">Amounts</div>
-    <div class="line"><span>Gross Amount</span><span>${gross.toFixed(2)}</span></div>
-    <div class="line"><span>Tax</span><span>${tax.toFixed(2)}</span></div>
-    <div class="line total"><span>Total Payable</span><span>${payable.toFixed(2)}</span></div>
-  </div>
-  <div class="footer"><p>Generated ${new Date().toLocaleString()} · STARK AI</p></div>
-</div>
-</body></html>`;
-
-  const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `PO-${row.id}.html`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  addToast("success", `PO #${row.id} downloaded.`);
-}
-
-// ─── Animation styles injected once ──────────────────────────────────────────
+// ─── Animation styles ─────────────────────────────────────────────────────────
 
 const ANIMATION_STYLES = `
-  @keyframes gov-fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes gov-slide-right {
-    from { opacity: 0; transform: translateX(16px); }
-    to   { opacity: 1; transform: translateX(0); }
-  }
-  @keyframes gov-pop {
-    0%   { transform: scale(0.95); opacity: 0; }
-    60%  { transform: scale(1.03); }
-    100% { transform: scale(1);    opacity: 1; }
-  }
-  .gov-fade-in   { animation: gov-fade-in   0.2s ease both; }
+  @keyframes gov-fade-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes gov-slide-right { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:translateX(0)} }
+  @keyframes gov-pop { 0%{transform:scale(0.95);opacity:0} 60%{transform:scale(1.03)} 100%{transform:scale(1);opacity:1} }
+  .gov-fade-in     { animation: gov-fade-in   0.2s ease both; }
   .gov-slide-right { animation: gov-slide-right 0.2s ease both; }
-  .gov-pop       { animation: gov-pop       0.25s ease both; }
-
-  /* Button press feedback */
+  .gov-pop         { animation: gov-pop       0.25s ease both; }
   .gov-btn-press:active { transform: scale(0.96); }
-  .gov-btn-press { transition: transform 0.1s ease, box-shadow 0.1s ease; }
-
-  /* Ripple on approve/reject buttons */
-  .gov-ripple { position: relative; overflow: hidden; }
-  .gov-ripple::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: white;
-    opacity: 0;
-    border-radius: inherit;
-    transition: opacity 0.3s ease;
-  }
+  .gov-btn-press   { transition: transform 0.1s ease, box-shadow 0.1s ease; }
+  .gov-ripple      { position: relative; overflow: hidden; }
+  .gov-ripple::after { content:""; position:absolute; inset:0; background:white; opacity:0; border-radius:inherit; transition:opacity 0.3s ease; }
   .gov-ripple:active::after { opacity: 0.15; }
-
-  /* Row hover lift */
-  .gov-row-hover {
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  .gov-row-hover:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  }
+  .gov-row-hover   { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .gov-row-hover:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 `;
 
 function useInjectStyles() {
@@ -553,46 +293,34 @@ function useInjectStyles() {
     const id = "gov-animations";
     if (document.getElementById(id)) return;
     const el = document.createElement("style");
-    el.id = id;
-    el.textContent = ANIMATION_STYLES;
+    el.id = id; el.textContent = ANIMATION_STYLES;
     document.head.appendChild(el);
     return () => { document.getElementById(id)?.remove(); };
   }, []);
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Small shared components ──────────────────────────────────────────────────
 
 function Toast({ toast, onDismiss }: { toast: ToastMessage; onDismiss: (id: string) => void }) {
-  useEffect(() => {
-    const timer = setTimeout(() => onDismiss(toast.id), 4000);
-    return () => clearTimeout(timer);
-  }, [toast.id, onDismiss]);
-
+  useEffect(() => { const t = setTimeout(() => onDismiss(toast.id), 4000); return () => clearTimeout(t); }, [toast.id, onDismiss]);
   const colors = {
     success: "bg-green-50 border-green-200 text-green-800 dark:bg-green-950/50 dark:border-green-800 dark:text-green-300",
     error:   "bg-red-50 border-red-200 text-red-800 dark:bg-red-950/50 dark:border-red-800 dark:text-red-300",
     warning: "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/50 dark:border-amber-800 dark:text-amber-300",
   };
   const Icon = toast.type === "success" ? CheckCircle : toast.type === "error" ? XCircle : AlertTriangle;
-
   return (
     <div className={`gov-slide-right flex items-start gap-2.5 px-4 py-3 rounded-lg border shadow-sm text-sm ${colors[toast.type]}`}>
       <Icon className="w-4 h-4 mt-0.5 flex-shrink-0" />
       <span className="flex-1">{toast.message}</span>
-      <button
-        onClick={() => onDismiss(toast.id)}
-        className="opacity-60 hover:opacity-100 transition-opacity flex-shrink-0"
-        aria-label="Dismiss"
-      >
+      <button onClick={() => onDismiss(toast.id)} className="opacity-60 hover:opacity-100 transition-opacity flex-shrink-0" aria-label="Dismiss">
         <XCircle className="w-3.5 h-3.5" />
       </button>
     </div>
   );
 }
 
-function SkeletonRow() {
-  return <div className="h-11 bg-muted/40 rounded-lg animate-pulse" />;
-}
+function SkeletonRow() { return <div className="h-11 bg-muted/40 rounded-lg animate-pulse" />; }
 
 function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
   const styles = {
@@ -600,11 +328,7 @@ function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
     medium: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:ring-amber-800",
     low:    "bg-muted text-muted-foreground ring-1 ring-border",
   };
-  return (
-    <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md uppercase tracking-wide ${styles[priority]}`}>
-      {priority}
-    </span>
-  );
+  return <span className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md uppercase tracking-wide ${styles[priority]}`}>{priority}</span>;
 }
 
 function EmptyState({ message }: { message: string }) {
@@ -621,18 +345,9 @@ function EmptyState({ message }: { message: string }) {
 function ErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="gov-fade-in flex items-center justify-between gap-3 px-4 py-3 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
-      <div className="flex items-center gap-2">
-        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-        <span>{message}</span>
-      </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={onRetry}
-        className="gov-btn-press h-7 text-xs text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/60 flex-shrink-0"
-      >
-        <RefreshCw className="w-3 h-3 me-1" />
-        Retry
+      <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 flex-shrink-0" /><span>{message}</span></div>
+      <Button size="sm" variant="ghost" onClick={onRetry} className="gov-btn-press h-7 text-xs text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-950/60 flex-shrink-0">
+        <RefreshCw className="w-3 h-3 me-1" /> Retry
       </Button>
     </div>
   );
@@ -641,95 +356,276 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry: () => voi
 function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
   if (s === "approved")
-    return (
-      <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:ring-emerald-800">
-        approved
-      </span>
-    );
+    return <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:ring-emerald-800">approved</span>;
   if (s === "rejected" || s === "reject")
-    return (
-      <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-800">
-        rejected
-      </span>
-    );
+    return <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-800">rejected</span>;
+  return <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:ring-amber-800">pending</span>;
+}
+
+function EyeBtn({ onClick, loading = false }: { onClick: () => void; loading?: boolean }) {
   return (
-    <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:ring-amber-800">
-      pending
-    </span>
+    <button onClick={onClick} disabled={loading} title="View record"
+      className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40">
+      {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+    </button>
   );
 }
 
 // ─── Pagination ───────────────────────────────────────────────────────────────
 
-function Pagination({
-  page, totalPages, totalItems, pageSize, onPage,
-}: {
+function Pagination({ page, totalPages, totalItems, pageSize, onPage }: {
   page: number; totalPages: number; totalItems: number; pageSize: number; onPage: (p: number) => void;
 }) {
   if (totalPages <= 1) return null;
   const start = (page - 1) * pageSize + 1;
-  const end = Math.min(page * pageSize, totalItems);
+  const end   = Math.min(page * pageSize, totalItems);
   const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
     .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
     .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-      if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1)
-        acc.push("…");
-      acc.push(p);
-      return acc;
+      if (idx > 0 && typeof arr[idx - 1] === "number" && (p as number) - (arr[idx - 1] as number) > 1) acc.push("…");
+      acc.push(p); return acc;
     }, []);
-
   return (
     <div className="flex items-center justify-between pt-3 border-t border-border mt-3">
       <p className="text-xs text-muted-foreground">{start}–{end} of {totalItems}</p>
       <div className="flex items-center gap-1">
-        <Button variant="ghost" size="sm" className="gov-btn-press h-7 w-7 p-0" disabled={page === 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
-          <ChevronLeft className="w-3.5 h-3.5" />
-        </Button>
+        <Button variant="ghost" size="sm" className="gov-btn-press h-7 w-7 p-0" disabled={page === 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><ChevronLeft className="w-3.5 h-3.5" /></Button>
         {pageNumbers.map((p, idx) =>
-          p === "…" ? (
-            <span key={`ellipsis-${idx}`} className="text-xs text-muted-foreground px-1">…</span>
-          ) : (
-            <Button key={p} variant={p === page ? "default" : "ghost"} size="sm" className="gov-btn-press h-7 w-7 p-0 text-xs" onClick={() => onPage(p as number)} aria-label={`Page ${p}`} aria-current={p === page ? "page" : undefined}>
-              {p}
-            </Button>
-          )
+          p === "…" ? <span key={`e-${idx}`} className="text-xs text-muted-foreground px-1">…</span>
+          : <Button key={p} variant={p === page ? "default" : "ghost"} size="sm" className="gov-btn-press h-7 w-7 p-0 text-xs" onClick={() => onPage(p as number)} aria-label={`Page ${p}`} aria-current={p === page ? "page" : undefined}>{p}</Button>
         )}
-        <Button variant="ghost" size="sm" className="gov-btn-press h-7 w-7 p-0" disabled={page === totalPages} onClick={() => onPage(page + 1)} aria-label="Next page">
-          <ChevronRight className="w-3.5 h-3.5" />
-        </Button>
+        <Button variant="ghost" size="sm" className="gov-btn-press h-7 w-7 p-0" disabled={page === totalPages} onClick={() => onPage(page + 1)} aria-label="Next page"><ChevronRight className="w-3.5 h-3.5" /></Button>
       </div>
     </div>
   );
 }
 
+// ─── PO PDF download ──────────────────────────────────────────────────────────
+
+function downloadPOPdf(row: PurchaseHistoryRow, addToast: (type: ToastMessage["type"], message: string) => void) {
+  const gross = row.gross_amount ?? row.quantity * row.unit_cost;
+  const tax   = row.tax_amount ?? 0;
+  const pay   = row.payable_amount ?? gross + tax;
+  const html  = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>PO-${row.id}</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;display:flex;justify-content:center;padding:40px 20px}.card{background:#fff;width:480px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:#1e3a5f;color:#f8fafc;padding:24px 28px}.header h1{font-size:20px;font-weight:700}.header p{font-size:12px;color:#94a3b8;margin-top:4px}.meta{display:flex;justify-content:space-between;margin-top:14px}.meta .id{font-size:13px;font-weight:600;color:#e2e8f0}.meta .status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#16a34a22;color:#16a34a;border:1px solid #16a34a55}.section{padding:20px 28px;border-bottom:1px solid #f1f5f9}.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.item label{font-size:10px;color:#94a3b8;display:block;margin-bottom:2px}.item span{font-size:13px;font-weight:600;color:#1e293b}.line{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#475569;border-bottom:1px solid #f1f5f9}.line.total{font-size:15px;font-weight:700;color:#1e3a5f;padding-top:12px;margin-top:4px;border-top:2px solid #e2e8f0;border-bottom:none}.footer{padding:16px 28px;text-align:center;background:#f8fafc}.footer p{font-size:10px;color:#94a3b8}.print-btn{display:block;margin:0 auto 20px;padding:9px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit}@media print{.print-btn{display:none}body{background:#fff;padding:0}.card{box-shadow:none;width:100%;border-radius:0}@page{margin:0;size:A5}}</style></head><body>
+<button class="print-btn" onclick="window.print()">🖨 Print / Save as PDF</button>
+<div class="card">
+  <div class="header"><h1>Purchase Order</h1><p>STARK AI Enterprise Costing System</p>
+    <div class="meta"><span class="id">PO #${row.id}</span><span class="status">${row.status.toUpperCase()}</span></div>
+  </div>
+  <div class="section"><div class="section-title">Details</div><div class="grid">
+    <div class="item"><label>Branch</label><span>${row.branch_name ?? "—"}</span></div>
+    <div class="item"><label>Supplier</label><span>${row.supplier_name ?? "—"}</span></div>
+    <div class="item"><label>Item</label><span>${row.ingredient_name ?? "—"}</span></div>
+    <div class="item"><label>Date</label><span>${String(row.entry_date).slice(0,10)}</span></div>
+    <div class="item"><label>Quantity</label><span>${Number(row.quantity).toFixed(3)} ${row.unit ?? ""}</span></div>
+    <div class="item"><label>Unit Cost</label><span>${Number(row.unit_cost).toFixed(2)}</span></div>
+  </div></div>
+  <div class="section"><div class="section-title">Amounts</div>
+    <div class="line"><span>Gross Amount</span><span>${gross.toFixed(2)}</span></div>
+    <div class="line"><span>Tax</span><span>${tax.toFixed(2)}</span></div>
+    <div class="line total"><span>Total Payable</span><span>${pay.toFixed(2)}</span></div>
+  </div>
+  <div class="footer"><p>Generated ${new Date().toLocaleString()} · STARK AI</p></div>
+</div></body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = `PO-${row.id}.html`;
+  document.body.appendChild(link); link.click();
+  document.body.removeChild(link); URL.revokeObjectURL(url);
+  addToast("success", `PO #${row.id} downloaded.`);
+}
+
+// ─── New Expense Category Modal ───────────────────────────────────────────────
+
+function NewExpenseCategoryModal({ onClose, onCreated }: {
+  onClose:   () => void;
+  onCreated: (cat: ExpenseCategory) => void;
+}) {
+  const [name,   setName]   = useState("");
+  const [type,   setType]   = useState<CategoryType>("expense");
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) { setError("Category name is required"); return; }
+    setSaving(true); setError(null);
+    try {
+      const data = await apiCall<ExpenseCategory>("/api/expense-categories", {
+        method: "POST", body: JSON.stringify({ name: trimmed, type }),
+      });
+      onCreated(data); onClose();
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to create category");
+    } finally { setSaving(false); }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter")  handleCreate();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [name, type]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="gov-pop w-[340px] rounded-xl border border-border bg-background shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-cyan-500 dark:text-cyan-400">
+            Expense Category
+          </p>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Sub-label */}
+        <div className="px-4 pt-3 pb-1">
+          <p className="text-xs font-semibold text-cyan-500 dark:text-cyan-400 uppercase tracking-wider">New Category</p>
+        </div>
+
+        {/* Body */}
+        <div className="p-4 space-y-4">
+          <input
+            autoFocus
+            type="text"
+            value={name}
+            onChange={(e) => { setName(e.target.value); setError(null); }}
+            placeholder="Category name..."
+            className={`w-full h-10 px-3 rounded-lg border bg-muted/30 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 transition-all ${
+              error ? "border-red-500 focus:ring-red-500/30" : "border-input focus:ring-cyan-500/40 focus:border-cyan-500"
+            }`}
+          />
+          {error && <p className="text-xs text-red-500 -mt-2">{error}</p>}
+
+          {/* 2×2 type toggle grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {CATEGORY_TYPES.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setType(value)}
+                className={`h-9 rounded-lg text-sm font-medium border transition-all gov-btn-press flex items-center justify-center gap-1.5 ${
+                  type === value
+                    ? "bg-orange-600 border-orange-500 text-white"
+                    : "bg-muted/30 border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+                }`}
+              >
+                {type === value && <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-2 px-4 pb-4">
+          <Button variant="outline" size="sm" onClick={onClose} className="flex-1 gov-btn-press h-9 text-xs">
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleCreate}
+            disabled={saving || !name.trim()}
+            className="flex-1 gov-btn-press h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white border-transparent"
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <span className="mr-1">+</span>}
+            Create
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Category Selector ────────────────────────────────────────────────────────
+
+function CategorySelector({ value, onChange, categories, onCategoryCreated, className = "" }: {
+  value:             number | null;
+  onChange:          (id: number | null) => void;
+  categories:        ExpenseCategory[];
+  onCategoryCreated: (cat: ExpenseCategory) => void;
+  className?:        string;
+}) {
+  const [showModal, setShowModal] = useState(false);
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, ExpenseCategory[]> = {};
+    for (const cat of categories) {
+      if (!groups[cat.type]) groups[cat.type] = [];
+      groups[cat.type].push(cat);
+    }
+    return groups;
+  }, [categories]);
+
+  return (
+    <>
+      <div className={`flex gap-2 ${className}`}>
+        <select
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+          className="flex-1 h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <option value="">— select category —</option>
+          {Object.entries(grouped).map(([type, cats]) => (
+            <optgroup key={type} label={type.charAt(0).toUpperCase() + type.slice(1)}>
+              {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <Button
+          variant="outline" size="sm"
+          onClick={() => setShowModal(true)}
+          className="gov-btn-press h-8 px-3 text-xs text-cyan-600 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800 hover:bg-cyan-50 dark:hover:bg-cyan-950/30 whitespace-nowrap"
+        >
+          + New
+        </Button>
+      </div>
+
+      {showModal && (
+        <NewExpenseCategoryModal
+          onClose={() => setShowModal(false)}
+          onCreated={(cat) => { onCategoryCreated(cat); onChange(cat.id); }}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Governance History Tab ───────────────────────────────────────────────────
 
-function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToast: (type: ToastMessage["type"], message: string) => void }) {
-  const [rows, setRows] = useState<GovernanceHistoryRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+function GovernanceHistoryTab({ branchId, addToast }: {
+  branchId: number;
+  addToast: (type: ToastMessage["type"], message: string) => void;
+}) {
+  const [rows,         setRows]         = useState<GovernanceHistoryRow[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState<string | null>(null);
+  const [search,       setSearch]       = useState("");
   const [filterAction, setFilterAction] = useState<"all" | "approve" | "reject">("all");
   const [filterSource, setFilterSource] = useState<"all" | "procurement" | "system">("all");
-  const [page, setPage] = useState(1);
+  const [page,         setPage]         = useState(1);
 
   const fetchHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const params = new URLSearchParams();
-      if (branchId) params.set("branch_id", String(branchId));
+      if (branchId)               params.set("branch_id", String(branchId));
       if (filterAction !== "all") params.set("action", filterAction);
       const data = await apiCall<GovernanceHistoryRow[]>(`/api/governance/history?${params.toString()}`);
-      setRows(Array.isArray(data) ? data : []);
-      setPage(1);
+      setRows(Array.isArray(data) ? data : []); setPage(1);
     } catch (err: any) {
       const msg = err?.message ?? "Failed to load governance history";
-      setError(msg);
-      addToast("error", msg);
-    } finally {
-      setLoading(false);
-    }
+      setError(msg); addToast("error", msg);
+    } finally { setLoading(false); }
   }, [branchId, filterAction, addToast]);
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
@@ -737,16 +633,13 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
   const filtered = useMemo(() => {
     let result = [...rows];
     if (filterSource === "procurement") result = result.filter((r) => r.from_procurement);
-    if (filterSource === "system") result = result.filter((r) => !r.from_procurement);
+    if (filterSource === "system")      result = result.filter((r) => !r.from_procurement);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter((r) =>
-        r.item_id.toLowerCase().includes(q) ||
-        (r.entity_type ?? "").toLowerCase().includes(q) ||
-        (r.actor_name ?? "").toLowerCase().includes(q) ||
-        (r.submitted_by ?? "").toLowerCase().includes(q) ||
-        (r.description ?? "").toLowerCase().includes(q) ||
-        (r.supplier_name ?? "").toLowerCase().includes(q) ||
+        r.item_id.toLowerCase().includes(q) || (r.entity_type ?? "").toLowerCase().includes(q) ||
+        (r.actor_name ?? "").toLowerCase().includes(q) || (r.submitted_by ?? "").toLowerCase().includes(q) ||
+        (r.description ?? "").toLowerCase().includes(q) || (r.supplier_name ?? "").toLowerCase().includes(q) ||
         (r.ingredient_name ?? "").toLowerCase().includes(q)
       );
     }
@@ -755,35 +648,32 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
 
   useEffect(() => { setPage(1); }, [search, filterSource]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
-  const pageItems = useMemo(() => filtered.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE), [filtered, page]);
+  const totalPages       = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
+  const pageItems        = useMemo(() => filtered.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE), [filtered, page]);
+  const approvedCount    = useMemo(() => rows.filter((r) => r.action === "approve").length, [rows]);
+  const rejectedCount    = useMemo(() => rows.filter((r) => r.action === "reject").length,  [rows]);
+  const procurementCount = useMemo(() => rows.filter((r) => r.from_procurement).length,     [rows]);
 
   const handleExportCSV = useCallback(() => {
-    const headers = ["ID", "Item ID", "Entity Type", "Action", "Actor", "Submitted By", "Supplier", "Item", "Date", "Amount", "Source"];
-    const csvRows = filtered.map((r) => [r.id, r.item_id, r.entity_type, r.action, r.actor_name ?? "", r.submitted_by ?? "", r.supplier_name ?? "", r.ingredient_name ?? "", r.action_date, r.amount ?? "", r.from_procurement ? "Procurement" : "System"]);
-    const csv = [headers, ...csvRows].map((row) => row.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `governance-history-${new Date().toISOString().split("T")[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const headers = ["ID","Item ID","Entity Type","Action","Actor","Submitted By","Supplier","Item","Date","Amount","Source"];
+    const csvRows = filtered.map((r) => [r.id,r.item_id,r.entity_type,r.action,r.actor_name??"",r.submitted_by??"",r.supplier_name??"",r.ingredient_name??"",r.action_date,r.amount??"",r.from_procurement?"Procurement":"System"]);
+    const csv     = [headers,...csvRows].map((row) => row.join(",")).join("\n");
+    const blob    = new Blob([csv], { type: "text/csv" });
+    const url     = URL.createObjectURL(blob);
+    const link    = document.createElement("a");
+    link.href = url; link.download = `governance-history-${new Date().toISOString().split("T")[0]}.csv`;
+    link.click(); URL.revokeObjectURL(url);
     addToast("success", "Governance history exported.");
   }, [filtered, addToast]);
-
-  const approvedCount = useMemo(() => rows.filter((r) => r.action === "approve").length, [rows]);
-  const rejectedCount = useMemo(() => rows.filter((r) => r.action === "reject").length, [rows]);
-  const procurementCount = useMemo(() => rows.filter((r) => r.from_procurement).length, [rows]);
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Actions",    value: rows.length,      color: "text-foreground",                        icon: History },
-          { label: "Approved",         value: approvedCount,    color: "text-green-600 dark:text-green-400",     icon: BadgeCheck },
-          { label: "Rejected",         value: rejectedCount,    color: "text-red-600 dark:text-red-400",         icon: Ban },
-          { label: "From Procurement", value: procurementCount, color: "text-blue-600 dark:text-blue-400",       icon: ShoppingCart },
+          { label: "Total Actions",    value: rows.length,      color: "text-foreground",                    icon: History      },
+          { label: "Approved",         value: approvedCount,    color: "text-green-600 dark:text-green-400", icon: BadgeCheck   },
+          { label: "Rejected",         value: rejectedCount,    color: "text-red-600 dark:text-red-400",     icon: Ban          },
+          { label: "From Procurement", value: procurementCount, color: "text-blue-600 dark:text-blue-400",   icon: ShoppingCart },
         ].map((s, i) => (
           <Card key={s.label} className="gov-fade-in p-4" style={{ animationDelay: `${i * 50}ms` }}>
             <div className="flex items-start justify-between">
@@ -807,14 +697,17 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search history…" className="h-8 ps-8 pe-3 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44 transition-shadow focus:shadow-sm" />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search history…"
+                className="h-8 ps-8 pe-3 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44" />
             </div>
-            <select value={filterAction} onChange={(e) => setFilterAction(e.target.value as any)} className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <select value={filterAction} onChange={(e) => setFilterAction(e.target.value as any)}
+              className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
               <option value="all">All Actions</option>
               <option value="approve">Approved</option>
               <option value="reject">Rejected</option>
             </select>
-            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value as any)} className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <select value={filterSource} onChange={(e) => setFilterSource(e.target.value as any)}
+              className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
               <option value="all">All Sources</option>
               <option value="procurement">Procurement</option>
               <option value="system">System</option>
@@ -831,7 +724,7 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
         {error && <div className="mb-4"><ErrorBanner message={error} onRetry={fetchHistory} /></div>}
 
         {loading ? (
-          <div className="space-y-2">{[1, 2, 3, 4, 5].map((i) => <SkeletonRow key={i} />)}</div>
+          <div className="space-y-2">{[1,2,3,4,5].map((i) => <SkeletonRow key={i} />)}</div>
         ) : filtered.length === 0 ? (
           <EmptyState message="No governance actions recorded yet." />
         ) : (
@@ -840,7 +733,7 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {["#", "Item", "Entity", "Action", "Actor", "Submitted By", "Supplier", "Item/Ingredient", "Date", "Amount", "Source", "View"].map((h) => (
+                    {["#","Item","Entity","Action","Actor","Submitted By","Supplier","Item/Ingredient","Date","Amount","Source","View"].map((h) => (
                       <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground pb-2 px-2 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -864,17 +757,11 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
                       <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{formatDate(row.action_date)}</td>
                       <td className="py-2.5 px-2 text-right font-medium">{row.amount != null ? formatCurrency(row.amount, row.currency ?? undefined) : "—"}</td>
                       <td className="py-2.5 px-2">
-                        {row.from_procurement ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded">
-                            <ShoppingCart className="w-2.5 h-2.5" /> PO
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground">System</span>
-                        )}
+                        {row.from_procurement
+                          ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded"><ShoppingCart className="w-2.5 h-2.5" /> PO</span>
+                          : <span className="text-[10px] text-muted-foreground">System</span>}
                       </td>
-                      <td className="py-2.5 px-2">
-                        <EyeBtn onClick={() => openGovernanceHistoryHtml(row)} />
-                      </td>
+                      <td className="py-2.5 px-2"><EyeBtn onClick={() => openGovernanceHistoryHtml(row)} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -890,30 +777,28 @@ function GovernanceHistoryTab({ branchId, addToast }: { branchId: number; addToa
 
 // ─── PO History Tab ───────────────────────────────────────────────────────────
 
-function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (type: ToastMessage["type"], message: string) => void }) {
-  const [rows, setRows] = useState<PurchaseHistoryRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+function POHistoryTab({ branchId, addToast }: {
+  branchId: number;
+  addToast: (type: ToastMessage["type"], message: string) => void;
+}) {
+  const [rows,         setRows]         = useState<PurchaseHistoryRow[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState<string | null>(null);
+  const [search,       setSearch]       = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "approved" | "pending" | "rejected">("all");
-  const [page, setPage] = useState(1);
+  const [page,         setPage]         = useState(1);
 
   const fetchPOs = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ limit: "200" });
       if (branchId) params.set("branch_id", String(branchId));
       const data = await apiCall<PurchaseHistoryRow[]>(`/api/purchases?${params.toString()}`);
-      setRows(Array.isArray(data) ? data : []);
-      setPage(1);
+      setRows(Array.isArray(data) ? data : []); setPage(1);
     } catch (err: any) {
       const msg = err?.message ?? "Failed to load purchase orders";
-      setError(msg);
-      addToast("error", msg);
-    } finally {
-      setLoading(false);
-    }
+      setError(msg); addToast("error", msg);
+    } finally { setLoading(false); }
   }, [branchId, addToast]);
 
   useEffect(() => { fetchPOs(); }, [fetchPOs]);
@@ -924,10 +809,8 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter((r) =>
-        String(r.id).includes(q) ||
-        (r.ingredient_name ?? "").toLowerCase().includes(q) ||
-        (r.supplier_name ?? "").toLowerCase().includes(q) ||
-        (r.branch_name ?? "").toLowerCase().includes(q) ||
+        String(r.id).includes(q) || (r.ingredient_name ?? "").toLowerCase().includes(q) ||
+        (r.supplier_name ?? "").toLowerCase().includes(q) || (r.branch_name ?? "").toLowerCase().includes(q) ||
         (r.notes ?? "").toLowerCase().includes(q)
       );
     }
@@ -936,35 +819,32 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
 
   useEffect(() => { setPage(1); }, [search, filterStatus]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
-  const pageItems = useMemo(() => filtered.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE), [filtered, page]);
+  const totalPages   = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
+  const pageItems    = useMemo(() => filtered.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE), [filtered, page]);
+  const totalGross   = useMemo(() => rows.reduce((s, r) => s + (r.gross_amount ?? r.quantity * r.unit_cost), 0), [rows]);
+  const approvedRows = useMemo(() => rows.filter((r) => r.status === "approved"), [rows]);
+  const pendingRows  = useMemo(() => rows.filter((r) => r.status === "pending"),  [rows]);
 
   const handleExportCSV = useCallback(() => {
-    const headers = ["ID", "Branch", "Supplier", "Ingredient", "Unit", "Date", "Qty", "Unit Cost", "Gross Amount", "Tax", "Payable", "Status"];
-    const csvRows = filtered.map((r) => [r.id, r.branch_name, r.supplier_name, r.ingredient_name, r.unit, r.entry_date, r.quantity, r.unit_cost, r.gross_amount ?? "", r.tax_amount ?? "", r.payable_amount ?? "", r.status]);
-    const csv = [headers, ...csvRows].map((row) => row.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `purchase-orders-${new Date().toISOString().split("T")[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const headers = ["ID","Branch","Supplier","Ingredient","Unit","Date","Qty","Unit Cost","Gross Amount","Tax","Payable","Status"];
+    const csvRows = filtered.map((r) => [r.id,r.branch_name,r.supplier_name,r.ingredient_name,r.unit,r.entry_date,r.quantity,r.unit_cost,r.gross_amount??"",r.tax_amount??"",r.payable_amount??"",r.status]);
+    const csv     = [headers,...csvRows].map((row) => row.join(",")).join("\n");
+    const blob    = new Blob([csv], { type: "text/csv" });
+    const url     = URL.createObjectURL(blob);
+    const link    = document.createElement("a");
+    link.href = url; link.download = `purchase-orders-${new Date().toISOString().split("T")[0]}.csv`;
+    link.click(); URL.revokeObjectURL(url);
     addToast("success", "Purchase orders exported.");
   }, [filtered, addToast]);
-
-  const totalGross = useMemo(() => rows.reduce((sum, r) => sum + (r.gross_amount ?? r.quantity * r.unit_cost), 0), [rows]);
-  const approvedRows = useMemo(() => rows.filter((r) => r.status === "approved"), [rows]);
-  const pendingRows = useMemo(() => rows.filter((r) => r.status === "pending"), [rows]);
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total POs",   value: rows.length,                              color: "text-foreground",                    icon: Package,    isText: false },
-          { label: "Approved",    value: approvedRows.length,                      color: "text-green-600 dark:text-green-400", icon: BadgeCheck, isText: false },
-          { label: "Pending",     value: pendingRows.length,                       color: "text-amber-600 dark:text-amber-400", icon: Clock,      isText: false },
-          { label: "Total Value", value: formatCurrency(totalGross) ?? "—",        color: "text-blue-600 dark:text-blue-400",   icon: DollarSign, isText: true  },
+          { label: "Total POs",   value: rows.length,                      color: "text-foreground",                    icon: Package,    isText: false },
+          { label: "Approved",    value: approvedRows.length,               color: "text-green-600 dark:text-green-400", icon: BadgeCheck, isText: false },
+          { label: "Pending",     value: pendingRows.length,                color: "text-amber-600 dark:text-amber-400", icon: Clock,      isText: false },
+          { label: "Total Value", value: formatCurrency(totalGross) ?? "—", color: "text-blue-600 dark:text-blue-400",  icon: DollarSign, isText: true  },
         ].map((s, i) => (
           <Card key={s.label} className="gov-fade-in p-4" style={{ animationDelay: `${i * 50}ms` }}>
             <div className="flex items-start justify-between">
@@ -988,9 +868,11 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search POs…" className="h-8 ps-8 pe-3 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44 transition-shadow focus:shadow-sm" />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search POs…"
+                className="h-8 ps-8 pe-3 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44" />
             </div>
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)}
+              className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
               <option value="all">All Statuses</option>
               <option value="approved">Approved</option>
               <option value="pending">Pending</option>
@@ -1008,7 +890,7 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
         {error && <div className="mb-4"><ErrorBanner message={error} onRetry={fetchPOs} /></div>}
 
         {loading ? (
-          <div className="space-y-2">{[1, 2, 3, 4, 5].map((i) => <SkeletonRow key={i} />)}</div>
+          <div className="space-y-2">{[1,2,3,4,5].map((i) => <SkeletonRow key={i} />)}</div>
         ) : filtered.length === 0 ? (
           <EmptyState message="No purchase orders found." />
         ) : (
@@ -1017,18 +899,15 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">PO #</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Branch</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Supplier</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Ingredient</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-left">Date</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Qty</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Unit Cost</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Gross</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Tax</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-right">Payable</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Status</th>
-                    <th scope="col" className="px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap text-center">Actions</th>
+                    {[
+                      { h: "PO #", cls: "text-left" }, { h: "Branch", cls: "text-left" }, { h: "Supplier", cls: "text-left" },
+                      { h: "Ingredient", cls: "text-left" }, { h: "Date", cls: "text-left" },
+                      { h: "Qty", cls: "text-right" }, { h: "Unit Cost", cls: "text-right" },
+                      { h: "Gross", cls: "text-right" }, { h: "Tax", cls: "text-right" }, { h: "Payable", cls: "text-right" },
+                      { h: "Status", cls: "text-center" }, { h: "Actions", cls: "text-center" },
+                    ].map(({ h, cls }) => (
+                      <th key={h} scope="col" className={`px-3 py-2.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap ${cls}`}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -1036,47 +915,22 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
                     const gross = row.gross_amount ?? row.quantity * row.unit_cost;
                     return (
                       <tr key={row.id} className="hover:bg-muted/30 transition-colors group">
-                        <td className="px-3 py-3 text-sm font-mono font-semibold text-foreground">
-                          PO-{String(row.id).padStart(5, "0")}
-                        </td>
-                        <td className="px-3 py-3 text-xs text-muted-foreground">
-                          {row.branch_name}
-                        </td>
-                        <td className="px-3 py-3 text-xs text-muted-foreground">
-                          {row.supplier_name}
-                        </td>
-                        <td className="px-3 py-3 text-sm font-medium text-foreground">
-                          {row.ingredient_name}
-                        </td>
-                        <td className="px-3 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDateShort(row.entry_date)}
-                        </td>
-                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">
-                          {formatNumber(row.quantity)} <span className="text-xs">{row.unit}</span>
-                        </td>
-                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">
-                          {formatNumber(row.unit_cost, 2)}
-                        </td>
-                        <td className="px-3 py-3 text-sm text-right tabular-nums font-semibold text-foreground">
-                          {formatNumber(gross, 2)}
-                        </td>
-                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">
-                          {row.tax_amount != null ? formatNumber(row.tax_amount, 2) : "—"}
-                        </td>
-                        <td className="px-3 py-3 text-sm text-right tabular-nums font-bold text-foreground">
-                          {row.payable_amount != null ? formatNumber(row.payable_amount, 2) : "—"}
-                        </td>
-                        <td className="px-3 py-3 text-center">
-                          <StatusBadge status={row.status} />
-                        </td>
+                        <td className="px-3 py-3 text-sm font-mono font-semibold text-foreground">PO-{String(row.id).padStart(5,"0")}</td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">{row.branch_name}</td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">{row.supplier_name}</td>
+                        <td className="px-3 py-3 text-sm font-medium text-foreground">{row.ingredient_name}</td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateShort(row.entry_date)}</td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">{formatNumber(row.quantity)} <span className="text-xs">{row.unit}</span></td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">{formatNumber(row.unit_cost, 2)}</td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums font-semibold text-foreground">{formatNumber(gross, 2)}</td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums text-muted-foreground">{row.tax_amount != null ? formatNumber(row.tax_amount, 2) : "—"}</td>
+                        <td className="px-3 py-3 text-sm text-right tabular-nums font-bold text-foreground">{row.payable_amount != null ? formatNumber(row.payable_amount, 2) : "—"}</td>
+                        <td className="px-3 py-3 text-center"><StatusBadge status={row.status} /></td>
                         <td className="px-3 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <EyeBtn onClick={() => openPurchaseOrderHtml(row)} />
-                            <button
-                              onClick={() => downloadPOPdf(row, addToast)}
-                              title={`Download PO-${String(row.id).padStart(5, "0")}`}
-                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors"
-                            >
+                            <button onClick={() => downloadPOPdf(row, addToast)} title={`Download PO-${String(row.id).padStart(5,"0")}`}
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
                               <Download className="w-3.5 h-3.5" />
                             </button>
                           </div>
@@ -1087,19 +941,11 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/20">
-                    <td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Total ({filtered.length} records)
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">
-                      {formatNumber(filtered.reduce((s, r) => s + (r.gross_amount ?? r.quantity * r.unit_cost), 0), 2)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums text-xs">
-                      {formatNumber(filtered.reduce((s, r) => s + (r.tax_amount ?? 0), 0), 2)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">
-                      {formatNumber(filtered.reduce((s, r) => s + (r.payable_amount ?? 0), 0), 2)}
-                    </td>
-                    <td colSpan={2}/>
+                    <td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({filtered.length} records)</td>
+                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{formatNumber(filtered.reduce((s, r) => s + (r.gross_amount ?? r.quantity * r.unit_cost), 0), 2)}</td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground tabular-nums text-xs">{formatNumber(filtered.reduce((s, r) => s + (r.tax_amount ?? 0), 0), 2)}</td>
+                    <td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{formatNumber(filtered.reduce((s, r) => s + (r.payable_amount ?? 0), 0), 2)}</td>
+                    <td colSpan={2} />
                   </tr>
                 </tfoot>
               </table>
@@ -1117,35 +963,45 @@ function POHistoryTab({ branchId, addToast }: { branchId: number; addToast: (typ
 export default function Governance() {
   useInjectStyles();
 
-  const { t } = useLanguage();
+  const { t }         = useLanguage();
   const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
-  const branchId = Number(localStorage.getItem("branch_id") ?? 0);
-  const todayStr = new Date().toISOString().split("T")[0];
-  const currentMonth = todayStr.slice(0, 7);
+  const branchId      = Number(localStorage.getItem("branch_id") ?? 0);
+  const todayStr      = new Date().toISOString().split("T")[0];
+  const currentMonth  = todayStr.slice(0, 7);
 
   // ── State ─────────────────────────────────────────────────────────────────
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>("approvals");
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [approvals, setApprovals] = useState<ApprovalItem[]>([]);
+  const [activeTab,        setActiveTab]        = useState<ActiveTab>("approvals");
+  const [toasts,           setToasts]           = useState<ToastMessage[]>([]);
+  const [approvals,        setApprovals]        = useState<ApprovalItem[]>([]);
   const [approvalsLoading, setApprovalsLoading] = useState(true);
-  const [approvalsError, setApprovalsError] = useState<string | null>(null);
-  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<string>("all");
-  const [filterStatus, setFilterStatus] = useState<ApprovalStatus | "all">("pending");
-  const [sortField, setSortField] = useState<SortField>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
-  const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{ id: string; action: "approve" | "reject" } | null>(null);
-  const [newPOCount, setNewPOCount] = useState(0);
-  const [periodClosed, setPeriodClosed] = useState(false);
-  const [periodLoading, setPeriodLoading] = useState(true);
-  const [periodError, setPeriodError] = useState<string | null>(null);
-  const [closingPeriod, setClosingPeriod] = useState(false);
+  const [approvalsError,   setApprovalsError]   = useState<string | null>(null);
+  const [loadingIds,       setLoadingIds]       = useState<Set<string>>(new Set());
+  const [search,           setSearch]           = useState("");
+  const [filterType,       setFilterType]       = useState<string>("all");
+  const [filterStatus,     setFilterStatus]     = useState<ApprovalStatus | "all">("pending");
+  const [sortField,        setSortField]        = useState<SortField>("date");
+  const [sortDir,          setSortDir]          = useState<SortDir>("desc");
+  const [showFilters,      setShowFilters]      = useState(false);
+  const [page,             setPage]             = useState(1);
+  const [focusedIdx,       setFocusedIdx]       = useState<number | null>(null);
+  const [confirmAction,    setConfirmAction]    = useState<{ id: string; action: "approve" | "reject" } | null>(null);
+  const [newPOCount,       setNewPOCount]       = useState(0);
+  const [periodClosed,     setPeriodClosed]     = useState(false);
+  const [periodLoading,    setPeriodLoading]    = useState(true);
+  const [periodError,      setPeriodError]      = useState<string | null>(null);
+  const [closingPeriod,    setClosingPeriod]    = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  // ── Expense categories (for CategorySelector) ─────────────────────────────
+  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+
+  useEffect(() => {
+    apiCall<ExpenseCategory[]>("/api/expense-categories")
+      .then((data) => setCategories(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
 
   // ── Toast helpers ─────────────────────────────────────────────────────────
 
@@ -1158,83 +1014,63 @@ export default function Governance() {
   }, []);
 
   // ── Fetch approvals ───────────────────────────────────────────────────────
+
   const fetchApprovals = useCallback(async () => {
-    setApprovalsLoading(true);
-    setApprovalsError(null);
+    setApprovalsLoading(true); setApprovalsError(null);
     try {
       const data = await apiCall<any[]>("/api/approvals/pending");
       const serverItems: ApprovalItem[] = (Array.isArray(data) ? data : []).map((row) => {
         const typeKey = toTypeKey(row);
-        const desc = row.entity_type === "purchase"
-          ? [
-              row.ingredient_name,
-              row.supplier_name,
-              row.branch_name,
+        const desc    = row.entity_type === "purchase"
+          ? [row.ingredient_name, row.supplier_name, row.branch_name,
               row.quantity  != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null,
               row.unit_cost != null ? `@ ${row.unit_cost}` : null,
             ].filter(Boolean).join(" · ")
           : String(row.description ?? row.notes ?? "");
-  
         return {
-          id:           String(row.id),          // approval_request.id — always correct
-          purchaseId:   row.entity_type === "purchase" ? Number(row.entity_id) : undefined,
-          typeKey,
-          desc,
-          submitted_by: String(row.submitted_by ?? row.requested_by_name ?? ""),
-          date:         String(row.requested_at  ?? row.entry_date ?? ""),
-          status:       normalizeStatus(row.status),
-          amount:       row.payable_amount != null ? Number(row.payable_amount)
-                      : row.amount         != null ? Number(row.amount) : undefined,
-          currency:     row.currency ?? undefined,
-          priority:     toPriority(row),
+          id:              String(row.id),
+          purchaseId:      row.entity_type === "purchase" ? Number(row.entity_id) : undefined,
+          typeKey, desc,
+          submitted_by:    String(row.submitted_by ?? row.requested_by_name ?? ""),
+          date:            String(row.requested_at  ?? row.entry_date ?? ""),
+          status:          normalizeStatus(row.status),
+          amount:          row.payable_amount != null ? Number(row.payable_amount) : row.amount != null ? Number(row.amount) : undefined,
+          currency:        row.currency ?? undefined,
+          priority:        toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
         };
       });
-  
-  
-      // Always replace with fresh server data — no merging with local state.
-      // The Procurement event listener now calls fetchApprovals() instead of
-      // adding a local item, so we never have stale placeholder ids.
-      setApprovals(serverItems);
-      setPage(1);
+      setApprovals(serverItems); setPage(1);
     } catch (err: any) {
       const msg = err?.message ?? t("gov.error.fetchApprovals");
-      setApprovalsError(msg);
-      addToast("error", msg);
-    } finally {
-      setApprovalsLoading(false);
-    }
+      setApprovalsError(msg); addToast("error", msg);
+    } finally { setApprovalsLoading(false); }
   }, [addToast, t]);
+
   useEffect(() => {
-  function handleNewPO(event: Event) {
-    const po = (event as CustomEvent).detail;
-    if (!po) return;
-    setNewPOCount((c) => c + 1);
-    addToast("warning", `New PO #${po.id} added to approval queue.`);
-    fetchApprovals();
-  }
-  window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
-  return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
+    function handleNewPO(event: Event) {
+      const po = (event as CustomEvent).detail;
+      if (!po) return;
+      setNewPOCount((c) => c + 1);
+      addToast("warning", `New PO #${po.id} added to approval queue.`);
+      fetchApprovals();
+    }
+    window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
+    return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
   }, [addToast, fetchApprovals]);
+
   useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
 
   // ── Approve / Reject ──────────────────────────────────────────────────────
+
   const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
-    setConfirmAction(null);
-    setFocusedIdx(null);
+    setConfirmAction(null); setFocusedIdx(null);
     setLoadingIds((prev) => new Set(prev).add(id));
-  
     const newStatus: ApprovalStatus = action === "approve" ? "approved" : "rejected";
     setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
-  
     try {
-      // id is ALWAYS the approval_request.id now — no stripping needed
-      await apiCall(`/api/approvals/${id}/${action}`, {
-        method: "POST",
-        body: JSON.stringify({ user_id: currentUserId }),
-      });
+      await apiCall(`/api/approvals/${id}/${action}`, { method: "POST", body: JSON.stringify({ user_id: currentUserId }) });
       addToast("success", action === "approve" ? t("gov.toast.approved") : t("gov.toast.rejected"));
-      // Refresh so approved items disappear from pending list
       fetchApprovals();
     } catch (err: any) {
       setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: "pending" } : a)));
@@ -1252,49 +1088,36 @@ export default function Governance() {
     setLoadingIds(new Set(pendingIds));
     setApprovals((prev) => prev.map((a) => (a.status === "pending" ? { ...a, status: "approved" } : a)));
     try {
-      await Promise.all(pendingIds.map((id) => {
-        return apiCall(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_by: currentUserId }) });
-      }));
+      await Promise.all(pendingIds.map((id) => apiCall(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_by: currentUserId }) })));
       addToast("success", t("gov.toast.bulkApproved"));
     } catch (err: any) {
-      await fetchApprovals();
-      addToast("error", err?.message ?? t("gov.error.action"));
-    } finally {
-      setLoadingIds(new Set());
-    }
+      await fetchApprovals(); addToast("error", err?.message ?? t("gov.error.action"));
+    } finally { setLoadingIds(new Set()); }
   }, [approvals, currentUserId, addToast, t, fetchApprovals]);
 
   // ── Period closure ────────────────────────────────────────────────────────
 
   const fetchPeriodStatus = useCallback(async () => {
     if (!branchId) { setPeriodLoading(false); return; }
-    setPeriodLoading(true);
-    setPeriodError(null);
+    setPeriodLoading(true); setPeriodError(null);
     try {
       const data = await apiCall<{ is_closed: boolean }>(`/api/period/is-closed?branch_id=${branchId}&entry_date=${todayStr}`);
       setPeriodClosed(data?.is_closed ?? false);
-    } catch (err: any) {
-      setPeriodError(err?.message ?? t("gov.error.fetchPeriod"));
-    } finally {
-      setPeriodLoading(false);
-    }
+    } catch (err: any) { setPeriodError(err?.message ?? t("gov.error.fetchPeriod")); }
+    finally { setPeriodLoading(false); }
   }, [branchId, todayStr, t]);
 
   useEffect(() => { fetchPeriodStatus(); }, [fetchPeriodStatus]);
 
   const handleClosePeriod = useCallback(async () => {
     if (!branchId) return;
-    setShowCloseConfirm(false);
-    setClosingPeriod(true);
+    setShowCloseConfirm(false); setClosingPeriod(true);
     try {
       await apiCall("/api/period/close", { method: "POST", body: JSON.stringify({ branch_id: branchId, closed_to: todayStr, notes: "", user_id: currentUserId }) });
       await fetchPeriodStatus();
       addToast("success", t("gov.toast.periodClosed"));
-    } catch (err: any) {
-      addToast("error", err?.message ?? t("gov.error.closePeriod"));
-    } finally {
-      setClosingPeriod(false);
-    }
+    } catch (err: any) { addToast("error", err?.message ?? t("gov.error.closePeriod")); }
+    finally { setClosingPeriod(false); }
   }, [branchId, todayStr, currentUserId, fetchPeriodStatus, addToast, t]);
 
   // ── Derived state ─────────────────────────────────────────────────────────
@@ -1303,22 +1126,22 @@ export default function Governance() {
   const approvedCount  = useMemo(() => approvals.filter((a) => a.status === "approved").length,  [approvals]);
   const rejectedCount  = useMemo(() => approvals.filter((a) => a.status === "rejected").length,  [approvals]);
   const pendingPOCount = useMemo(() => approvals.filter((a) => a.status === "pending" && a.fromProcurement).length, [approvals]);
-  const typeOptions    = useMemo(() => Array.from(new Set(approvals.map((a) => a.typeKey))),      [approvals]);
+  const typeOptions    = useMemo(() => Array.from(new Set(approvals.map((a) => a.typeKey))), [approvals]);
   const openPeriods    = periodLoading ? "…" : periodClosed ? "0" : "1";
 
   const filteredAndSorted = useMemo(() => {
     let result = [...approvals];
     if (filterStatus !== "all") result = result.filter((a) => a.status === filterStatus);
-    if (filterType !== "all")   result = result.filter((a) => a.typeKey === filterType);
+    if (filterType   !== "all") result = result.filter((a) => a.typeKey === filterType);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter((a) => a.id.toLowerCase().includes(q) || a.desc.toLowerCase().includes(q) || a.submitted_by.toLowerCase().includes(q) || t(a.typeKey).toLowerCase().includes(q));
     }
     result.sort((a, b) => {
       let va: string, vb: string;
-      if (sortField === "date") { va = a.date; vb = b.date; }
+      if (sortField === "date")     { va = a.date; vb = b.date; }
       else if (sortField === "priority") { const o = { high: 0, medium: 1, low: 2 }; va = String(o[a.priority ?? "medium"]); vb = String(o[b.priority ?? "medium"]); }
-      else { va = a[sortField] ?? ""; vb = b[sortField] ?? ""; }
+      else { va = (a as any)[sortField] ?? ""; vb = (b as any)[sortField] ?? ""; }
       return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
     });
     return result;
@@ -1328,7 +1151,7 @@ export default function Governance() {
 
   const totalPages       = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE));
   const currentPageItems = useMemo(() => filteredAndSorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filteredAndSorted, page]);
-  const pendingPageItems = useMemo(() => currentPageItems.filter((a) => a.status === "pending"),            [currentPageItems]);
+  const pendingPageItems = useMemo(() => currentPageItems.filter((a) => a.status === "pending"), [currentPageItems]);
 
   const byType = useMemo(() => {
     const groups: Record<string, { pending: number; approved: number }> = {};
@@ -1341,10 +1164,9 @@ export default function Governance() {
   }, [approvals]);
 
   const approvalStatusRows = useMemo(() =>
-    ["gov.approvalType.purchase", "gov.approvalType.expense", "gov.approvalType.stockAdj", "gov.approvalType.transfer"].map((k) => ({
+    ["gov.approvalType.purchase","gov.approvalType.expense","gov.approvalType.stockAdj","gov.approvalType.transfer"].map((k) => ({
       typeKey: k, pending: byType[k]?.pending ?? 0, approved: byType[k]?.approved ?? 0,
-    })),
-  [byType]);
+    })), [byType]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
 
@@ -1370,25 +1192,23 @@ export default function Governance() {
   // ── Export CSV ────────────────────────────────────────────────────────────
 
   const handleExportCSV = useCallback(() => {
-    const headers = ["ID", "Type", "Description", "Submitted By", "Date", "Status", "Priority", "Source"];
-    const rows = filteredAndSorted.map((a) => [a.id, t(a.typeKey), `"${a.desc.replace(/"/g, '""')}"`, a.submitted_by, a.date, a.status, a.priority ?? "medium", a.fromProcurement ? "Procurement" : "System"]);
-    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `approvals-${todayStr}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const headers = ["ID","Type","Description","Submitted By","Date","Status","Priority","Source"];
+    const rows    = filteredAndSorted.map((a) => [a.id,t(a.typeKey),`"${a.desc.replace(/"/g,'""')}"`,a.submitted_by,a.date,a.status,a.priority??"medium",a.fromProcurement?"Procurement":"System"]);
+    const csv     = [headers,...rows].map((r) => r.join(",")).join("\n");
+    const blob    = new Blob([csv], { type: "text/csv" });
+    const url     = URL.createObjectURL(blob);
+    const link    = document.createElement("a");
+    link.href = url; link.download = `approvals-${todayStr}.csv`;
+    link.click(); URL.revokeObjectURL(url);
     addToast("success", t("gov.toast.exported"));
   }, [filteredAndSorted, t, todayStr, addToast]);
 
   // ── Tab definitions ───────────────────────────────────────────────────────
 
   const tabs: { id: ActiveTab; label: string; icon: React.ElementType; badge?: number }[] = [
-    { id: "approvals",   label: "Approvals",          icon: ShieldCheck, badge: pendingCount > 0 ? pendingCount : undefined },
-    { id: "gov-history", label: "Governance History",  icon: History },
-    { id: "po-history",  label: "Purchase Orders",     icon: Package },
+    { id: "approvals",   label: "Approvals",         icon: ShieldCheck, badge: pendingCount > 0 ? pendingCount : undefined },
+    { id: "gov-history", label: "Governance History", icon: History },
+    { id: "po-history",  label: "Purchase Orders",    icon: Package },
   ];
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -1398,9 +1218,7 @@ export default function Governance() {
       {/* Toast container */}
       <div className="fixed bottom-4 end-4 z-50 flex flex-col gap-2 w-80 pointer-events-none">
         {toasts.map((toast) => (
-          <div key={toast.id} className="pointer-events-auto">
-            <Toast toast={toast} onDismiss={dismissToast} />
-          </div>
+          <div key={toast.id} className="pointer-events-auto"><Toast toast={toast} onDismiss={dismissToast} /></div>
         ))}
       </div>
 
@@ -1410,9 +1228,7 @@ export default function Governance() {
           <div className="gov-pop bg-background border border-border rounded-xl shadow-xl p-6 w-80 space-y-4">
             <div className="flex items-center gap-3">
               <div className={`p-2 rounded-full ${confirmAction.action === "approve" ? "bg-green-100 dark:bg-green-950/50" : "bg-red-100 dark:bg-red-950/50"}`}>
-                {confirmAction.action === "approve"
-                  ? <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                  : <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />}
+                {confirmAction.action === "approve" ? <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" /> : <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />}
               </div>
               <div>
                 <p className="text-sm font-semibold text-foreground">{confirmAction.action === "approve" ? t("gov.confirm.approveTitle") : t("gov.confirm.rejectTitle")}</p>
@@ -1422,7 +1238,8 @@ export default function Governance() {
             <p className="text-sm text-muted-foreground">{confirmAction.action === "approve" ? t("gov.confirm.approveBody") : t("gov.confirm.rejectBody")}</p>
             <div className="flex gap-2 justify-end">
               <Button size="sm" variant="outline" onClick={() => setConfirmAction(null)} className="gov-btn-press text-xs">{t("gov.confirm.cancel")}</Button>
-              <Button size="sm" onClick={() => handleAction(confirmAction.id, confirmAction.action)} className={`gov-btn-press gov-ripple text-xs text-white ${confirmAction.action === "approve" ? "bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600" : "bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600"}`}>
+              <Button size="sm" onClick={() => handleAction(confirmAction.id, confirmAction.action)}
+                className={`gov-btn-press gov-ripple text-xs text-white ${confirmAction.action === "approve" ? "bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600" : "bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600"}`}>
                 {confirmAction.action === "approve" ? t("gov.confirm.approve") : t("gov.confirm.reject")}
               </Button>
             </div>
@@ -1488,11 +1305,8 @@ export default function Governance() {
         {/* Tab bar */}
         <div className="flex items-center gap-1 border-b border-border">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none ${activeTab === tab.id ? "text-foreground border-b-2 border-foreground -mb-px" : "text-muted-foreground hover:text-foreground"}`}
-            >
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none ${activeTab === tab.id ? "text-foreground border-b-2 border-foreground -mb-px" : "text-muted-foreground hover:text-foreground"}`}>
               <tab.icon className="w-4 h-4" />
               {tab.label}
               {tab.badge != null && tab.badge > 0 && (
@@ -1513,7 +1327,7 @@ export default function Governance() {
 
         {/* Sub-tabs */}
         {activeTab === "gov-history" && <GovernanceHistoryTab branchId={branchId} addToast={addToast} />}
-        {activeTab === "po-history"  && <POHistoryTab branchId={branchId} addToast={addToast} />}
+        {activeTab === "po-history"  && <POHistoryTab         branchId={branchId} addToast={addToast} />}
 
         {/* Approvals tab */}
         {activeTab === "approvals" && (
@@ -1521,10 +1335,10 @@ export default function Governance() {
             {/* Metrics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: t("gov.metric.pendingApprovals"),   value: pendingCount,  color: "text-amber-500 dark:text-amber-400",  icon: Clock,         sub: t("gov.metric.pendingApprovalsSub") },
-                { label: t("gov.metric.approvedThisMonth"),  value: approvedCount, color: "text-green-600 dark:text-green-400",  icon: CheckCircle,   sub: t("gov.metric.approvedThisMonthSub") },
-                { label: t("gov.metric.rejected"),           value: rejectedCount, color: "text-red-600 dark:text-red-400",      icon: XCircle,       sub: t("gov.metric.rejectedSub") },
-                { label: t("gov.metric.openPeriods"),        value: openPeriods,   color: "text-foreground",                    icon: Calendar,      sub: periodClosed ? t("gov.metric.openPeriodsClosed") : t("gov.metric.openPeriodsSub") },
+                { label: t("gov.metric.pendingApprovals"),  value: pendingCount,  color: "text-amber-500 dark:text-amber-400",  icon: Clock,       sub: t("gov.metric.pendingApprovalsSub")  },
+                { label: t("gov.metric.approvedThisMonth"), value: approvedCount, color: "text-green-600 dark:text-green-400",  icon: CheckCircle, sub: t("gov.metric.approvedThisMonthSub") },
+                { label: t("gov.metric.rejected"),          value: rejectedCount, color: "text-red-600 dark:text-red-400",      icon: XCircle,     sub: t("gov.metric.rejectedSub")          },
+                { label: t("gov.metric.openPeriods"),       value: openPeriods,   color: "text-foreground",                    icon: Calendar,    sub: periodClosed ? t("gov.metric.openPeriodsClosed") : t("gov.metric.openPeriodsSub") },
               ].map((s, i) => (
                 <Card key={s.label} className="gov-fade-in p-5" style={{ animationDelay: `${i * 60}ms` }}>
                   <div className="flex items-start justify-between">
@@ -1547,12 +1361,12 @@ export default function Governance() {
                   <TrendingUp className="w-4 h-4 text-muted-foreground opacity-60" />
                 </div>
                 {approvalsLoading ? (
-                  <div className="space-y-5">{[1, 2, 3, 4].map((i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>
+                  <div className="space-y-5">{[1,2,3,4].map((i) => <div key={i} className="h-8 bg-muted rounded animate-pulse" />)}</div>
                 ) : (
                   <div className="space-y-4">
                     {approvalStatusRows.map((s) => {
                       const total = s.approved + s.pending;
-                      const pct = total > 0 ? Math.round((s.approved / total) * 100) : 0;
+                      const pct   = total > 0 ? Math.round((s.approved / total) * 100) : 0;
                       return (
                         <div key={s.typeKey}>
                           <div className="flex items-center justify-between mb-1.5">
@@ -1586,28 +1400,41 @@ export default function Governance() {
                 <h2 className="text-sm font-semibold text-foreground mb-3">{t("gov.quickActions.title")}</h2>
                 <div className="space-y-2">
                   {pendingCount > 0 && (
-                    <Button variant="outline" size="sm" className="gov-btn-press gov-ripple w-full justify-start text-xs h-9 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-950/30" onClick={handleBulkApprove} disabled={loadingIds.size > 0}>
+                    <Button variant="outline" size="sm" onClick={handleBulkApprove} disabled={loadingIds.size > 0}
+                      className="gov-btn-press gov-ripple w-full justify-start text-xs h-9 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-950/30">
                       {loadingIds.size > 0 ? <Loader2 className="w-3.5 h-3.5 me-2 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 me-2" />}
                       {t("gov.quickActions.approveAll").replace("{count}", String(pendingCount))}
                     </Button>
                   )}
                   {pendingPOCount > 0 && (
-                    <Button variant="outline" size="sm" className="gov-btn-press w-full justify-start text-xs h-9 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => { setFilterType("gov.approvalType.purchase"); setFilterStatus("pending"); }}>
+                    <Button variant="outline" size="sm" onClick={() => { setFilterType("gov.approvalType.purchase"); setFilterStatus("pending"); }}
+                      className="gov-btn-press w-full justify-start text-xs h-9 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30">
                       <ShoppingCart className="w-3.5 h-3.5 me-2" />Review {pendingPOCount} Pending PO{pendingPOCount !== 1 ? "s" : ""}
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" className="gov-btn-press w-full justify-start text-xs h-9" onClick={fetchApprovals} disabled={approvalsLoading}>
+                  <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="gov-btn-press w-full justify-start text-xs h-9">
                     <RefreshCw className={`w-3.5 h-3.5 me-2 ${approvalsLoading ? "animate-spin" : ""}`} />{t("gov.quickActions.refresh")}
                   </Button>
-                  <Button variant="outline" size="sm" className="gov-btn-press w-full justify-start text-xs h-9" onClick={handleExportCSV} disabled={approvals.length === 0}>
+                  <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={approvals.length === 0} className="gov-btn-press w-full justify-start text-xs h-9">
                     <Download className="w-3.5 h-3.5 me-2" />{t("gov.quickActions.export")}
                   </Button>
-                  <Button variant="outline" size="sm" className="gov-btn-press w-full justify-start text-xs h-9 text-muted-foreground" onClick={() => setActiveTab("gov-history")}>
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("gov-history")} className="gov-btn-press w-full justify-start text-xs h-9 text-muted-foreground">
                     <History className="w-3.5 h-3.5 me-2" />View Governance History
                   </Button>
-                  <Button variant="outline" size="sm" className="gov-btn-press w-full justify-start text-xs h-9 text-muted-foreground" onClick={() => setActiveTab("po-history")}>
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("po-history")} className="gov-btn-press w-full justify-start text-xs h-9 text-muted-foreground">
                     <Package className="w-3.5 h-3.5 me-2" />View All Purchase Orders
                   </Button>
+                </div>
+
+                {/* ── Expense Category Selector ── */}
+                <div className="mt-4 pt-4 border-t border-border space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Expense Category</p>
+                  <CategorySelector
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    categories={categories}
+                    onCategoryCreated={(cat) => setCategories((prev) => [...prev, cat])}
+                  />
                 </div>
 
                 <div className="mt-5 pt-4 border-t border-border space-y-2">
@@ -1651,7 +1478,8 @@ export default function Governance() {
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                    <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("gov.search.placeholder")} className="h-8 ps-8 pe-3 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44 transition-shadow focus:shadow-sm" />
+                    <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("gov.search.placeholder")}
+                      className="h-8 ps-8 pe-3 text-xs rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-44 transition-shadow focus:shadow-sm" />
                   </div>
                   <Button variant="outline" size="sm" className="gov-btn-press h-8 text-xs px-2.5" onClick={() => setShowFilters((v) => !v)}>
                     <Filter className="w-3.5 h-3.5 me-1" />{t("gov.action.filter")}
@@ -1664,7 +1492,8 @@ export default function Governance() {
                 <div className="gov-fade-in flex items-center gap-3 mb-4 pb-4 border-b border-border flex-wrap">
                   <div className="flex items-center gap-1.5">
                     <label className="text-xs text-muted-foreground whitespace-nowrap">{t("gov.filter.status")}:</label>
-                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as ApprovalStatus | "all")} className="h-7 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as ApprovalStatus | "all")}
+                      className="h-7 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
                       <option value="all">{t("gov.filter.all")}</option>
                       <option value="pending">{t("gov.filter.pending")}</option>
                       <option value="approved">{t("gov.filter.approved")}</option>
@@ -1673,14 +1502,16 @@ export default function Governance() {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <label className="text-xs text-muted-foreground whitespace-nowrap">{t("gov.filter.type")}:</label>
-                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="h-7 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
+                      className="h-7 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
                       <option value="all">{t("gov.filter.all")}</option>
                       {typeOptions.map((k) => <option key={k} value={k}>{t(k)}</option>)}
                     </select>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <label className="text-xs text-muted-foreground whitespace-nowrap">{t("gov.filter.sortBy")}:</label>
-                    <select value={sortField} onChange={(e) => setSortField(e.target.value as SortField)} className="h-7 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+                    <select value={sortField} onChange={(e) => setSortField(e.target.value as SortField)}
+                      className="h-7 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
                       <option value="date">{t("gov.sort.date")}</option>
                       <option value="typeKey">{t("gov.sort.type")}</option>
                       <option value="submitted_by">{t("gov.sort.submittedBy")}</option>
@@ -1697,18 +1528,18 @@ export default function Governance() {
               {approvalsError && <div className="mb-4"><ErrorBanner message={approvalsError} onRetry={fetchApprovals} /></div>}
 
               {approvalsLoading ? (
-                <div className="space-y-2">{[1, 2, 3].map((i) => <SkeletonRow key={i} />)}</div>
+                <div className="space-y-2">{[1,2,3].map((i) => <SkeletonRow key={i} />)}</div>
               ) : filteredAndSorted.length === 0 ? (
                 <EmptyState message={t("gov.pending.allReviewed")} />
               ) : (
                 <>
                   <div className="space-y-2">
                     {currentPageItems.map((a) => {
-                      const isLoading   = loadingIds.has(a.id);
+                      const isLoading       = loadingIds.has(a.id);
                       const formattedAmount = formatCurrency(a.amount, a.currency);
                       const formattedDate   = formatDate(a.date);
-                      const pendingIdx = pendingPageItems.findIndex((p) => p.id === a.id);
-                      const isFocused  = pendingIdx !== -1 && focusedIdx === pendingIdx;
+                      const pendingIdx      = pendingPageItems.findIndex((p) => p.id === a.id);
+                      const isFocused       = pendingIdx !== -1 && focusedIdx === pendingIdx;
 
                       if (a.status !== "pending") {
                         return (
@@ -1716,11 +1547,7 @@ export default function Governance() {
                             {a.status === "approved" ? <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
                             <p className="text-xs text-muted-foreground truncate flex-1">
                               {t(a.typeKey)}{" "}
-                              <span className="font-mono">
-                                {a.fromProcurement && a.purchaseId
-                                  ? `PO-${String(a.purchaseId).padStart(5, "0")}`
-                                  : `#${a.id}`}
-                              </span>
+                              <span className="font-mono">{a.fromProcurement && a.purchaseId ? `PO-${String(a.purchaseId).padStart(5,"0")}` : `#${a.id}`}</span>
                               {a.desc && ` — ${a.desc}`}
                             </p>
                             {a.fromProcurement && (
@@ -1737,24 +1564,17 @@ export default function Governance() {
                       }
 
                       return (
-                        <div
-                          key={a.id}
-                          onClick={() => setFocusedIdx(pendingIdx)}
+                        <div key={a.id} onClick={() => setFocusedIdx(pendingIdx)}
                           className={`gov-row-hover gov-fade-in flex items-center justify-between px-4 py-3 border rounded-md gap-3 cursor-pointer transition-all ${
-                            isFocused ? "bg-amber-100 dark:bg-amber-950/50 border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50"
-                            : a.fromProcurement ? "bg-blue-50/60 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/50"
+                            isFocused            ? "bg-amber-100 dark:bg-amber-950/50 border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50"
+                            : a.fromProcurement  ? "bg-blue-50/60 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/50"
                             : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50"
-                          }`}
-                        >
+                          }`}>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.fromProcurement ? "bg-blue-500 dark:bg-blue-400" : "bg-amber-500 dark:bg-amber-400"}`} />
                               <p className="text-sm font-medium text-foreground">{t(a.typeKey)}</p>
-                              <span className="text-xs text-muted-foreground font-mono">
-                                {a.fromProcurement && a.purchaseId
-                                  ? `PO-${String(a.purchaseId).padStart(5, "0")}`
-                                  : `#${a.id}`}
-                              </span>
+                              <span className="text-xs text-muted-foreground font-mono">{a.fromProcurement && a.purchaseId ? `PO-${String(a.purchaseId).padStart(5,"0")}` : `#${a.id}`}</span>
                               {a.fromProcurement && (
                                 <span className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                                   <ShoppingCart className="w-2.5 h-2.5" /> Procurement
@@ -1769,19 +1589,16 @@ export default function Governance() {
                               {a.submitted_by ? `${t("gov.pending.submittedBy")} ${a.submitted_by} · ` : ""}{formattedDate}
                             </p>
                           </div>
-
                           <div className="flex gap-2 flex-shrink-0">
                             <EyeBtn onClick={(e?: any) => { e?.stopPropagation?.(); openApprovalHtml(a, t); }} />
                             <Button size="sm" variant="outline" disabled={isLoading}
                               onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "reject" }); }}
-                              className="gov-btn-press gov-ripple h-7 text-xs px-3 border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
-                            >
+                              className="gov-btn-press gov-ripple h-7 text-xs px-3 border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300">
                               {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : t("gov.pending.reject")}
                             </Button>
                             <Button size="sm" disabled={isLoading}
                               onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "approve" }); }}
-                              className="gov-btn-press gov-ripple h-7 text-xs px-3 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white"
-                            >
+                              className="gov-btn-press gov-ripple h-7 text-xs px-3 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white">
                               {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : t("gov.pending.approve")}
                             </Button>
                           </div>
@@ -1789,8 +1606,8 @@ export default function Governance() {
                       );
                     })}
                   </div>
-
-                  <Pagination page={page} totalPages={totalPages} totalItems={filteredAndSorted.length} pageSize={PAGE_SIZE} onPage={(p) => { setPage(p); setFocusedIdx(null); }} />
+                  <Pagination page={page} totalPages={totalPages} totalItems={filteredAndSorted.length} pageSize={PAGE_SIZE}
+                    onPage={(p) => { setPage(p); setFocusedIdx(null); }} />
                 </>
               )}
             </Card>
