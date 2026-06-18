@@ -1,9 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   AlertCircle, CheckCircle2, Loader2, Lock, Plus,
-  Receipt, RefreshCw, TrendingUp, Wallet, X, FileText,
+  Receipt, RefreshCw, TrendingUp, Wallet, XCircle , FileText,
   BarChart2, DollarSign, TrendingDown, ArrowUpRight, ArrowDownRight,
   Printer, Calendar, ChevronRight, Activity,
 } from "lucide-react";
@@ -23,7 +22,7 @@ import type {
 } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, formatPercent, labelize, today, currentPeriod, getPeriodEnd, defaultDateForPeriod, formatDateTime } from "@/lib/format";
-
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ModalType =
@@ -93,25 +92,50 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Modal({ title, saving, onClose, onSave, children, tCancel, tSave }: {
-  title: string; saving: boolean; onClose: () => void;
+function Modal({ title, subtitle, saving, onClose, onSave, children, tCancel, tSave }: {
+  title: string; subtitle?: string; saving: boolean; onClose: () => void;
   onSave: () => void; children: ReactNode;
   tCancel: string; tSave: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-      <div className="w-full max-w-md rounded-xl border border-border bg-background p-6 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-5 w-5" />
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="gov-pop w-[400px] rounded-xl border border-border bg-background shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-cyan-500 dark:text-cyan-400">
+            {title}
+          </p>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
+            <XCircle className="w-4 h-4" />
           </button>
         </div>
-        <div className="mt-5 space-y-4">{children}</div>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} disabled={saving}>{tCancel}</Button>
-          <Button onClick={onSave} disabled={saving} className="min-w-[92px]">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : tSave}
+
+        {/* Sub-label */}
+        {subtitle && (
+          <div className="px-4 pt-3 pb-1">
+            <p className="text-xs font-semibold text-cyan-500 dark:text-cyan-400 uppercase tracking-wider">{subtitle}</p>
+          </div>
+        )}
+
+        {/* Body */}
+        <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          {children}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-2 px-4 pb-4 pt-2 border-t border-border">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}
+            className="flex-1 h-9 text-xs">
+            {tCancel}
+          </Button>
+          <Button size="sm" onClick={onSave} disabled={saving}
+            className="flex-1 h-9 text-xs bg-blue-600 hover:bg-blue-700 text-white border-transparent">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <span className="mr-1">+</span>}
+            {tSave}
           </Button>
         </div>
       </div>
@@ -320,8 +344,20 @@ function RevenueSourceBadge({ source }: { source: "live" | "cached" }) {
 function PLStatement({ summary, revenueSource, branchName, period, expenseBreakdown, budgetViewRows }: {
   summary: any; revenueSource: "live" | "cached"; branchName: string; period: string;
   expenseBreakdown: any[]; budgetViewRows: any[];
-}) {
+  }) {
   const { t } = useLanguage();
+  useEffect(() => {
+  const id = "gov-animations";
+  if (document.getElementById(id)) return;
+  const el = document.createElement("style");
+  el.id = id;
+  el.textContent = `
+    @keyframes gov-pop { 0%{transform:scale(0.95);opacity:0} 60%{transform:scale(1.03)} 100%{transform:scale(1);opacity:1} }
+    .gov-pop { animation: gov-pop 0.25s ease both; }
+  `;
+  document.head.appendChild(el);
+  return () => { document.getElementById(id)?.remove(); };
+  }, []);
   const [plTab, setPlTab] = useState<"pl" | "expenses" | "comparison">("pl");
   const [showAllExpenses, setShowAllExpenses] = useState(false);
 
@@ -1282,7 +1318,7 @@ export default function Finance() {
 
       {/* ── Modals ── */}
       {modal === "expense" && (
-        <Modal title={t("finance.modal.recordExpense")} {...modalProps} onClose={() => setModal(null)} onSave={handleSaveExpense}>
+        <Modal title="Finance" subtitle="New Expense Entry" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveExpense}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={expenseForm.entry_date} onChange={e => setExpenseForm({ ...expenseForm, entry_date: e.target.value })} /></Field>
@@ -1312,7 +1348,7 @@ export default function Finance() {
       )}
 
       {modal === "payroll" && (
-        <Modal title={t("finance.modal.recordPayroll")} {...modalProps} onClose={() => setModal(null)} onSave={handleSavePayroll}>
+        <Modal title="Finance" subtitle="New Payroll Entry" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePayroll}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.date")}>
@@ -1362,7 +1398,7 @@ export default function Finance() {
       )}
 
       {modal === "accrual" && (
-        <Modal title={t("finance.modal.recordAccrual")} {...modalProps} onClose={() => setModal(null)} onSave={handleSaveAccrual}>
+        <Modal title="Finance" subtitle="New Accrual" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveAccrual}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={accrualForm.entry_date} onChange={e => setAccrualForm({ ...accrualForm, entry_date: e.target.value })} /></Field>
@@ -1378,7 +1414,7 @@ export default function Finance() {
       )}
 
       {modal === "depreciation" && (
-        <Modal title={t("finance.modal.recordDepreciation")} {...modalProps} onClose={() => setModal(null)} onSave={handleSaveDepreciation}>
+        <Modal title="Finance" subtitle="New Depreciation" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveDepreciation}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={depreciationForm.entry_date} onChange={e => setDepreciationForm({ ...depreciationForm, entry_date: e.target.value })} /></Field>
@@ -1390,7 +1426,7 @@ export default function Finance() {
       )}
 
       {modal === "prepayment" && (
-        <Modal title={t("finance.modal.recordPrepayment")} {...modalProps} onClose={() => setModal(null)} onSave={handleSavePrepayment}>
+        <Modal title="Finance" subtitle="New Prepayment" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePrepayment}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={prepaymentForm.entry_date} onChange={e => setPrepaymentForm({ ...prepaymentForm, entry_date: e.target.value })} /></Field>
@@ -1404,7 +1440,6 @@ export default function Finance() {
             <Field label={t("finance.modal.amount")}><input type="number" min={0.01} step={0.01} className={inputClass} value={prepaymentForm.amount || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, amount: Number(e.target.value) })} /></Field>
             <Field label={t("finance.modal.months")}><input type="number" min={1} step={1} className={inputClass} value={prepaymentForm.months || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, months: Number(e.target.value) })} /></Field>
           </div>
-          {/* Show the calculated monthly expense preview */}
           {prepaymentForm.amount > 0 && prepaymentForm.months > 0 && (
             <div className="rounded-lg border border-blue-100 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-900/20 px-4 py-3 flex items-center justify-between">
               <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">Monthly recognized expense</p>
@@ -1418,7 +1453,7 @@ export default function Finance() {
       )}
 
       {modal === "budget" && (
-        <Modal title={t("finance.modal.setBudget")} {...modalProps} onClose={() => setModal(null)} onSave={handleSaveBudget}>
+        <Modal title="Finance" subtitle="Set Budget" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveBudget}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <div className="grid grid-cols-2 gap-3">
             <Field label={t("finance.modal.period")}><input type="month" className={inputClass} value={budgetForm.period} onChange={e => setBudgetForm({ ...budgetForm, period: e.target.value })} /></Field>
@@ -1433,7 +1468,7 @@ export default function Finance() {
       )}
 
       {modal === "close" && (
-        <Modal title={t("finance.modal.closePeriod")} {...modalProps} onClose={() => setModal(null)} onSave={handleClosePeriod}>
+        <Modal title="Finance" subtitle="Close Period" {...modalProps} onClose={() => setModal(null)} onSave={handleClosePeriod}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <Field label={t("finance.closedThrough")}><input type="date" className={inputClass} value={closeForm.closed_to} onChange={e => setCloseForm({ ...closeForm, closed_to: e.target.value })} /></Field>
           <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={closeForm.notes} onChange={e => setCloseForm({ ...closeForm, notes: e.target.value })} /></Field>
@@ -1442,7 +1477,7 @@ export default function Finance() {
       )}
 
       {modal === "periodStatus" && (
-        <Modal title="Period status" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePeriodStatus}>
+        <Modal title="Finance" subtitle="Period Status" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePeriodStatus}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
           <Field label="Period"><input className={inputClass} value={period} disabled /></Field>
           <Field label="Status">
