@@ -358,6 +358,7 @@ function PLStatement({ summary, revenueSource, branchName, period, expenseBreakd
   document.head.appendChild(el);
   return () => { document.getElementById(id)?.remove(); };
   }, []);
+  
   const [plTab, setPlTab] = useState<"pl" | "expenses" | "comparison">("pl");
   const [showAllExpenses, setShowAllExpenses] = useState(false);
 
@@ -897,6 +898,18 @@ function BudgetTab({ budgetViewRows, loading, onSetBudget }: {
 
 export default function Finance() {
   const { t } = useLanguage();
+  useEffect(() => {
+    const id = "gov-animations";
+    if (document.getElementById(id)) return;
+    const el = document.createElement("style");
+    el.id = id;
+    el.textContent = `
+      @keyframes gov-pop { 0%{transform:scale(0.95);opacity:0} 60%{transform:scale(1.03)} 100%{transform:scale(1);opacity:1} }
+      .gov-pop { animation: gov-pop 0.25s ease both; }
+    `;
+    document.head.appendChild(el);
+    return () => { document.getElementById(id)?.remove(); };
+  }, []);
   const currentUserId   = Number(localStorage.getItem("user_id") ?? 1);
   const currentUserName = localStorage.getItem("user_name") ?? "";
   const currentUserRole = localStorage.getItem("role") ?? "";
@@ -1320,24 +1333,64 @@ export default function Finance() {
       {modal === "expense" && (
         <Modal title="Finance" subtitle="New Expense Entry" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveExpense}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={expenseForm.entry_date} onChange={e => setExpenseForm({ ...expenseForm, entry_date: e.target.value })} /></Field>
-            <Field label={t("finance.modal.amount")}><input type="number" min={0.01} step={0.01} className={inputClass} value={expenseForm.amount || ""} onChange={e => setExpenseForm({ ...expenseForm, amount: Number(e.target.value) })} /></Field>
+          
+          {/* Category toggle grid */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
+            <div className="grid grid-cols-3 gap-2">
+              {budgetCategories.map(c => (
+                <button key={c} type="button"
+                  onClick={() => setExpenseForm({ ...expenseForm, category: c })}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all ${
+                    expenseForm.category === c
+                      ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:border-blue-700 dark:text-blue-400"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                  }`}>
+                  {expenseForm.category === c && <CheckCircle2 className="w-3 h-3 flex-shrink-0" />}
+                  {labelize(c)}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.category")}>
-              <select className={inputClass} value={expenseForm.category} onChange={e => setExpenseForm({ ...expenseForm, category: e.target.value })}>
-                {budgetCategories.map(c => <option key={c} value={c}>{labelize(c)}</option>)}
-              </select>
-            </Field>
-            <Field label={t("finance.modal.group")}>
-              <select className={inputClass} value={expenseForm.expense_group} onChange={e => setExpenseForm({ ...expenseForm, expense_group: e.target.value })}>
-                {expenseGroups.map(g => <option key={g} value={g}>{labelize(g)}</option>)}
-              </select>
-            </Field>
+
+          {/* Group toggle */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">Group</label>
+            <div className="grid grid-cols-2 gap-2">
+              {expenseGroups.map(g => (
+                <button key={g} type="button"
+                  onClick={() => setExpenseForm({ ...expenseForm, expense_group: g })}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all ${
+                    expenseForm.expense_group === g
+                      ? "border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:border-violet-700 dark:text-violet-400"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                  }`}>
+                  {expenseForm.expense_group === g && <CheckCircle2 className="w-3 h-3 flex-shrink-0" />}
+                  {labelize(g)}
+                </button>
+              ))}
+            </div>
           </div>
-          <Field label={t("finance.modal.subtype")}><input type="text" className={inputClass} value={expenseForm.subtype} onChange={e => setExpenseForm({ ...expenseForm, subtype: e.target.value })} /></Field>
-          <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={expenseForm.notes} onChange={e => setExpenseForm({ ...expenseForm, notes: e.target.value })} /></Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.date")}</label>
+              <input type="date" className={inputClass} value={expenseForm.entry_date} onChange={e => setExpenseForm({ ...expenseForm, entry_date: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.amount")}</label>
+              <input type="number" min={0.01} step={0.01} className={inputClass} value={expenseForm.amount || ""} onChange={e => setExpenseForm({ ...expenseForm, amount: Number(e.target.value) })} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.subtype")}</label>
+            <input type="text" className={inputClass} value={expenseForm.subtype} onChange={e => setExpenseForm({ ...expenseForm, subtype: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.notes")}</label>
+            <textarea className={inputClass} rows={2} value={expenseForm.notes} onChange={e => setExpenseForm({ ...expenseForm, notes: e.target.value })} />
+          </div>
           {expenseForm.amount >= HIGH_VALUE_THRESHOLD && (
             <p className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-lg px-3 py-2">
               <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
@@ -1346,7 +1399,6 @@ export default function Finance() {
           )}
         </Modal>
       )}
-
       {modal === "payroll" && (
         <Modal title="Finance" subtitle="New Payroll Entry" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePayroll}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
@@ -1400,16 +1452,39 @@ export default function Finance() {
       {modal === "accrual" && (
         <Modal title="Finance" subtitle="New Accrual" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveAccrual}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={accrualForm.entry_date} onChange={e => setAccrualForm({ ...accrualForm, entry_date: e.target.value })} /></Field>
-            <Field label={t("finance.modal.category")}>
-              <select className={inputClass} value={accrualForm.category} onChange={e => setAccrualForm({ ...accrualForm, category: e.target.value })}>
-                {budgetCategories.map(c => <option key={c} value={c}>{labelize(c)}</option>)}
-              </select>
-            </Field>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
+            <div className="grid grid-cols-3 gap-2">
+              {budgetCategories.map(c => (
+                <button key={c} type="button"
+                  onClick={() => setAccrualForm({ ...accrualForm, category: c })}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all ${
+                    accrualForm.category === c
+                      ? "border-violet-300 bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:border-violet-700 dark:text-violet-400"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                  }`}>
+                  {accrualForm.category === c && <CheckCircle2 className="w-3 h-3 flex-shrink-0" />}
+                  {labelize(c)}
+                </button>
+              ))}
+            </div>
           </div>
-          <Field label={t("finance.modal.amount")}><input type="number" min={0.01} step={0.01} className={inputClass} value={accrualForm.amount || ""} onChange={e => setAccrualForm({ ...accrualForm, amount: Number(e.target.value) })} /></Field>
-          <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={accrualForm.notes} onChange={e => setAccrualForm({ ...accrualForm, notes: e.target.value })} /></Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.date")}</label>
+              <input type="date" className={inputClass} value={accrualForm.entry_date} onChange={e => setAccrualForm({ ...accrualForm, entry_date: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.amount")}</label>
+              <input type="number" min={0.01} step={0.01} className={inputClass} value={accrualForm.amount || ""} onChange={e => setAccrualForm({ ...accrualForm, amount: Number(e.target.value) })} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.notes")}</label>
+            <textarea className={inputClass} rows={2} value={accrualForm.notes} onChange={e => setAccrualForm({ ...accrualForm, notes: e.target.value })} />
+          </div>
         </Modal>
       )}
 
@@ -1426,47 +1501,89 @@ export default function Finance() {
       )}
 
       {modal === "prepayment" && (
-        <Modal title="Finance" subtitle="New Prepayment" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePrepayment}>
-          {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.date")}><input type="date" className={inputClass} value={prepaymentForm.entry_date} onChange={e => setPrepaymentForm({ ...prepaymentForm, entry_date: e.target.value })} /></Field>
-            <Field label={t("finance.modal.category")}>
-              <select className={inputClass} value={prepaymentForm.category} onChange={e => setPrepaymentForm({ ...prepaymentForm, category: e.target.value })}>
-                {budgetCategories.map(c => <option key={c} value={c}>{labelize(c)}</option>)}
-              </select>
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.amount")}><input type="number" min={0.01} step={0.01} className={inputClass} value={prepaymentForm.amount || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, amount: Number(e.target.value) })} /></Field>
-            <Field label={t("finance.modal.months")}><input type="number" min={1} step={1} className={inputClass} value={prepaymentForm.months || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, months: Number(e.target.value) })} /></Field>
-          </div>
-          {prepaymentForm.amount > 0 && prepaymentForm.months > 0 && (
-            <div className="rounded-lg border border-blue-100 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-900/20 px-4 py-3 flex items-center justify-between">
-              <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">Monthly recognized expense</p>
-              <p className="text-base font-bold text-blue-700 dark:text-blue-400">
-                {formatCurrency(prepaymentForm.amount / prepaymentForm.months)} / mo
-              </p>
-            </div>
-          )}
-          <Field label={t("finance.modal.notes")}><textarea className={inputClass} rows={2} value={prepaymentForm.notes} onChange={e => setPrepaymentForm({ ...prepaymentForm, notes: e.target.value })} /></Field>
-        </Modal>
-      )}
+      <Modal title="Finance" subtitle="New Prepayment" {...modalProps} onClose={() => setModal(null)} onSave={handleSavePrepayment}>
+        {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
 
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
+          <div className="grid grid-cols-3 gap-2">
+            {budgetCategories.map(c => (
+              <button key={c} type="button"
+                onClick={() => setPrepaymentForm({ ...prepaymentForm, category: c })}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all ${
+                  prepaymentForm.category === c
+                    ? "border-teal-300 bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:border-teal-700 dark:text-teal-400"
+                    : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                }`}>
+                {prepaymentForm.category === c && <CheckCircle2 className="w-3 h-3 flex-shrink-0" />}
+                {labelize(c)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.date")}</label>
+            <input type="date" className={inputClass} value={prepaymentForm.entry_date} onChange={e => setPrepaymentForm({ ...prepaymentForm, entry_date: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.amount")}</label>
+            <input type="number" min={0.01} step={0.01} className={inputClass} value={prepaymentForm.amount || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, amount: Number(e.target.value) })} />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.months")}</label>
+          <input type="number" min={1} step={1} className={inputClass} value={prepaymentForm.months || ""} onChange={e => setPrepaymentForm({ ...prepaymentForm, months: Number(e.target.value) })} />
+        </div>
+        {prepaymentForm.amount > 0 && prepaymentForm.months > 0 && (
+          <div className="rounded-lg border border-blue-100 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-900/20 px-4 py-3 flex items-center justify-between">
+            <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">Monthly recognized expense</p>
+            <p className="text-base font-bold text-blue-700 dark:text-blue-400">
+              {formatCurrency(prepaymentForm.amount / prepaymentForm.months)} / mo
+            </p>
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.notes")}</label>
+          <textarea className={inputClass} rows={2} value={prepaymentForm.notes} onChange={e => setPrepaymentForm({ ...prepaymentForm, notes: e.target.value })} />
+        </div>
+      </Modal>
+    )}
       {modal === "budget" && (
         <Modal title="Finance" subtitle="Set Budget" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveBudget}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("finance.modal.period")}><input type="month" className={inputClass} value={budgetForm.period} onChange={e => setBudgetForm({ ...budgetForm, period: e.target.value })} /></Field>
-            <Field label={t("finance.modal.category")}>
-              <select className={inputClass} value={budgetForm.category} onChange={e => setBudgetForm({ ...budgetForm, category: e.target.value })}>
-                {budgetCategories.map(c => <option key={c} value={c}>{labelize(c)}</option>)}
-              </select>
-            </Field>
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
+            <div className="grid grid-cols-3 gap-2">
+              {budgetCategories.map(c => (
+                <button key={c} type="button"
+                  onClick={() => setBudgetForm({ ...budgetForm, category: c })}
+                  className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all ${
+                    budgetForm.category === c
+                      ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-700 dark:text-indigo-400"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                  }`}>
+                  {budgetForm.category === c && <CheckCircle2 className="w-3 h-3 flex-shrink-0" />}
+                  {labelize(c)}
+                </button>
+              ))}
+            </div>
           </div>
-          <Field label={t("finance.modal.amount")}><input type="number" min={0.01} step={0.01} className={inputClass} value={budgetForm.amount || ""} onChange={e => setBudgetForm({ ...budgetForm, amount: Number(e.target.value) })} /></Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.period")}</label>
+              <input type="month" className={inputClass} value={budgetForm.period} onChange={e => setBudgetForm({ ...budgetForm, period: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("finance.modal.amount")}</label>
+              <input type="number" min={0.01} step={0.01} className={inputClass} value={budgetForm.amount || ""} onChange={e => setBudgetForm({ ...budgetForm, amount: Number(e.target.value) })} />
+            </div>
+          </div>
         </Modal>
       )}
-
       {modal === "close" && (
         <Modal title="Finance" subtitle="Close Period" {...modalProps} onClose={() => setModal(null)} onSave={handleClosePeriod}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
