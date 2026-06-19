@@ -1,3 +1,10 @@
+## [3.92.1](https://github.com/mido685/stark_costing_system/compare/v3.92.0...v3.92.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* fixing the report tab ([411d510](https://github.com/mido685/stark_costing_system/commit/411d5104ed20bf57c410bf07915268201f0e6b84))
+
 # [3.92.0](https://github.com/mido685/stark_costing_system/compare/v3.91.0...v3.92.0) (2026-06-19)
 
 
