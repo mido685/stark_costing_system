@@ -935,9 +935,9 @@ export default function Finance() {
   const [customCategoryId, setCustomCategoryId] = useState<number | null>(null);
 
   useEffect(() => {
-    apiCall<{categories: {id: number; name: string; type: string}[]}>("/api/expense-categories")
-      .then(d => setExpenseCategories(d.categories ?? []))
-      .catch(() => {});
+  apiCall<{id: number; name: string; type: string}[]>("/api/expense-categories")
+    .then(d => setExpenseCategories(Array.isArray(d) ? d : []))
+    .catch(() => {});
   }, []);
   const [payrollForm, setPayrollForm] = useState({
     entry_date: today(), employee_group: "Kitchen Staff",
@@ -1118,43 +1118,48 @@ export default function Finance() {
    */
   const recentActivity = useMemo<FinanceActivityRow[]>(() => {
     const activity: FinanceActivityRow[] = [];
-    safeExpenses.forEach(r => activity.push({
+
+    safeExpenses.filter(Boolean).forEach(r => activity.push({
       id: `expense-${r.id}`, entry_date: r.entry_date, type: t("finance.expense"),
       description: `${expenseLabel(r.category || "other")} / ${labelize(r.subtype || "general")}`,
       amount: Number(r.amount || 0), notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
     }));
-    safePayrollEntries.forEach(r => activity.push({
+
+    safePayrollEntries.filter(Boolean).forEach(r => activity.push({
       id: `payroll-${r.id}`, entry_date: r.entry_date, type: t("finance.payroll"),
       description: r.employee_group, amount: Number(r.total_amount || 0),
       notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
     }));
-    safeAccrualEntries.forEach(r => activity.push({
+
+    safeAccrualEntries.filter(Boolean).forEach(r => activity.push({
       id: `accrual-${r.id}`, entry_date: r.entry_date, type: t("finance.accrual"),
       description: labelize(r.category || "other"), amount: Number(r.amount || 0),
       notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
     }));
-    safeDepreciationEntries.forEach(r => activity.push({
+
+    safeDepreciationEntries.filter(Boolean).forEach(r => activity.push({
       id: `dep-${r.id}`, entry_date: r.entry_date, type: t("finance.depreciation"),
       description: r.asset_name, amount: Number(r.amount || 0),
       notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
     }));
-    // Use monthly_expense as the display amount; show full amount in description
-    safePrepaymentEntries.forEach(r => activity.push({
+
+    safePrepaymentEntries.filter(Boolean).forEach(r => activity.push({
       id: `pre-${r.id}`, entry_date: r.entry_date, type: t("finance.prepayment"),
       description: `${labelize(r.category || "other")} (${r.months}mo · total ${formatCurrency(Number(r.amount || 0))})`,
       amount: Number(r.monthly_expense || 0),
       full_amount: Number(r.amount || 0),
       notes: r.notes ?? "", branch_name: r.branch_name ?? selectedBranch?.name ?? "",
     }));
+
     return activity
       .sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.id.localeCompare(a.id))
       .slice(0, 50);
   }, [safeAccrualEntries, safeDepreciationEntries, safeExpenses, safePayrollEntries, safePrepaymentEntries, selectedBranch?.name, t]);
 
-  const filteredApprovals = useMemo(() =>
-    safeApprovals.filter(a => !branchId || a.branch_id === branchId),
-    [branchId, safeApprovals]
-  );
+const filteredApprovals = useMemo(() =>
+  safeApprovals.filter(a => !branchId || a.branch_id === branchId),
+  [branchId, safeApprovals]
+);
 
   // ── Actions ──
   function refetchAll() {
@@ -1370,13 +1375,14 @@ export default function Finance() {
                   const name = window.prompt("New category name:");
                   if (!name?.trim()) return;
                   try {
-                    const d = await apiCall<{category: {id: number; name: string; type: string}}>(
-                      "/api/expense-categories",
-                      { method: "POST", body: JSON.stringify({ name: name.trim(), type: "expense" }) }
-                    );
-                    setExpenseCategories(prev => [...prev, d.category]);
-                    setCustomCategoryId(d.category.id);
-                    setExpenseForm({ ...expenseForm, category: d.category.name });
+                        const d = await apiCall<{id: number; name: string; type: string}>(
+                        "/api/expense-categories",
+                        { method: "POST", body: JSON.stringify({ name: name.trim(), type: "expense" }) }
+                      );
+                      // d is now the category object directly
+                      setExpenseCategories(prev => [...prev, d]);
+                      setCustomCategoryId(d.id);
+                      setExpenseForm({ ...expenseForm, category: d.name });
                   } catch { alert("Failed to create category"); }
                 }}
                 className="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg border border-dashed border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 hover:bg-cyan-100 transition-colors"
