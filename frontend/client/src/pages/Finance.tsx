@@ -13,7 +13,7 @@ import {
   getBudgetVsActual, getDepreciationEntries, getExpenses, getFinanceKpi,
   generatePeriodBackups, getPeriodBackups, getPeriodStatus,
   getPayrollEntries, getPendingApprovals, getPrepaymentEntries, getSalesByBranch,
-  isPeriodClosed, setBudget, setPeriodStatus,
+  isPeriodClosed, setBudget, setPeriodStatus,apiCall 
 } from "@/lib/api";
 import type {
   AccrualEntryRow, ApprovalRow, Branch, BudgetVsActualRow,
@@ -931,6 +931,14 @@ export default function Finance() {
     entry_date: today(), category: "rent", amount: 0,
     expense_group: "operating", subtype: "admin", notes: "",
   });
+  const [expenseCategories, setExpenseCategories] = useState<{id: number; name: string; type: string}[]>([]);
+  const [customCategoryId, setCustomCategoryId] = useState<number | null>(null);
+
+  useEffect(() => {
+    apiCall<{categories: {id: number; name: string; type: string}[]}>("/api/expense-categories")
+      .then(d => setExpenseCategories(d.categories ?? []))
+      .catch(() => {});
+  }, []);
   const [payrollForm, setPayrollForm] = useState({
     entry_date: today(), employee_group: "Kitchen Staff",
     headcount: 1, base_salary: 0, burden_pct: 26, employer_burden: 0, notes: "",
@@ -1157,13 +1165,13 @@ export default function Finance() {
 
   function openModal(type: ModalType) {
     setFormError("");
-    if (type === "expense")      setExpenseForm({ entry_date: defaultDateForPeriod(period), category: "rent", amount: 0, expense_group: "operating", subtype: "admin", notes: "" });
-    if (type === "payroll")      setPayrollForm({ entry_date: defaultDateForPeriod(period), employee_group: "Kitchen Staff", headcount: 1, base_salary: 0, burden_pct: 26, employer_burden: 0, notes: "" });
-    if (type === "accrual")      setAccrualForm({ entry_date: defaultDateForPeriod(period), category: "utilities", amount: 0, notes: "" });
-    if (type === "depreciation") setDepreciationForm({ entry_date: defaultDateForPeriod(period), asset_name: "", amount: 0, notes: "" });
-    if (type === "prepayment")   setPrepaymentForm({ entry_date: defaultDateForPeriod(period), category: "marketing", amount: 0, months: 1, notes: "" });
-    if (type === "budget")       setBudgetForm({ period, category: "food_cost", amount: 0 });
-    if (type === "close")        setCloseForm({ closed_to: periodEnd, notes: "" });
+    if (type === "expense")      {setExpenseForm({ entry_date: defaultDateForPeriod(period), category: "rent", amount: 0, expense_group: "operating", subtype: "admin", notes: "" }); setCustomCategoryId(null);}
+    if (type === "payroll")      {setPayrollForm({ entry_date: defaultDateForPeriod(period), employee_group: "Kitchen Staff", headcount: 1, base_salary: 0, burden_pct: 26, employer_burden: 0, notes: "" }); setCustomCategoryId(null);}
+    if (type === "accrual")      {setAccrualForm({ entry_date: defaultDateForPeriod(period), category: "utilities", amount: 0, notes: "" }); setCustomCategoryId(null);}
+    if (type === "depreciation") {setDepreciationForm({ entry_date: defaultDateForPeriod(period), asset_name: "", amount: 0, notes: "" }); setCustomCategoryId(null);}
+    if (type === "prepayment")   {setPrepaymentForm({ entry_date: defaultDateForPeriod(period), category: "marketing", amount: 0, months: 1, notes: "" }); setCustomCategoryId(null);}
+    if (type === "budget")       {setBudgetForm({ period, category: "food_cost", amount: 0 }); setCustomCategoryId(null);}
+    if (type === "close")        {setCloseForm({ closed_to: periodEnd, notes: "" }); setCustomCategoryId(null);}
     if (type === "periodStatus") setPeriodStatusForm({ status: selectedPeriodState === "open" ? "closed" : selectedPeriodState, notes: "" });
     setModal(type);
   }
@@ -1333,14 +1341,60 @@ export default function Finance() {
       {modal === "expense" && (
         <Modal title="Finance" subtitle="New Expense Entry" {...modalProps} onClose={() => setModal(null)} onSave={handleSaveExpense}>
           {formError && <p className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />{formError}</p>}
-          
+          {/* Custom category override */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Or pick a custom category
+            </label>
+            <div className="flex gap-2">
+              <select
+                className={inputClass}
+                value={customCategoryId ?? ""}
+                onChange={e => {
+                  const id = e.target.value ? Number(e.target.value) : null;
+                  setCustomCategoryId(id);
+                  if (id) {
+                    const cat = expenseCategories.find(c => c.id === id);
+                    if (cat) setExpenseForm({ ...expenseForm, category: cat.name });
+                  }
+                }}
+              >
+                <option value="">— use toggle above —</option>
+                {expenseCategories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={async () => {
+                  const name = window.prompt("New category name:");
+                  if (!name?.trim()) return;
+                  try {
+                    const d = await apiCall<{category: {id: number; name: string; type: string}}>(
+                      "/api/expense-categories",
+                      { method: "POST", body: JSON.stringify({ name: name.trim(), type: "expense" }) }
+                    );
+                    setExpenseCategories(prev => [...prev, d.category]);
+                    setCustomCategoryId(d.category.id);
+                    setExpenseForm({ ...expenseForm, category: d.category.name });
+                  } catch { alert("Failed to create category"); }
+                }}
+                className="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg border border-dashed border-cyan-400 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 hover:bg-cyan-100 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
           {/* Category toggle grid */}
           <div className="space-y-1.5">
             <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider">Category</label>
             <div className="grid grid-cols-3 gap-2">
               {budgetCategories.map(c => (
                 <button key={c} type="button"
-                  onClick={() => setExpenseForm({ ...expenseForm, category: c })}
+                  onClick={() => {
+                  setCustomCategoryId(null);           // ← add this
+                  setExpenseForm({ ...expenseForm, category: c });
+                }}
                   className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border text-xs font-medium transition-all ${
                     expenseForm.category === c
                       ? "border-blue-300 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:border-blue-700 dark:text-blue-400"
