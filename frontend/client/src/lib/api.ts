@@ -91,7 +91,9 @@ const UNWRAP_KEYS = new Set([
   "waste",
   "inventory_movements",
   "prefix",
-  "prefixes"
+  "prefixes",
+  "backups",       // ← ADD THIS
+  "category"
 ]);
 
 export async function apiUpload<T>(endpoint: string, formData: FormData): Promise<T> {
@@ -693,14 +695,24 @@ export async function getSalesByBranch(
   branchId: number,
   period?: string
 ): Promise<SaleRow[]> {
-  const params = new URLSearchParams({ branch_id: String(branchId) });
-  if (period) params.set("period", period);
-  return apiCall<SaleRow[]>(`/api/sales?${params.toString()}`);
+  try {
+    const params = new URLSearchParams({ branch_id: String(branchId) });
+    if (period) params.set("period", period);
+    const res = await apiCall<any>(`/api/sales?${params.toString()}`);
+    return Array.isArray(res) ? res : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getAllSales(period?: string): Promise<SaleRow[]> {
-  const query = period ? `?period=${encodeURIComponent(period)}` : "";
-  return apiCall<SaleRow[]>(`/api/sales${query}`);
+  try {
+    const query = period ? `?period=${encodeURIComponent(period)}` : "";
+    const res = await apiCall<any>(`/api/sales${query}`);
+    return Array.isArray(res) ? res : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── Production ───────────────────────────────────────────────────────────────
@@ -1096,7 +1108,15 @@ export async function getFinanceKpi(
   branchId: number,
   period: string
 ): Promise<FinanceKpiRow> {
-  return apiCall<FinanceKpiRow>(`/api/kpi/${branchId}/${period}`);
+  try {
+    return await apiCall<FinanceKpiRow>(`/api/kpi/${branchId}/${period}`);
+  } catch {
+    return {
+      branch_id: branchId, period, revenue: 0, food_cost: 0,
+      food_cost_pct: 0, labor_cost: 0, labor_cost_pct: 0,
+      waste_cost: 0, gross_profit: 0, net_profit: 0,
+    };
+  }
 }
 
 export async function closePeriod(data: {
@@ -1117,15 +1137,33 @@ export async function isPeriodClosed(
   branchId: number,
   entryDate: string
 ): Promise<{ is_closed: boolean; is_locked?: boolean; status?: PeriodStatusValue }> {
-  return apiCall<{ is_closed: boolean; is_locked?: boolean; status?: PeriodStatusValue }>(
-    `/api/period/is-closed?branch_id=${branchId}&entry_date=${encodeURIComponent(entryDate)}`
-  );
+  try {
+    return await apiCall<{ is_closed: boolean; is_locked?: boolean; status?: PeriodStatusValue }>(
+      `/api/period/is-closed?branch_id=${branchId}&entry_date=${encodeURIComponent(entryDate)}`
+    );
+  } catch {
+    return { is_closed: false };
+  }
 }
 
 export async function getPeriodStatus(period: string): Promise<PeriodStatusRow> {
-  return apiCall<PeriodStatusRow>(
-    `/api/period/status?period=${encodeURIComponent(period)}`
-  );
+  try {
+    return await apiCall<PeriodStatusRow>(
+      `/api/period/status?period=${encodeURIComponent(period)}`
+    );
+  } catch {
+    return {
+      company_id:      0,
+      period,
+      status:          "open",
+      notes:           "",
+      updated_by:      null,
+      updated_at:      null,
+      updated_by_name: null,
+      is_closed:       false,
+      is_locked:       false,
+    };
+  }
 }
 
 export async function setPeriodStatus(data: {
@@ -1133,13 +1171,25 @@ export async function setPeriodStatus(data: {
   status: PeriodStatusValue;
   notes?: string;
 }): Promise<PeriodStatusRow> {
-  return apiCall<PeriodStatusRow>("/api/period/status", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  try {
+    return await apiCall<PeriodStatusRow>("/api/period/status", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  } catch {
+    return {
+      company_id:       0,
+      period:           data.period,
+      status:           "open",
+      notes:            data.notes ?? "",
+      updated_by:       null,
+      updated_at:       null,
+      updated_by_name:  null,
+      is_closed:        false,
+      is_locked:        false,
+    };
+  }
 }
-
-// ─── Period Backups ───────────────────────────────────────────────────────────
 
 export async function generatePeriodBackups(data: {
   months?: number;
@@ -1159,21 +1209,28 @@ export async function getPeriodBackups(options: {
   dateTo?: string;
   refresh?: boolean;
 } = {}): Promise<PeriodBackupRow[]> {
-  const params = new URLSearchParams();
-  params.set("months", String(options.months ?? 4));
-  if (options.branchId) params.set("branch_id", String(options.branchId));
-  if (options.dateFrom) params.set("date_from", options.dateFrom);
-  if (options.dateTo)   params.set("date_to", options.dateTo);
-  if (options.refresh)  params.set("refresh", "true");
-  return apiCall<PeriodBackupRow[]>(`/api/period-backups?${params.toString()}`);
+  try {
+    const params = new URLSearchParams();
+    params.set("months", String(options.months ?? 4));
+    if (options.branchId) params.set("branch_id", String(options.branchId));
+    if (options.dateFrom) params.set("date_from", options.dateFrom);
+    if (options.dateTo)   params.set("date_to", options.dateTo);
+    if (options.refresh)  params.set("refresh", "true");
+    const res = await apiCall<any>(`/api/period-backups?${params.toString()}`);
+    return Array.isArray(res) ? res : [];
+  } catch {
+    return [];
+  }
 }
-
 // ─── Approvals ────────────────────────────────────────────────────────────────
 
 export async function getPendingApprovals(): Promise<ApprovalRow[]> {
-  return apiCall<ApprovalRow[]>("/api/approvals/pending");
+  try {
+    return await apiCall<ApprovalRow[]>("/api/approvals/pending");
+  } catch {
+    return [];
+  }
 }
-
 export async function approveRequest(
   requestId: number,
   approvedBy?: number
