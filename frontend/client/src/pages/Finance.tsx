@@ -29,7 +29,7 @@ type ModalType =
   | "expense" | "payroll" | "accrual" | "depreciation"
   | "prepayment" | "budget" | "close" | "periodStatus" | null;
 
-type ActiveTab = "overview" | "pl" | "budget" | "activity" | "approvals";
+type ActiveTab = "overview" | "pl" | "budget" | "activity" | "expenses" | "approvals";
 
 type FinanceActivityRow = {
   id: string;
@@ -151,7 +151,71 @@ function emptyKpi(branchId: number, period: string): FinanceKpiRow {
   };
 }
 // ─── PDF Export ───────────────────────────────────────────────────────────────
+function exportExpensesToPDF(
+  branchName: string, period: string,
+  rows: ExpenseRow[], categoryFilter: string
+) {
+  const now = formatDateTime(new Date());
+  const filtered = categoryFilter ? rows.filter(r => r.category === categoryFilter) : rows;
+  const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
 
+
+  const tableRows = filtered.map(r => `
+    <tr>
+      <td>${r.entry_date}</td>
+      <td>${expenseLabel(r.category || "other")}</td>
+      <td>${labelize(r.expense_group || "")}</td>
+      <td>${labelize(r.subtype || "")}</td>
+      <td style="text-align:right;font-weight:600;color:#1d4ed8">${formatCurrency(Number(r.amount || 0))}</td>
+      <td style="color:#64748b">${r.notes || "—"}</td>
+    </tr>`).join("");
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>Expenses — ${branchName} — ${period}</title>
+<style>
+  body{font-family:'Segoe UI',sans-serif;font-size:11px;color:#1e293b;padding:24px}
+  .header{display:flex;justify-content:space-between;border-bottom:2px solid #e2e8f0;padding-bottom:14px;margin-bottom:20px}
+  .title{font-size:20px;font-weight:800;color:#0f172a}
+  .sub{font-size:11px;color:#64748b;margin-top:2px}
+  table{width:100%;border-collapse:collapse}
+  th{background:#1e293b;color:white;padding:8px 10px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase}
+  td{padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#334155}
+  tr:nth-child(even) td{background:#f8fafc}
+  .footer{margin-top:16px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:9px;color:#94a3b8;text-align:center}
+  @media print{@page{margin:8mm;size:A4 landscape}}
+</style></head><body>
+<div class="header">
+  <div>
+    <div class="title">Expense Report</div>
+    <div class="sub">Branch: ${branchName} · Period: ${period}${categoryFilter ? ` · Category: ${expenseLabel(categoryFilter)}` : ""} · ${filtered.length} entries · Total: ${formatCurrency(total)}</div>
+  </div>
+  <div style="text-align:right;font-size:10px;color:#94a3b8">Generated: ${now}</div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Date</th><th>Category</th><th>Group</th><th>Subtype</th>
+      <th style="text-align:right">Amount</th><th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>${tableRows}</tbody>
+  <tfoot>
+    <tr style="background:#f1f5f9;font-weight:700">
+      <td colspan="4" style="padding:8px 10px">Total (${filtered.length} entries)</td>
+      <td style="padding:8px 10px;text-align:right;color:#1d4ed8">${formatCurrency(total)}</td>
+      <td></td>
+    </tr>
+  </tfoot>
+</table>
+<div class="footer">STARK AI Costing System · Expense Report · ${branchName} · ${period}</div>
+<script>window.onload = () => window.print();</script>
+</body></html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
 function exportPLtoPDF(
   branchName: string, period: string, summary: any,
   expenseBreakdown: any[], budgetViewRows: any[]
@@ -923,6 +987,8 @@ export default function Finance() {
   const [backupDateTo, setBackupDateTo]     = useState("");
   const [formError, setFormError] = useState("");
   const [activeTab, setActiveTab] = useState<ActiveTab>("overview");
+  const [expenseSearch, setExpenseSearch] = useState("");
+  const [expenseSortBy, setExpenseSortBy] = useState<"date" | "amount">("date");
 
   const periodEnd = useMemo(() => getPeriodEnd(period), [period]);
 
@@ -981,6 +1047,7 @@ export default function Finance() {
   const selectedPeriodState     = companyPeriodStatus?.status ?? periodStatus?.status ?? "open";
   const selectedPeriodClosed    = selectedPeriodState === "closed" || selectedPeriodState === "locked" || Boolean(periodStatus?.is_closed);
   const selectedPeriodLocked    = selectedPeriodState === "locked" || Boolean(periodStatus?.is_locked);
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState("");
 
   const isRefreshing = expensesLoading || payrollLoading || accrualLoading ||
     depreciationLoading || prepaymentLoading || budgetLoading ||
@@ -1333,6 +1400,7 @@ const filteredApprovals = useMemo(() =>
     { key: "overview",  label: t("finance.tab.overview"),  icon: <BarChart2 className="w-4 h-4" /> },
     { key: "pl",        label: t("finance.tab.pl"),        icon: <FileText className="w-4 h-4" /> },
     { key: "budget",    label: t("finance.tab.budget"),    icon: <Wallet className="w-4 h-4" /> },
+    { key: "expenses",  label: "Expenses",                 icon: <Receipt className="w-4 h-4" /> },
     { key: "activity",  label: t("finance.tab.activity"),  icon: <Receipt className="w-4 h-4" /> },
     { key: "approvals", label: t("finance.tab.approvals"), icon: <CheckCircle2 className="w-4 h-4" /> },
   ];
@@ -1984,6 +2052,235 @@ const filteredApprovals = useMemo(() =>
           </Card>
         </div>
       )}
+      {/* ── Expenses Tab ── */}
+      {activeTab === "expenses" && (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Expense Records</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {selectedBranch?.name ?? "All branches"} · {period}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search notes or subtype…"
+                className={`${inputClass} pl-8 w-48`}
+                value={expenseSearch}
+                onChange={e => setExpenseSearch(e.target.value)}
+              />
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+              </span>
+            </div>
+            <Button
+              size="sm" variant="outline"
+              className={expenseSortBy === "amount" ? "border-primary text-primary bg-primary/5" : ""}
+              onClick={() => setExpenseSortBy(s => s === "date" ? "amount" : "date")}
+            >
+              {expenseSortBy === "date" ? "↓ Date" : "↓ Amount"}
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              onClick={() => exportExpensesToPDF(
+                selectedBranch?.name ?? "Branch", period,
+                safeExpenses, expenseCategoryFilter
+              )}
+              disabled={!safeExpenses.length}
+              className="gap-2"
+            >
+              <Printer className="w-4 h-4" /> Export PDF
+            </Button>
+            <div className="relative group">
+              <Button
+                size="sm"
+                onClick={() => openModal("expense")}
+                disabled={!branchId || selectedPeriodClosed}
+                className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white border-transparent"
+              >
+                <Plus className="w-4 h-4" /> Add Expense
+              </Button>
+              {(!branchId || selectedPeriodClosed) && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 pointer-events-none">
+                  <div className="bg-foreground text-background text-[10px] font-medium px-2 py-1 rounded whitespace-nowrap shadow-lg">
+                    {!branchId ? "Select a branch first" : "Period is closed — no new entries"}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        {/* Summary KPIs */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {(() => {
+            const filtered = safeExpenses
+            .filter(r => !expenseCategoryFilter || r.category === expenseCategoryFilter)
+            .filter(r => {
+              if (!expenseSearch) return true;
+              const q = expenseSearch.toLowerCase();
+              return (r.notes ?? "").toLowerCase().includes(q) ||
+                    (r.subtype ?? "").toLowerCase().includes(q);
+            })
+            .slice()
+            .sort((a, b) =>
+              expenseSortBy === "amount"
+                ? Number(b.amount) - Number(a.amount)
+                : b.entry_date.localeCompare(a.entry_date)
+            );
+            const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
+            const byCategory = new Map<string, number>();
+            safeExpenses.forEach(r => {
+              const cat = r.category || "other";
+              byCategory.set(cat, (byCategory.get(cat) ?? 0) + Number(r.amount || 0));
+            });
+            const topCat = Array.from(byCategory.entries()).sort((a, b) => b[1] - a[1])[0];
+            return (
+              <>
+                <Card className="p-4">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Total Expenses</p>
+                  <p className="text-xl font-bold text-amber-600 dark:text-amber-400">{formatCurrency(total)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} entries</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Categories</p>
+                  <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{byCategory.size}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">unique categories</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Top Category</p>
+                  {topCat ? (
+                    <>
+                      <p className="text-sm font-bold text-foreground truncate">{expenseLabel(topCat[0])}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{formatCurrency(topCat[1])}</p>
+                    </>
+                  ) : <p className="text-sm text-muted-foreground">—</p>}
+                </Card>
+                <Card className="p-4">
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Avg per Entry</p>
+                  <p className="text-xl font-bold text-foreground">
+                    {filtered.length > 0 ? formatCurrency(total / filtered.length) : "—"}
+                  </p>
+                </Card>
+              </>
+            );
+          })()}
+        </div>
+
+    {/* Category filter */}
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filter:</span>
+      <button
+        onClick={() => setExpenseCategoryFilter("")}
+        className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+          !expenseCategoryFilter
+            ? "bg-primary text-primary-foreground border-primary"
+            : "bg-muted/30 text-muted-foreground border-border hover:bg-muted/50"
+        }`}
+      >
+        All
+      </button>
+      {Array.from(new Set(safeExpenses.map(r => r.category || "other"))).sort().map(cat => (
+        <button
+          key={cat}
+          onClick={() => setExpenseCategoryFilter(cat === expenseCategoryFilter ? "" : cat)}
+          className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+            expenseCategoryFilter === cat
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-muted/30 text-muted-foreground border-border hover:bg-muted/50"
+          }`}
+        >
+          {expenseLabel(cat)}
+        </button>
+      ))}
+    </div>
+
+    {/* Expense table */}
+    <Card className="overflow-hidden">
+      {expensesLoading ? (
+        <div className="p-6 space-y-2">
+          {[1,2,3,4,5].map(i => <div key={i} className="h-10 animate-pulse rounded bg-secondary/50" />)}
+        </div>
+      ) : !safeExpenses.length ? (
+        <div className="p-12 text-center">
+          <Receipt className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No expenses recorded for this period.</p>
+        </div>
+      ) : (() => {
+            const filtered = safeExpenses
+              .filter(r => !expenseCategoryFilter || r.category === expenseCategoryFilter)
+              .filter(r => {
+                if (!expenseSearch) return true;
+                const q = expenseSearch.toLowerCase();
+                return (r.notes ?? "").toLowerCase().includes(q) ||
+                      (r.subtype ?? "").toLowerCase().includes(q);
+              })
+              .slice()
+              .sort((a, b) =>
+                expenseSortBy === "amount"
+                  ? Number(b.amount) - Number(a.amount)
+                  : b.entry_date.localeCompare(a.entry_date)
+              );
+        const total = filtered.reduce((s, r) => s + Number(r.amount || 0), 0);
+        return filtered.length === 0 ? (
+          <div className="p-10 text-center">
+            <p className="text-sm text-muted-foreground">No expenses in this category for {period}.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-secondary/70 border-b border-border">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Category</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Group</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Subtype</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Amount</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered
+                  .map((row, idx) => (
+                    <tr key={`${row.id}-${idx}`} className="border-b border-border hover:bg-secondary/30">
+                      <td className="px-4 py-3 text-sm text-foreground">{row.entry_date}</td>
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${expenseColor(row.category || "other")}`} />
+                          <span className="font-medium text-foreground">{expenseLabel(row.category || "other")}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{labelize(row.expense_group || "")}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{labelize(row.subtype || "")}</td>
+                      <td className="px-4 py-3 text-right font-bold font-mono text-amber-700 dark:text-amber-400">
+                        {formatCurrency(Number(row.amount || 0))}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{row.notes || "—"}</td>
+                    </tr>
+                  ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-secondary/50 border-t-2 border-border">
+                  <td colSpan={4} className="px-4 py-3 text-sm font-bold text-foreground">
+                    Total ({filtered.length} {filtered.length === 1 ? "entry" : "entries"})
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold font-mono text-amber-600 dark:text-amber-400">
+                    {formatCurrency(total)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        );
+      })()}
+    </Card>
+  </div>
+)}
 
       {/* ── Approvals Tab ── */}
       {/* FIX 6 — Show amount and description on each approval card */}
