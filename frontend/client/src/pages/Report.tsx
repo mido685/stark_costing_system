@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, FileText, Loader2, X } from "lucide-react";
+import { Download, FileText, Loader2, X, Search, Clock } from "lucide-react";
 import { generateReport, getBranches, exportReport, apiCall } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
@@ -24,11 +24,20 @@ interface MenuEngItem {
   classification: "Star" | "Plow Horse" | "Puzzle" | "Dog";
 }
 
+interface RecentEntry {
+  name: string;
+  icon: string;
+  modal: ModalType;
+  openedAt: Date;
+}
+
 type ModalType =
   | "menu" | "stock" | "branch-compare" | "export"
   | "finance" | "dashboard" | "budget" | "losses"
   | "sales-mix" | "price-history" | "audit" | "neg-stock" | "reorder"
   | null;
+
+type CategoryTab = "all" | "financial" | "operational" | "audit";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,17 +51,32 @@ const CLASS_CONFIG = {
 function formatCurrency(n: number) {
   return formatCurrencyValue(n, { maximumFractionDigits: 2 });
 }
-
-function currentPeriod() {
-  return new Date().toISOString().slice(0, 7);
-}
-
-function today() {
-  return new Date().toISOString().split("T")[0];
-}
+function currentPeriod() { return new Date().toISOString().slice(0, 7); }
+function today()         { return new Date().toISOString().split("T")[0]; }
 
 const inputClass =
   "text-sm border border-input rounded-md px-3 py-1.5 bg-background focus:outline-none focus:ring-2 focus:ring-ring";
+
+// ─── All report definitions (single source of truth) ─────────────────────────
+
+const ALL_REPORTS: {
+  name: string; desc: string; icon: string;
+  modal: ModalType; category: "financial" | "operational" | "audit";
+}[] = [
+  { name: "Finance Report",          desc: "P&L statement by branch and period",    icon: "📊", modal: "finance",        category: "financial"    },
+  { name: "Dashboard Summary",       desc: "Key metrics and KPIs overview",          icon: "📈", modal: "dashboard",      category: "financial"    },
+  { name: "Budget vs Actual",        desc: "Budget performance analysis",            icon: "💰", modal: "budget",         category: "financial"    },
+  { name: "Top Losses Analysis",     desc: "Waste and damage breakdown",             icon: "⚠️",  modal: "losses",         category: "financial"    },
+  { name: "Stock Balances",          desc: "Current inventory across branches",      icon: "📦", modal: "stock",          category: "operational"  },
+  { name: "Sales Mix Analysis",      desc: "Product performance and trends",         icon: "📊", modal: "sales-mix",      category: "operational"  },
+  { name: "Supplier Price History",  desc: "Track pricing changes over time",        icon: "📉", modal: "price-history",  category: "operational"  },
+  { name: "Menu Engineering",        desc: "Recipe profitability classification",    icon: "🍽️",  modal: "menu",           category: "operational"  },
+  { name: "Branch Comparison",       desc: "Compare metrics across branches",        icon: "🏢", modal: "branch-compare", category: "audit"        },
+  { name: "Audit Trail",             desc: "Complete transaction history",           icon: "📋", modal: "audit",          category: "audit"        },
+  { name: "Negative Stock Alerts",   desc: "Items with negative inventory balance",  icon: "⚠️",  modal: "neg-stock",      category: "audit"        },
+  { name: "Reorder Alerts",          desc: "Items below their reorder level",        icon: "🔔", modal: "reorder",        category: "audit"        },
+  { name: "Export Sales CSV",        desc: "Download sales data as CSV",             icon: "📥", modal: "export",         category: "operational"  },
+];
 
 // ─── Generic Modal Shell ──────────────────────────────────────────────────────
 
@@ -374,14 +398,11 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => { getBranches().then(setBranches); }, []);
 
-  // FIX: use /api/reports/pl which returns the full P&L breakdown
   async function handleGenerate() {
     if (!branchId) return;
     setLoading(true);
     try {
-      const result = await apiCall<any>(
-        `/api/reports/pl?branch_id=${branchId}&period=${period}`
-      );
+      const result = await apiCall<any>(`/api/reports/pl?branch_id=${branchId}&period=${period}`);
       setData(result);
     } finally { setLoading(false); }
   }
@@ -395,13 +416,12 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
         {!data && !loading && <EmptyState emoji="📊" text="Select branch and period then click Generate" />}
         {data && (
           <div className="space-y-5">
-            {/* ── KPI Cards ── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Revenue",          value: formatCurrency(data.revenue),         color: "bg-blue-50 border-blue-200 text-blue-700"   },
-                { label: "COGS",             value: formatCurrency(data.cogs),            color: "bg-red-50 border-red-200 text-red-700"      },
-                { label: "Gross Profit",     value: formatCurrency(data.gross_profit),    color: "bg-green-50 border-green-200 text-green-700" },
-                { label: "Operating Profit", value: formatCurrency(data.operating_profit),color: data.operating_profit >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
+                { label: "Revenue",          value: formatCurrency(data.revenue),          color: "bg-blue-50 border-blue-200 text-blue-700"   },
+                { label: "COGS",             value: formatCurrency(data.cogs),             color: "bg-red-50 border-red-200 text-red-700"      },
+                { label: "Gross Profit",     value: formatCurrency(data.gross_profit),     color: "bg-green-50 border-green-200 text-green-700" },
+                { label: "Operating Profit", value: formatCurrency(data.operating_profit), color: data.operating_profit >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
               ].map(card => (
                 <div key={card.label} className={`rounded-lg border p-4 ${card.color}`}>
                   <p className="text-xs font-semibold opacity-70">{card.label}</p>
@@ -409,13 +429,10 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
                 </div>
               ))}
             </div>
-
-            {/* ── Income Statement ── */}
             <div className="rounded-lg border border-border overflow-hidden">
               <div className="px-5 py-3 bg-secondary font-semibold text-sm text-foreground">
                 Income Statement — {branch?.name} · {period}
               </div>
-
               <div className="divide-y divide-border">
                 {[
                   { label: "Revenue",              value: data.revenue,             color: "text-blue-600",  indent: false, bold: false },
@@ -434,40 +451,16 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
                       {row.label}
                     </span>
                     <span className={`text-sm font-bold font-mono ${row.color}`}>
-                      {row.value < 0
-                        ? `(${formatCurrency(Math.abs(row.value))})`
-                        : formatCurrency(row.value)}
+                      {row.value < 0 ? `(${formatCurrency(Math.abs(row.value))})` : formatCurrency(row.value)}
                     </span>
                   </div>
                 ))}
               </div>
-
-              {/* ── Margin % Footer ── */}
               <div className="px-5 py-3 bg-secondary/30 grid grid-cols-2 gap-4 text-xs border-t border-border">
-                <div>
-                  <span className="text-muted-foreground">Food Cost %: </span>
-                  <span className={`font-bold ${data.food_cost_pct > 35 ? "text-red-600" : "text-green-600"}`}>
-                    {Number(data.food_cost_pct).toFixed(1)}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Labor Cost %: </span>
-                  <span className={`font-bold ${data.labor_cost_pct > 30 ? "text-red-600" : "text-green-600"}`}>
-                    {Number(data.labor_cost_pct).toFixed(1)}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Gross Margin %: </span>
-                  <span className={`font-bold ${data.gross_margin_pct < 50 ? "text-amber-600" : "text-green-600"}`}>
-                    {Number(data.gross_margin_pct).toFixed(1)}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Net Margin %: </span>
-                  <span className={`font-bold ${data.net_margin_pct < 10 ? "text-red-600" : "text-green-600"}`}>
-                    {Number(data.net_margin_pct).toFixed(1)}%
-                  </span>
-                </div>
+                <div><span className="text-muted-foreground">Food Cost %: </span><span className={`font-bold ${data.food_cost_pct > 35 ? "text-red-600" : "text-green-600"}`}>{Number(data.food_cost_pct).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Labor Cost %: </span><span className={`font-bold ${data.labor_cost_pct > 30 ? "text-red-600" : "text-green-600"}`}>{Number(data.labor_cost_pct).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Gross Margin %: </span><span className={`font-bold ${data.gross_margin_pct < 50 ? "text-amber-600" : "text-green-600"}`}>{Number(data.gross_margin_pct).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Net Margin %: </span><span className={`font-bold ${data.net_margin_pct < 10 ? "text-red-600" : "text-green-600"}`}>{Number(data.net_margin_pct).toFixed(1)}%</span></div>
               </div>
             </div>
           </div>
@@ -708,11 +701,8 @@ function PriceHistoryModal({ onClose }: { onClose: () => void }) {
   const [loading,      setLoading]      = useState(false);
   const [fetched,      setFetched]      = useState(false);
 
-  useEffect(() => {
-    apiCall<any[]>("/api/ingredients").then(setIngredients).catch(() => {});
-  }, []);
+  useEffect(() => { apiCall<any[]>("/api/ingredients").then(setIngredients).catch(() => {}); }, []);
 
-  // FIX: was referencing branchId/period which don't exist in this component
   async function handleGenerate() {
     if (!ingredientId) return;
     setLoading(true);
@@ -728,9 +718,7 @@ function PriceHistoryModal({ onClose }: { onClose: () => void }) {
       <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-secondary/30 flex-wrap">
         <select className={inputClass} value={ingredientId} onChange={e => setIngredientId(e.target.value)}>
           <option value="">Select Ingredient *</option>
-          {ingredients.map((i: any) => (
-            <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
-          ))}
+          {ingredients.map((i: any) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
         </select>
         <Button size="sm" onClick={handleGenerate} disabled={loading || !ingredientId}>
           {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
@@ -807,12 +795,10 @@ function AuditTrailModal({ onClose }: { onClose: () => void }) {
                     <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold capitalize">{String(log.action).replace(/_/g, " ")}</span>
                     <span className="text-sm font-medium text-foreground capitalize">{String(log.entity_type).replace(/_/g, " ")}</span>
                   </div>
-                  {log.details  && <p className="text-xs text-muted-foreground truncate">{log.details}</p>}
+                  {log.details   && <p className="text-xs text-muted-foreground truncate">{log.details}</p>}
                   {log.user_name && <p className="text-xs text-muted-foreground mt-0.5">by <span className="font-medium text-foreground">{log.user_name}</span></p>}
                 </div>
-                <p className="text-xs text-muted-foreground flex-shrink-0">
-                  {log.created_at ? formatDate(log.created_at) : "—"}
-                </p>
+                <p className="text-xs text-muted-foreground flex-shrink-0">{log.created_at ? formatDate(log.created_at) : "—"}</p>
               </div>
             ))}
           </div>
@@ -822,7 +808,7 @@ function AuditTrailModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── Stock Alerts Modal (Negative & Reorder) ──────────────────────────────────
+// ─── Stock Alerts Modal ───────────────────────────────────────────────────────
 
 function StockAlertsModal({ onClose, type }: { onClose: () => void; type: "negative" | "reorder" }) {
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -1005,9 +991,49 @@ function DashboardSummaryModal({ onClose }: { onClose: () => void }) {
 // ─── Main Report Page ─────────────────────────────────────────────────────────
 
 export default function Report() {
-  const { language } = useLanguage();
-  const [modal, setModal] = useState<ModalType>(null);
+  const [modal,       setModal]       = useState<ModalType>(null);
+  const [search,      setSearch]      = useState("");
+  const [activeTab,   setActiveTab]   = useState<CategoryTab>("all");
+  const [recentlyOpened, setRecentlyOpened] = useState<RecentEntry[]>([]);
+
+  function openModal(m: ModalType) {
+    if (!m) return;
+    setModal(m);
+    const def = ALL_REPORTS.find(r => r.modal === m);
+    if (def) {
+      setRecentlyOpened(prev => {
+        const filtered = prev.filter(r => r.modal !== m);
+        return [{ name: def.name, icon: def.icon, modal: m, openedAt: new Date() }, ...filtered].slice(0, 5);
+      });
+    }
+  }
+
   const close = () => setModal(null);
+
+  const tabs: { key: CategoryTab; label: string }[] = [
+    { key: "all",         label: "All Reports"   },
+    { key: "financial",   label: "Financial"     },
+    { key: "operational", label: "Operational"   },
+    { key: "audit",       label: "Audit"         },
+  ];
+
+  const visibleReports = ALL_REPORTS.filter(r => {
+    const matchesTab    = activeTab === "all" || r.category === activeTab;
+    const matchesSearch = !search ||
+      r.name.toLowerCase().includes(search.toLowerCase()) ||
+      r.desc.toLowerCase().includes(search.toLowerCase());
+    return matchesTab && matchesSearch;
+  });
+
+  const countFor = (cat: "financial" | "operational" | "audit") =>
+    ALL_REPORTS.filter(r => r.category === cat).length;
+
+  function timeAgo(date: Date) {
+    const s = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (s < 60)   return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    return `${Math.floor(s / 3600)}h ago`;
+  }
 
   return (
     <div className="space-y-6">
@@ -1028,153 +1054,128 @@ export default function Report() {
       {modal === "reorder"        && <StockAlertsModal      onClose={close} type="reorder"  />}
 
       {/* ── Header ── */}
-      <div>
-        <h1 className="text-3xl font-bold text-primary">Reports</h1>
-        <p className="text-muted-foreground mt-1">Generate and export financial and operational reports</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-primary">Reports</h1>
+          <p className="text-muted-foreground mt-1">
+            {ALL_REPORTS.length} reports across financial, operational and audit categories
+          </p>
+        </div>
+        <Button size="sm" className="gap-2 self-start sm:self-auto" onClick={() => openModal("export")}>
+          <Download className="w-4 h-4" /> Export CSV
+        </Button>
       </div>
 
-      {/* ── Quick Actions ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="p-6">
-          <p className="text-sm font-medium text-muted-foreground">Quick Actions</p>
-          <div className="flex gap-2 mt-3 flex-wrap">
-            <Button size="sm" variant="outline" onClick={() => setModal("stock")}>📦 Stock</Button>
-            <Button size="sm" variant="outline" onClick={() => setModal("branch-compare")}>🏢 Compare</Button>
-            <Button size="sm" variant="outline" onClick={() => setModal("menu")}>🍽️ Menu Eng</Button>
-            <Button size="sm" variant="outline" onClick={() => setModal("export")}>📥 Export</Button>
-          </div>
-        </Card>
-        <Card className="p-6">
-          <p className="text-sm font-medium text-muted-foreground">Export Sales Data</p>
-          <p className="text-xs text-muted-foreground mt-1">Download CSV filtered by branch and date range</p>
-          <Button size="sm" className="mt-3 gap-1" onClick={() => setModal("export")}>
-            <Download className="w-4 h-4" /> Export CSV
+      {/* ── Search + Tabs ── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* category tabs */}
+        <div className="flex gap-1 border-b border-border overflow-x-auto pb-px">
+          {tabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                activeTab === tab.key
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+              }`}
+            >
+              {tab.label}
+              {tab.key !== "all" && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  activeTab === tab.key ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+                }`}>
+                  {countFor(tab.key as any)}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* search */}
+        <div className="relative flex-shrink-0">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search reports…"
+            className={`${inputClass} pl-8 w-52`}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Report Grid ── */}
+      {visibleReports.length === 0 ? (
+        <Card className="p-12 text-center">
+          <p className="text-muted-foreground text-sm">No reports match your search.</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => { setSearch(""); setActiveTab("all"); }}>
+            Clear filters
           </Button>
         </Card>
-      </div>
-
-      {/* ── Financial Reports ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Financial Reports</h2>
-          <div className="space-y-3">
-            {[
-              { name: "Finance Report",          desc: "P&L statement by branch and period", icon: "📊", modal: "finance"   as ModalType },
-              { name: "Dashboard Summary",        desc: "Key metrics and KPIs overview",       icon: "📈", modal: "dashboard" as ModalType },
-              { name: "Monthly Budget vs Actual", desc: "Budget performance analysis",         icon: "💰", modal: "budget"    as ModalType },
-              { name: "Top Losses Analysis",      desc: "Waste and damage breakdown",          icon: "⚠️", modal: "losses"    as ModalType },
-            ].map(report => (
-              <div key={report.name} className="p-4 bg-secondary/50 rounded-lg border border-border hover:border-primary/50 transition-colors flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{report.icon}</span>
-                  <div>
-                    <p className="font-medium text-foreground">{report.name}</p>
-                    <p className="text-sm text-muted-foreground">{report.desc}</p>
-                  </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {visibleReports.map(report => (
+            <div
+              key={report.modal}
+              className="group p-4 bg-background rounded-xl border border-border hover:border-primary/40 hover:shadow-sm transition-all flex items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 text-xl group-hover:scale-105 transition-transform">
+                  {report.icon}
                 </div>
-                <Button size="sm" className="gap-1" onClick={() => setModal(report.modal)}>
-                  <Download className="w-4 h-4" /> Open
-                </Button>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Operational Reports</h2>
-          <div className="space-y-3">
-            {[
-              { name: "Stock Balances",         desc: "Current inventory across branches",   icon: "📦", modal: "stock"         as ModalType },
-              { name: "Sales Mix Analysis",     desc: "Product performance and trends",      icon: "📊", modal: "sales-mix"     as ModalType },
-              { name: "Supplier Price History", desc: "Track pricing changes over time",     icon: "📉", modal: "price-history" as ModalType },
-              { name: "Menu Engineering",       desc: "Recipe profitability classification", icon: "🍽️", modal: "menu"          as ModalType },
-            ].map(report => (
-              <div key={report.name} className="p-4 bg-secondary/50 rounded-lg border border-border hover:border-primary/50 transition-colors flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{report.icon}</span>
-                  <div>
-                    <p className="font-medium text-foreground">{report.name}</p>
-                    <p className="text-sm text-muted-foreground">{report.desc}</p>
-                  </div>
-                </div>
-                <Button size="sm" className="gap-1" onClick={() => setModal(report.modal)}>
-                  <Download className="w-4 h-4" /> Open
-                </Button>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* ── Audit & Compliance ── */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4">Audit & Compliance</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[
-            { name: "Audit Trail",           desc: "Complete transaction history",     icon: "📋", modal: "audit"          as ModalType },
-            { name: "Negative Stock Alerts", desc: "Items with negative inventory",    icon: "⚠️", modal: "neg-stock"      as ModalType },
-            { name: "Reorder Alerts",        desc: "Items below reorder point",        icon: "🔔", modal: "reorder"        as ModalType },
-            { name: "Branch Comparison",     desc: "Compare metrics across branches",  icon: "🏢", modal: "branch-compare" as ModalType },
-          ].map(report => (
-            <div key={report.name} className="p-4 bg-secondary/50 rounded-lg border border-border hover:border-primary/50 transition-colors flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{report.icon}</span>
-                <div>
-                  <p className="font-medium text-foreground text-sm">{report.name}</p>
-                  <p className="text-xs text-muted-foreground">{report.desc}</p>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm text-foreground truncate">{report.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{report.desc}</p>
+                  <span className={`mt-1 inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                    report.category === "financial"   ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"     :
+                    report.category === "operational" ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" :
+                                                        "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                  }`}>
+                    {report.category}
+                  </span>
                 </div>
               </div>
-              <Button size="sm" className="gap-1" onClick={() => setModal(report.modal)}>
-                <Download className="w-4 h-4" />
+              <Button size="sm" variant="outline" className="flex-shrink-0 gap-1" onClick={() => openModal(report.modal)}>
+                <FileText className="w-3.5 h-3.5" /> Open
               </Button>
             </div>
           ))}
         </div>
-      </Card>
+      )}
 
-      {/* ── Recent Reports ── */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold text-foreground mb-4">Recently Generated Reports</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold text-foreground">Report Name</th>
-                <th className="px-4 py-2 text-left font-semibold text-foreground">Generated</th>
-                <th className="px-4 py-2 text-left font-semibold text-foreground">Period</th>
-                <th className="px-4 py-2 text-left font-semibold text-foreground">Format</th>
-                <th className="px-4 py-2 text-left font-semibold text-foreground">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { name: "Finance Report",    date: "2026-04-03", period: "April 2026", format: "PDF",  modal: "finance"   as ModalType },
-                { name: "Dashboard Summary", date: "2026-04-02", period: "April 2026", format: "View", modal: "dashboard" as ModalType },
-                { name: "Stock Balances",    date: "2026-04-01", period: "2026-04-01", format: "CSV",  modal: "export"    as ModalType },
-              ].map((row, i) => (
-                <tr key={i} className="border-b border-border hover:bg-secondary/50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-foreground">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-primary" />
-                      {row.name}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-foreground">{row.date}</td>
-                  <td className="px-4 py-3 text-foreground">{row.period}</td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs font-medium px-2 py-1 bg-primary/10 text-primary rounded">{row.format}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Button size="sm" variant="outline" className="gap-1" onClick={() => setModal(row.modal)}>
-                      <Download className="w-4 h-4" /> Open
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {/* ── Recently Opened ── */}
+      {recentlyOpened.length > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold text-foreground">Recently Opened</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recentlyOpened.map(entry => (
+              <button
+                key={entry.modal}
+                onClick={() => openModal(entry.modal)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-secondary/40 hover:bg-secondary/80 hover:border-primary/30 transition-all text-left"
+              >
+                <span className="text-base">{entry.icon}</span>
+                <div>
+                  <p className="text-xs font-semibold text-foreground leading-tight">{entry.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{timeAgo(entry.openedAt)}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
