@@ -1048,10 +1048,11 @@ export default function Masters() {
       if (result.id && itemForm.supplier_id && itemForm.standard_cost > 0) {
         setSelectedIngredient(result.id);
         setSelectedIngredientName(itemForm.name);
+        setTimeout(() => refetchPrices?.(), 50);  // ← add this
       }
       setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0, supplier_id: 0 });
       await refetchItemsRaw?.();
-      await refetchIngredients?.();  // ← add this
+      await refetchIngredients?.();
     } else setError(t("masters.err.itemSave"));
   }
   async function handleUpdateItem() {
