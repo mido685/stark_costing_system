@@ -908,9 +908,9 @@ export default function Masters() {
   const { data: items,       loading: itemLoading,     refetch: refetchItemsRaw  } = useApi(getItems);
   const { data: users,       loading: userLoading,     refetch: refetchUsers     } = useApi(getUsers);
 
-  const { data: ingredients, loading: ingredientLoading } = useApi(
-    () => apiCall<IngredientOption[]>("/api/ingredients")
-  );
+  const { data: ingredients, loading: ingredientLoading, refetch: refetchIngredients } = useApi(
+  () => apiCall<IngredientOption[]>("/api/ingredients")
+);
 
 
   const { data: skuPrefixData, loading: skuPrefixLoading, refetch: refetchSkuPrefixes } = useApi(
@@ -1045,8 +1045,13 @@ export default function Masters() {
     setSaving(false);
     if (result) {
       setModal(null);
+      if (result.id && itemForm.supplier_id && itemForm.standard_cost > 0) {
+        setSelectedIngredient(result.id);
+        setSelectedIngredientName(itemForm.name);
+      }
       setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0, supplier_id: 0 });
       await refetchItemsRaw?.();
+      await refetchIngredients?.();  // ← add this
     } else setError(t("masters.err.itemSave"));
   }
   async function handleUpdateItem() {
