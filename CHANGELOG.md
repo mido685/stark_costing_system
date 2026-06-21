@@ -1,3 +1,10 @@
+## [3.93.2](https://github.com/mido685/stark_costing_system/compare/v3.93.1...v3.93.2) (2026-06-21)
+
+
+### Bug Fixes
+
+* fixing some taps ([7be768a](https://github.com/mido685/stark_costing_system/commit/7be768aa52531e66103039737e27599be964669e))
+
 ## [3.93.1](https://github.com/mido685/stark_costing_system/compare/v3.93.0...v3.93.1) (2026-06-21)
 
 
