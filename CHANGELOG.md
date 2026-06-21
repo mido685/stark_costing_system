@@ -1,3 +1,10 @@
+## [3.93.3](https://github.com/mido685/stark_costing_system/compare/v3.93.2...v3.93.3) (2026-06-21)
+
+
+### Bug Fixes
+
+* fixing the new lacking problem ([d406d3d](https://github.com/mido685/stark_costing_system/commit/d406d3dec1875a36e60dfaea8ac6bc27e69781b9))
+
 ## [3.93.2](https://github.com/mido685/stark_costing_system/compare/v3.93.1...v3.93.2) (2026-06-21)
 
 
