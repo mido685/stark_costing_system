@@ -1070,8 +1070,12 @@ export default function Masters() {
             ingredient_id: result.id,
             supplier_id:   savedSupplierId,
             price:         savedCost,
-            entry_date:    today(),
-            notes:         "Initial cost on item creation",
+            entry_date: (() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            return d.toISOString().split("T")[0];
+          })(),
+          notes: "Initial cost on item creation",
           }),
         });
       } catch { /* non-blocking */ }
@@ -1171,14 +1175,13 @@ export default function Masters() {
       entry_date: today(), notes: "",
     });
     setModal(null);
-
-    // Update selection
     setSelectedIngredient(savedIngredientId);
     setSelectedIngredientName(savedIngredientName);
     setTab("prices");
-
-    // Fetch directly — no closure, no stale state
+    // Always fetch directly — even if selectedIngredient didn't change,
+    // the useEffect won't re-fire since the value is the same
     await fetchPriceHistory(savedIngredientId);
+    
   } catch {
     setError(t("masters.err.priceSave"));
   }
