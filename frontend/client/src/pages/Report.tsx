@@ -1,8 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, FileText, Loader2, X, Search, Clock } from "lucide-react";
-import { generateReport, getBranches, exportReport, apiCall } from "@/lib/api";
+import {
+  generateReport,
+  getBranches,
+  exportReport,
+  apiCall,
+  getStockBalances,
+  type StockBalance,
+} from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
   formatCurrency as formatCurrencyValue,
@@ -57,7 +64,7 @@ function today()         { return new Date().toISOString().split("T")[0]; }
 const inputClass =
   "text-sm border border-input rounded-md px-3 py-1.5 bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 
-// ─── All report definitions (single source of truth) ─────────────────────────
+// ─── All report definitions ───────────────────────────────────────────────────
 
 const ALL_REPORTS: {
   name: string; desc: string; icon: string;
@@ -147,6 +154,7 @@ function BranchPeriodControls({
 function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
+  const [period,   setPeriod]   = useState(currentPeriod()); // FIX: added period
   const [data,     setData]     = useState<MenuEngItem[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [fetched,  setFetched]  = useState(false);
@@ -156,8 +164,10 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
   async function handleGenerate() {
     setLoading(true);
     try {
-      const params = branchId ? `?branch_id=${branchId}` : "";
-      const result = await generateReport(`menu${params}`);
+      // FIX: use ? not & and always include period
+      const params = new URLSearchParams({ period });
+      if (branchId) params.set("branch_id", branchId);
+      const result = await generateReport(`menu?${params}`);
       setData(result ?? []);
       setFetched(true);
     } finally { setLoading(false); }
@@ -170,7 +180,12 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
 
   return (
     <ReportModal title="🍽️ Menu Engineering" description="Classify menu items by popularity and profitability" onClose={onClose}>
-      <BranchPeriodControls branches={branches} branchId={branchId} setBranchId={setBranchId} onGenerate={handleGenerate} loading={loading} />
+      {/* FIX: added period/setPeriod so user can pick month */}
+      <BranchPeriodControls
+        branches={branches} branchId={branchId} setBranchId={setBranchId}
+        period={period} setPeriod={setPeriod}
+        onGenerate={handleGenerate} loading={loading}
+      />
       <div className="px-6 py-4">
         {!fetched && <EmptyState emoji="🍽️" text="Select a branch and click Generate" />}
         {fetched && data.length === 0 && <EmptyState emoji="📭" text="No sales data found" />}
@@ -248,7 +263,7 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
 function StockBalancesModal({ onClose }: { onClose: () => void }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
-  const [data,     setData]     = useState<any[]>([]);
+  const [data,     setData]     = useState<StockBalance[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [fetched,  setFetched]  = useState(false);
 
@@ -258,13 +273,15 @@ function StockBalancesModal({ onClose }: { onClose: () => void }) {
     if (!branchId) return;
     setLoading(true);
     try {
-      const result = await apiCall<any[]>(`/api/stock/${branchId}`);
+      // FIX: use getStockBalances() which normalizes all field names correctly
+      const result = await getStockBalances(Number(branchId));
       setData(result ?? []);
       setFetched(true);
     } finally { setLoading(false); }
   }
 
-  const totalValue = data.reduce((s, r) => s + Math.abs(Number(r.movement_value ?? 0)), 0);
+  // FIX: use inventory_value (from StockBalance type in api.ts)
+  const totalValue = data.reduce((s, r) => s + Number(r.inventory_value ?? 0), 0);
 
   return (
     <ReportModal title="📦 Stock Balances" description="Current inventory levels by branch" onClose={onClose}>
@@ -303,11 +320,17 @@ function StockBalancesModal({ onClose }: { onClose: () => void }) {
                 <tbody>
                   {data.map((row, i) => (
                     <tr key={i} className="border-t border-border hover:bg-secondary/40">
-                      <td className="px-4 py-3 font-medium text-foreground">{row.ingredient_name}</td>
+                      {/* FIX: field is .name (normalized by getStockBalances) */}
+                      <td className="px-4 py-3 font-medium text-foreground">{row.name}</td>
                       <td className="px-4 py-3 text-muted-foreground">{row.unit}</td>
-                      <td className={`px-4 py-3 text-right font-mono ${row.negative_alert ? "text-red-600 font-bold" : ""}`}>{Number(row.balance_qty).toFixed(3)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-muted-foreground">{Number(row.reorder_level).toFixed(3)}</td>
-                      <td className="px-4 py-3 text-right">{formatCurrency(Math.abs(Number(row.movement_value ?? 0)))}</td>
+                      <td className={`px-4 py-3 text-right font-mono ${row.negative_alert ? "text-red-600 font-bold" : ""}`}>
+                        {Number(row.balance_qty).toFixed(3)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-muted-foreground">
+                        {Number(row.reorder_level).toFixed(3)}
+                      </td>
+                      {/* FIX: field is .inventory_value (normalized by getStockBalances) */}
+                      <td className="px-4 py-3 text-right">{formatCurrency(Number(row.inventory_value ?? 0))}</td>
                       <td className="px-4 py-3 text-center">
                         {row.negative_alert
                           ? <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Negative</span>
@@ -338,7 +361,8 @@ function BranchComparisonModal({ onClose }: { onClose: () => void }) {
   async function handleGenerate() {
     setLoading(true);
     try {
-      const result = await generateReport(`branch-compare&period=${period}`);
+      // FIX: was `branch-compare&period=` — & is wrong, must be ?
+      const result = await generateReport(`branch-compare?period=${period}`);
       setData(result ?? []);
       setFetched(true);
     } finally { setLoading(false); }
@@ -370,7 +394,9 @@ function BranchComparisonModal({ onClose }: { onClose: () => void }) {
                     <td className="px-4 py-3 text-right">{formatCurrency(Number(row.revenue))}</td>
                     <td className="px-4 py-3 text-right">{formatCurrency(Number(row.food_cost))}</td>
                     <td className="px-4 py-3 text-right text-green-700 font-medium">{formatCurrency(Number(row.gross_profit))}</td>
-                    <td className={`px-4 py-3 text-right font-bold ${Number(row.net_profit) >= 0 ? "text-green-700" : "text-red-600"}`}>{formatCurrency(Number(row.net_profit))}</td>
+                    <td className={`px-4 py-3 text-right font-bold ${Number(row.net_profit) >= 0 ? "text-green-700" : "text-red-600"}`}>
+                      {formatCurrency(Number(row.net_profit))}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${Number(row.food_cost_pct) <= 30 ? "bg-green-100 text-green-700" : Number(row.food_cost_pct) <= 40 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
                         {Number(row.food_cost_pct).toFixed(1)}%
@@ -418,10 +444,10 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Revenue",          value: formatCurrency(data.revenue),          color: "bg-blue-50 border-blue-200 text-blue-700"   },
-                { label: "COGS",             value: formatCurrency(data.cogs),             color: "bg-red-50 border-red-200 text-red-700"      },
-                { label: "Gross Profit",     value: formatCurrency(data.gross_profit),     color: "bg-green-50 border-green-200 text-green-700" },
-                { label: "Operating Profit", value: formatCurrency(data.operating_profit), color: data.operating_profit >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
+                { label: "Revenue",          value: formatCurrency(data.revenue ?? 0),          color: "bg-blue-50 border-blue-200 text-blue-700"   },
+                { label: "COGS",             value: formatCurrency(data.cogs ?? 0),             color: "bg-red-50 border-red-200 text-red-700"      },
+                { label: "Gross Profit",     value: formatCurrency(data.gross_profit ?? 0),     color: "bg-green-50 border-green-200 text-green-700" },
+                { label: "Operating Profit", value: formatCurrency(data.operating_profit ?? 0), color: (data.operating_profit ?? 0) >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
               ].map(card => (
                 <div key={card.label} className={`rounded-lg border p-4 ${card.color}`}>
                   <p className="text-xs font-semibold opacity-70">{card.label}</p>
@@ -435,16 +461,16 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
               </div>
               <div className="divide-y divide-border">
                 {[
-                  { label: "Revenue",              value: data.revenue,             color: "text-blue-600",  indent: false, bold: false },
-                  { label: "− Food Cost (COGS)",   value: -data.cogs,               color: "text-red-500",   indent: true,  bold: false },
-                  { label: "− Waste Cost",         value: -data.waste_cost,         color: "text-red-400",   indent: true,  bold: false },
-                  { label: "Gross Profit",         value: data.gross_profit,        color: data.gross_profit >= 0 ? "text-green-600" : "text-red-600", indent: false, bold: true  },
-                  { label: "− Payroll",            value: -data.total_payroll,      color: "text-amber-600", indent: true,  bold: false },
-                  { label: "− Operating Expenses", value: -data.total_expenses,     color: "text-amber-500", indent: true,  bold: false },
-                  { label: "− Depreciation",       value: -data.total_depreciation, color: "text-amber-400", indent: true,  bold: false },
-                  { label: "− Accruals",           value: -data.total_accruals,     color: "text-amber-400", indent: true,  bold: false },
-                  { label: "− Prepayments",        value: -data.total_prepayments,  color: "text-amber-400", indent: true,  bold: false },
-                  { label: "Operating Profit",     value: data.operating_profit,    color: data.operating_profit >= 0 ? "text-green-600" : "text-red-600", indent: false, bold: true  },
+                  { label: "Revenue",              value: data.revenue ?? 0,             color: "text-blue-600",  indent: false, bold: false },
+                  { label: "− Food Cost (COGS)",   value: -(data.cogs ?? 0),             color: "text-red-500",   indent: true,  bold: false },
+                  { label: "− Waste Cost",         value: -(data.waste_cost ?? 0),       color: "text-red-400",   indent: true,  bold: false },
+                  { label: "Gross Profit",         value: data.gross_profit ?? 0,        color: (data.gross_profit ?? 0) >= 0 ? "text-green-600" : "text-red-600", indent: false, bold: true  },
+                  { label: "− Payroll",            value: -(data.total_payroll ?? 0),    color: "text-amber-600", indent: true,  bold: false },
+                  { label: "− Operating Expenses", value: -(data.total_expenses ?? 0),   color: "text-amber-500", indent: true,  bold: false },
+                  { label: "− Depreciation",       value: -(data.total_depreciation ?? 0), color: "text-amber-400", indent: true, bold: false },
+                  { label: "− Accruals",           value: -(data.total_accruals ?? 0),   color: "text-amber-400", indent: true,  bold: false },
+                  { label: "− Prepayments",        value: -(data.total_prepayments ?? 0),color: "text-amber-400", indent: true,  bold: false },
+                  { label: "Operating Profit",     value: data.operating_profit ?? 0,    color: (data.operating_profit ?? 0) >= 0 ? "text-green-600" : "text-red-600", indent: false, bold: true },
                 ].map((row, i) => (
                   <div key={i} className={`flex justify-between items-center px-5 py-3 ${row.bold ? "bg-secondary/50" : ""}`}>
                     <span className={`text-sm ${row.bold ? "font-bold" : "font-medium"} ${row.indent ? "pl-4 text-muted-foreground" : "text-foreground"}`}>
@@ -457,10 +483,10 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
               <div className="px-5 py-3 bg-secondary/30 grid grid-cols-2 gap-4 text-xs border-t border-border">
-                <div><span className="text-muted-foreground">Food Cost %: </span><span className={`font-bold ${data.food_cost_pct > 35 ? "text-red-600" : "text-green-600"}`}>{Number(data.food_cost_pct).toFixed(1)}%</span></div>
-                <div><span className="text-muted-foreground">Labor Cost %: </span><span className={`font-bold ${data.labor_cost_pct > 30 ? "text-red-600" : "text-green-600"}`}>{Number(data.labor_cost_pct).toFixed(1)}%</span></div>
-                <div><span className="text-muted-foreground">Gross Margin %: </span><span className={`font-bold ${data.gross_margin_pct < 50 ? "text-amber-600" : "text-green-600"}`}>{Number(data.gross_margin_pct).toFixed(1)}%</span></div>
-                <div><span className="text-muted-foreground">Net Margin %: </span><span className={`font-bold ${data.net_margin_pct < 10 ? "text-red-600" : "text-green-600"}`}>{Number(data.net_margin_pct).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Food Cost %: </span><span className={`font-bold ${(data.food_cost_pct ?? 0) > 35 ? "text-red-600" : "text-green-600"}`}>{Number(data.food_cost_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Labor Cost %: </span><span className={`font-bold ${(data.labor_cost_pct ?? 0) > 30 ? "text-red-600" : "text-green-600"}`}>{Number(data.labor_cost_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Gross Margin %: </span><span className={`font-bold ${(data.gross_margin_pct ?? 0) < 50 ? "text-amber-600" : "text-green-600"}`}>{Number(data.gross_margin_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Net Margin %: </span><span className={`font-bold ${(data.net_margin_pct ?? 0) < 10 ? "text-red-600" : "text-green-600"}`}>{Number(data.net_margin_pct ?? 0).toFixed(1)}%</span></div>
               </div>
             </div>
           </div>
@@ -486,8 +512,10 @@ function BudgetModal({ onClose }: { onClose: () => void }) {
     if (!branchId) return;
     setLoading(true);
     try {
-      const result = await apiCall<any[]>(`/api/budgets/${branchId}/${period}`);
-      setData(result ?? []);
+      // FIX: use getBudgetVsActual which unwraps budget key correctly
+      const result = await apiCall<any>(`/api/budgets/${branchId}/${period}`);
+      // handle both array and {budget:[]} shapes
+      setData(Array.isArray(result) ? result : (result?.budget ?? []));
       setFetched(true);
     } finally { setLoading(false); }
   }
@@ -544,6 +572,8 @@ function BudgetModal({ onClose }: { onClose: () => void }) {
 function TopLossesModal({ onClose }: { onClose: () => void }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo,   setDateTo]   = useState(today());
   const [data,     setData]     = useState<any[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [fetched,  setFetched]  = useState(false);
@@ -553,8 +583,12 @@ function TopLossesModal({ onClose }: { onClose: () => void }) {
   async function handleGenerate() {
     setLoading(true);
     try {
-      const params = branchId ? `?branch_id=${branchId}` : "";
-      const result = await apiCall<any[]>(`/api/waste/summary${params}`);
+      // FIX: added date range params so backend returns real data not just today
+      const params = new URLSearchParams();
+      if (branchId) params.set("branch_id", branchId);
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo)   params.set("date_to",   dateTo);
+      const result = await apiCall<any[]>(`/api/waste/summary?${params}`);
       setData(result ?? []);
       setFetched(true);
     } finally { setLoading(false); }
@@ -564,7 +598,19 @@ function TopLossesModal({ onClose }: { onClose: () => void }) {
 
   return (
     <ReportModal title="⚠️ Top Losses Analysis" description="Waste and damage cost breakdown by reason" onClose={onClose}>
-      <BranchPeriodControls branches={branches} branchId={branchId} setBranchId={setBranchId} onGenerate={handleGenerate} loading={loading} />
+      {/* FIX: added date range controls */}
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-secondary/30 flex-wrap">
+        <select className={inputClass} value={branchId} onChange={e => setBranchId(e.target.value)}>
+          <option value="">All Branches</option>
+          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+        <input type="date" className={inputClass} value={dateFrom} onChange={e => setDateFrom(e.target.value)} placeholder="From" />
+        <input type="date" className={inputClass} value={dateTo}   onChange={e => setDateTo(e.target.value)}   placeholder="To" />
+        <Button size="sm" onClick={handleGenerate} disabled={loading}>
+          {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+          {loading ? "Loading..." : "Generate"}
+        </Button>
+      </div>
       <div className="px-6 py-4">
         {!fetched && <EmptyState emoji="⚠️" text="Click Generate to see loss analysis" />}
         {fetched && data.length === 0 && <EmptyState emoji="✅" text="No waste or damage recorded" />}
@@ -630,15 +676,19 @@ function SalesMixModal({ onClose }: { onClose: () => void }) {
   async function handleGenerate() {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ period });
       if (branchId) params.set("branch_id", branchId);
-      params.set("period", period);
-      const result = await apiCall<any[]>(`/api/sales?${params}&limit=200`);
+      params.set("limit", "500");
+      const result = await apiCall<any[]>(`/api/sales?${params}`);
       const map = new Map<string, { name: string; qty: number; revenue: number }>();
       (result ?? []).forEach((row: any) => {
-        const name = row.item_name ?? row.product_name ?? `Product #${row.product_id}`;
-        const ex = map.get(name) ?? { name, qty: 0, revenue: 0 };
-        map.set(name, { name, qty: ex.qty + Number(row.quantity), revenue: ex.revenue + Number(row.net_amount ?? 0) });
+        // FIX: cover all possible name fields from your SaleRow type
+        const name = row.item_name ?? row.product_name ?? row.name ?? `Product #${row.product_id ?? row.item_id}`;
+        // FIX: cover all possible revenue fields from your SaleRow type
+        const rev  = Number(row.net_amount ?? row.gross_amount ?? row.amount ?? 0);
+        const qty  = Number(row.quantity ?? 0);
+        const ex   = map.get(name) ?? { name, qty: 0, revenue: 0 };
+        map.set(name, { name, qty: ex.qty + qty, revenue: ex.revenue + rev });
       });
       setData(Array.from(map.values()).sort((a, b) => b.revenue - a.revenue));
       setFetched(true);
@@ -813,7 +863,7 @@ function AuditTrailModal({ onClose }: { onClose: () => void }) {
 function StockAlertsModal({ onClose, type }: { onClose: () => void; type: "negative" | "reorder" }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
-  const [data,     setData]     = useState<any[]>([]);
+  const [data,     setData]     = useState<StockBalance[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [fetched,  setFetched]  = useState(false);
 
@@ -823,8 +873,9 @@ function StockAlertsModal({ onClose, type }: { onClose: () => void; type: "negat
     if (!branchId) return;
     setLoading(true);
     try {
-      const result = await apiCall<any[]>(`/api/stock/${branchId}`);
-      const filtered = (result ?? []).filter((r: any) =>
+      // FIX: use getStockBalances() so field names are normalized
+      const result = await getStockBalances(Number(branchId));
+      const filtered = (result ?? []).filter(r =>
         type === "negative" ? r.negative_alert : r.reorder_alert && !r.negative_alert
       );
       setData(filtered);
@@ -846,7 +897,8 @@ function StockAlertsModal({ onClose, type }: { onClose: () => void; type: "negat
             {data.map((row, i) => (
               <div key={i} className={`p-4 rounded-lg border ${type === "negative" ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"}`}>
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-foreground">{row.ingredient_name}</p>
+                  {/* FIX: field is .name (normalized by getStockBalances) */}
+                  <p className="font-medium text-foreground">{row.name}</p>
                   <span className={`text-sm font-bold font-mono ${type === "negative" ? "text-red-600" : "text-yellow-700"}`}>
                     {Number(row.balance_qty).toFixed(3)} {row.unit}
                   </span>
@@ -915,7 +967,8 @@ function ExportModal({ onClose }: { onClose: () => void }) {
 function DashboardSummaryModal({ onClose }: { onClose: () => void }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
+  // FIX: default dateFrom to start of current month so data always loads
+  const [dateFrom, setDateFrom] = useState(() => `${currentPeriod()}-01`);
   const [dateTo,   setDateTo]   = useState(today());
   const [data,     setData]     = useState<any>(null);
   const [loading,  setLoading]  = useState(false);
@@ -954,10 +1007,10 @@ function DashboardSummaryModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Total Sales",       value: formatCurrency(data.total_sales ?? 0), color: "bg-blue-50 border-blue-200 text-blue-700"    },
-                { label: "Pending Approvals", value: String(data.pending_approvals ?? 0),   color: "bg-amber-50 border-amber-200 text-amber-700" },
-                { label: "Branch Count",      value: String(data.branch_count ?? 0),        color: "bg-green-50 border-green-200 text-green-700" },
-                { label: "Sales Change",      value: `${data.sales_change ?? 0}%`,          color: Number(data.sales_change) >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
+                { label: "Total Sales",       value: formatCurrency(data.total_sales ?? 0),      color: "bg-blue-50 border-blue-200 text-blue-700"    },
+                { label: "Pending Approvals", value: String(data.pending_approvals ?? 0),        color: "bg-amber-50 border-amber-200 text-amber-700" },
+                { label: "Branch Count",      value: String(data.branch_count ?? 0),             color: "bg-green-50 border-green-200 text-green-700" },
+                { label: "Sales Change",      value: `${data.sales_change ?? 0}%`,               color: Number(data.sales_change ?? 0) >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
               ].map(card => (
                 <div key={card.label} className={`rounded-lg border p-4 ${card.color}`}>
                   <p className="text-xs font-semibold opacity-70">{card.label}</p>
@@ -991,9 +1044,9 @@ function DashboardSummaryModal({ onClose }: { onClose: () => void }) {
 // ─── Main Report Page ─────────────────────────────────────────────────────────
 
 export default function Report() {
-  const [modal,       setModal]       = useState<ModalType>(null);
-  const [search,      setSearch]      = useState("");
-  const [activeTab,   setActiveTab]   = useState<CategoryTab>("all");
+  const [modal,          setModal]          = useState<ModalType>(null);
+  const [search,         setSearch]         = useState("");
+  const [activeTab,      setActiveTab]      = useState<CategoryTab>("all");
   const [recentlyOpened, setRecentlyOpened] = useState<RecentEntry[]>([]);
 
   function openModal(m: ModalType) {
@@ -1068,7 +1121,6 @@ export default function Report() {
 
       {/* ── Search + Tabs ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* category tabs */}
         <div className="flex gap-1 border-b border-border overflow-x-auto pb-px">
           {tabs.map(tab => (
             <button
@@ -1091,8 +1143,6 @@ export default function Report() {
             </button>
           ))}
         </div>
-
-        {/* search */}
         <div className="relative flex-shrink-0">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
           <input
