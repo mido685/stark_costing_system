@@ -1,3 +1,10 @@
+## [3.92.2](https://github.com/mido685/stark_costing_system/compare/v3.92.1...v3.92.2) (2026-06-21)
+
+
+### Bug Fixes
+
+* fixing the api ([3578234](https://github.com/mido685/stark_costing_system/commit/3578234eecc3f79a4e784f88efabe299090dddc7))
+
 ## [3.92.1](https://github.com/mido685/stark_costing_system/compare/v3.92.0...v3.92.1) (2026-06-19)
 
 
