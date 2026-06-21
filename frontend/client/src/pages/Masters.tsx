@@ -895,9 +895,11 @@ export default function Masters() {
   const selectedPeriodLocked = selectedPeriodState === "locked";
 
   const [supplierSearch, setSupplierSearch] = useState("");
+  const [supplierCategoryFilter, setSupplierCategoryFilter] = useState("");
   const [supplierView,   setSupplierView]   = useState<SupplierRow | null>(null);
   const [itemSearch, setItemSearch] = useState("");
   const [itemFilter, setItemFilter] = useState<"all" | "raw_material" | "finished_good">("all");
+  const [userRoleFilter, setUserRoleFilter] = useState("");
 
   const currentUserId = Number(localStorage.getItem("user_id") ?? "0");
 
@@ -920,6 +922,11 @@ export default function Masters() {
 
   const [selectedIngredient,     setSelectedIngredient]     = useState<number>(0);
   const [selectedIngredientName, setSelectedIngredientName] = useState<string>("");
+  const [ingredientSearch, setIngredientSearch] = useState("");
+  const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
+  const filteredIngredients = (ingredients ?? []).filter(i =>
+  i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
+  );
   const { data: priceHistory, loading: priceLoading, refetch: refetchPrices } = useApi(
     () => selectedIngredient
       ? apiCall<PriceHistoryRow[]>(`/api/suppliers/price-history/${selectedIngredient}`)
@@ -936,8 +943,8 @@ export default function Masters() {
     name: "", sku: "", sku_prefix: "",
     category: "raw_material", unit: "",
     sale_price: 0, reorder_level: 0, standard_cost: 0,
+    supplier_id: 0,
   });
-
   const [editingItem,  setEditingItem]  = useState<ItemRow | null>(null);
   const [editItemForm, setEditItemForm] = useState({
     name: "", sku: "", sku_prefix: "", unit: "",
@@ -1010,7 +1017,7 @@ export default function Masters() {
   async function handleSaveItem() {
     if (!itemForm.name.trim() || !itemForm.unit.trim()) { setError(t("masters.err.itemRequired")); return; }
     setSaving(true); setError("");
-    const ok = await addItem({
+    const result = await addItem({
       name:          itemForm.name,
       unit:          itemForm.unit,
       category:      itemForm.category,
@@ -1021,14 +1028,27 @@ export default function Masters() {
       sku_prefix: itemForm.sku_prefix || undefined,
       user_id:    currentUserId,
     });
+    if (result?.id && itemForm.supplier_id && itemForm.standard_cost > 0) {
+      try {
+        await apiCall("/api/suppliers/price", {
+          method: "POST",
+          body: JSON.stringify({
+            ingredient_id: result.id,
+            supplier_id:   itemForm.supplier_id,
+            price:         itemForm.standard_cost,
+            entry_date:    today(),
+            notes:         "Initial cost on item creation",
+          }),
+        });
+      } catch { /* non-blocking — item saved, price record best-effort */ }
+    }
     setSaving(false);
-    if (ok) {
+    if (result) {
       setModal(null);
-      setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0 });
+      setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0, supplier_id: 0 });
       await refetchItemsRaw?.();
     } else setError(t("masters.err.itemSave"));
   }
-
   async function handleUpdateItem() {
     if (!editingItem) return;
     if (!editItemForm.name.trim() || !editItemForm.unit.trim()) {
@@ -1084,15 +1104,15 @@ export default function Masters() {
     if (!priceForm.price)         { setError(t("masters.err.enterPrice"));        return; }
     setSaving(true); setError("");
     try {
-      await apiCall("/api/suppliers/price", { method: "POST", body: JSON.stringify(priceForm) });
-      setSelectedIngredient(priceForm.ingredient_id);
-      const found = ingredients?.find(i => i.id === priceForm.ingredient_id);
-      setSelectedIngredientName(found?.name ?? "");
-      setTab("prices");
-      setModal(null);
-      setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
-      await refetchPrices?.();
-    } catch { setError(t("masters.err.priceSave")); }
+    await apiCall("/api/suppliers/price", { method: "POST", body: JSON.stringify(priceForm) });
+    const found = ingredients?.find(i => i.id === priceForm.ingredient_id);
+    setSelectedIngredient(priceForm.ingredient_id);
+    setSelectedIngredientName(found?.name ?? "");
+    setModal(null);
+    setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
+    setTab("prices");
+    setTimeout(() => refetchPrices?.(), 50);
+  } catch { setError(t("masters.err.priceSave")); }
     setSaving(false);
   }
 
@@ -1122,12 +1142,13 @@ export default function Masters() {
 
   const supplierList      = (suppliers as SupplierRow[]) ?? [];
   const filteredSuppliers = supplierList.filter(s =>
-    s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
-    (s.phone    ?? "").includes(supplierSearch) ||
-    (s.email    ?? "").toLowerCase().includes(supplierSearch.toLowerCase()) ||
-    (s.category ?? "").toLowerCase().includes(supplierSearch.toLowerCase()) ||
-    (s.notes    ?? "").toLowerCase().includes(supplierSearch.toLowerCase())
+    (s.name.toLowerCase().includes(supplierSearch.toLowerCase()) ||
+    (s.phone ?? "").includes(supplierSearch) ||
+    (s.email ?? "").toLowerCase().includes(supplierSearch.toLowerCase()) ||
+    (s.notes ?? "").toLowerCase().includes(supplierSearch.toLowerCase())) &&
+    (!supplierCategoryFilter || (s.category || "General") === supplierCategoryFilter)
   );
+  const activeCategories = [...new Set(supplierList.map(s => s.category || "General"))].sort();
 
   const filteredItems = (items as ItemRow[] ?? []).filter(item => {
     const matchSearch =
@@ -1135,6 +1156,9 @@ export default function Masters() {
       (item.sku ?? "").toLowerCase().includes(itemSearch.toLowerCase());
     return matchSearch && (itemFilter === "all" || item.category === itemFilter);
   });
+  const filteredUsers = (users as UserRow[] ?? []).filter(u =>
+  !userRoleFilter || u.role === userRoleFilter
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -1269,6 +1293,26 @@ export default function Masters() {
             onPrefixChange={prefix => setItemForm(prev => ({ ...prev, sku_prefix: prefix, sku: "" }))}
             onManualSkuChange={sku => setItemForm(prev => ({ ...prev, sku }))}
           />
+          {itemForm.category === "raw_material" && (
+            <Field label="Initial Supplier (optional — auto-records starting price)">
+              <select
+                className={inputClass}
+                value={itemForm.supplier_id || ""}
+                onChange={e => setItemForm(prev => ({ ...prev, supplier_id: Number(e.target.value) }))}
+              >
+                <option value="">— Skip (no price record) —</option>
+                {supplierList.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              {itemForm.supplier_id > 0 && itemForm.standard_cost > 0 && (
+                <p className="text-[11px] text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3 shrink-0" />
+                  Will auto-record {formatCurrency(itemForm.standard_cost)} {currencyLabel} to price history on save.
+                </p>
+              )}
+            </Field>
+          )}
         </Modal>
       )}
 
@@ -1535,6 +1579,26 @@ export default function Masters() {
                   <input className={inputClass + " pl-9"} placeholder="Search suppliers..."
                     value={supplierSearch} onChange={e => setSupplierSearch(e.target.value)} />
                 </div>
+                {!supplierLoading && activeCategories.length > 1 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <button
+                      onClick={() => setSupplierCategoryFilter("")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${!supplierCategoryFilter ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-border hover:border-primary"}`}
+                    >
+                      All ({supplierList.length})
+                    </button>
+                    {activeCategories.map(cat => (
+                      <button
+                        key={cat}
+                        onClick={() => setSupplierCategoryFilter(cat === supplierCategoryFilter ? "" : cat)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${supplierCategoryFilter === cat ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-border hover:border-primary"}`}
+                      >
+                        <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${supplierCatColor(cat).split(" ")[0]}`} />
+                        {cat} ({supplierList.filter(s => (s.category || "General") === cat).length})
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {supplierLoading ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[1, 2, 3].map(i => (
@@ -1653,26 +1717,54 @@ export default function Masters() {
               </Button>
             </div>
             {userLoading ? <SkeletonRows /> : !users?.length ? <EmptyState label={t("masters.empty.users")} /> : (
-              <div className="space-y-2">
-                {(users as UserRow[]).map(u => (
-                  <div key={u.id} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg hover:bg-secondary transition-colors group">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">
-                        {u.display_name.charAt(0).toUpperCase()}
+              <>
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {["", "owner", "admin", "manager", "accountant", "clerk"].map(role => {
+                    const count = role
+                      ? (users as UserRow[] ?? []).filter(u => u.role === role).length
+                      : (users as UserRow[] ?? []).length;
+                    if (count === 0 && role) return null;
+                    return (
+                      <button
+                        key={role}
+                        onClick={() => setUserRoleFilter(role)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border capitalize ${userRoleFilter === role ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-border hover:border-primary"}`}
+                      >
+                        {role || "All"} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="space-y-2">
+                  {filteredUsers.map(u => (
+                    <div key={u.id} className={`flex items-center justify-between p-3 rounded-lg hover:bg-secondary transition-colors group ${u.id === currentUserId ? "bg-primary/5 border border-primary/20" : "bg-secondary/50"}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">
+                          {u.display_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground flex items-center gap-1">
+                            {u.display_name}
+                            {u.id === currentUserId && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary ml-1">You</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground">@{u.username}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{u.display_name}</p>
-                        <p className="text-xs text-muted-foreground">@{u.username}</p>
+                      <div className="flex items-center gap-2">
+                        <Badge label={u.role} color={roleColor(u.role)} />
+                        <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge label={u.role} color={roleColor(u.role)} />
-                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {filteredUsers.length === 0 && (
+                    <EmptyState label={`No ${userRoleFilter} users found.`} />
+                  )}
+                </div>
+              </>
             )}
+
           </>
         )}
 
@@ -1701,21 +1793,51 @@ export default function Masters() {
             <div className="mb-4">
               <Field label={t("masters.field.ingredientHistory")}>
                 {ingredientLoading ? <div className="h-10 bg-secondary/50 rounded animate-pulse" /> : (
-                  <select className={inputClass} value={selectedIngredient || ""}
-                    onChange={e => {
-                      const id = Number(e.target.value);
-                      setSelectedIngredient(id);
-                      const found = ingredients?.find(i => i.id === id);
-                      setSelectedIngredientName(found?.name ?? "");
-                      setShowChangeLog(false);
-                    }}>
-                    <option value="">{t("masters.ph.selectIngredient")}</option>
-                    {ingredients?.map(i => (
-                      <option key={i.id} value={i.id}>{i.name} — {formatCurrency(Number(i.cost_per_unit))} / {i.unit}</option>
-                    ))}
-                  </select>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      className={inputClass + " pl-9"}
+                      placeholder="Search ingredient..."
+                      value={showIngredientDropdown ? ingredientSearch : selectedIngredientName}
+                      onFocus={() => { setIngredientSearch(""); setShowIngredientDropdown(true); }}
+                      onBlur={() => setTimeout(() => setShowIngredientDropdown(false), 150)}
+                      onChange={e => { setIngredientSearch(e.target.value); setShowIngredientDropdown(true); }}
+                    />
+                    {selectedIngredient > 0 && (
+                      <button
+                        onClick={() => { setSelectedIngredient(0); setSelectedIngredientName(""); setIngredientSearch(""); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {showIngredientDropdown && filteredIngredients.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full bg-background border border-border rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      {filteredIngredients.map(i => (
+                        <button
+                          key={i.id}
+                          className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-secondary transition-colors text-left"
+                          onMouseDown={() => {
+                            setSelectedIngredient(i.id);
+                            setSelectedIngredientName(i.name);
+                            setIngredientSearch("");
+                            setShowIngredientDropdown(false);
+                            setShowChangeLog(false);
+                          }}
+                        >
+                          <span className="font-medium text-foreground">{i.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {formatCurrency(Number(i.cost_per_unit))} / {i.unit}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 )}
-              </Field>
+                </Field>
             </div>
             {!selectedIngredient ? (
               <div className="py-12 text-center text-muted-foreground text-sm">{t("masters.empty.selectIngredient")}</div>

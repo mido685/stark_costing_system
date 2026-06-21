@@ -73,7 +73,7 @@ def create_item(
 ):
     try:
         if req.category == "raw_material":
-            ingredients_db.add_ingredient(
+            item = ingredients_db.add_ingredient(
                 name=req.name,
                 unit=req.unit,
                 company_id=current_user["company_id"],
@@ -85,7 +85,7 @@ def create_item(
                 ip_address=request.client.host,
             )
         else:
-            products_db.add_product(
+            item = products_db.add_product(
                 name=req.name,
                 unit=req.unit,
                 sale_price=req.sale_price,
@@ -95,10 +95,9 @@ def create_item(
                 sku_prefix=req.sku_prefix,
                 ip_address=request.client.host,
             )
-        return success("Item created")
+        return success("Item created", item=item)
     except ValueError as e:
         return error(str(e))
-
 
 # ── Image Upload ──────────────────────────────────────────────────────────────
 

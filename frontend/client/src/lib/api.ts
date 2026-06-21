@@ -533,15 +533,16 @@ export async function addItem(data: {
   reorder_level: number;
   standard_cost: number;
   user_id: number;
-}): Promise<boolean> {
+}): Promise<{ id: number; [key: string]: any } | null> {
   try {
-    await apiCall("/api/products/items", { method: "POST", body: JSON.stringify(data) });
-    return true;
+    return await apiCall<{ id: number; [key: string]: any }>(
+      "/api/products/items",
+      { method: "POST", body: JSON.stringify(data) }
+    );
   } catch {
-    return false;
+    return null;
   }
 }
-
 export async function deleteItem(itemId: number): Promise<boolean> {
   try {
     await apiCall(`/api/products/${itemId}`, { method: "DELETE" });
