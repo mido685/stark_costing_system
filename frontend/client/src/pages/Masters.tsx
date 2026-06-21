@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,8 @@ import type { UserRow, ItemRow, SupplierRow, PeriodStatusRow } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, getCurrencyLabel } from "@/lib/localization";
 import { apiUpload, assetUrl } from "@/lib/api";
-import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";   // make sure useEffect is imported
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -924,20 +925,36 @@ export default function Masters() {
   const [selectedIngredientName, setSelectedIngredientName] = useState<string>("");
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
-  const filteredIngredients = (ingredients ?? []).filter(i =>
-  i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryRow[]>([]);
+  const [priceLoading, setPriceLoading] = useState(false);
+
+// REPLACE your current fetchPriceHistory function with this:
+  const fetchPriceHistory = useCallback(async (ingredientId: number) => {
+    if (!ingredientId) { setPriceHistory([]); return; }
+    setPriceLoading(true);
+    try {
+      const rows = await apiCall<PriceHistoryRow[]>(
+        `/api/suppliers/price-history/${ingredientId}`
+      );
+      setPriceHistory(Array.isArray(rows) ? rows : []);
+    } catch {
+      setPriceHistory([]);
+    }
+    setPriceLoading(false);
+  }, []); 
+  const filteredIngredients = (ingredients ?? []).filter((i: IngredientOption) =>
+    i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
   );
-  const { data: priceHistory, loading: priceLoading, refetch: refetchPrices } = useApi(
-    () => selectedIngredient
-      ? apiCall<PriceHistoryRow[]>(`/api/suppliers/price-history/${selectedIngredient}`)
-      : Promise.resolve([]),
-    { deps: [selectedIngredient] }
-  );
+ // Replace the existing priceHistory useApi call:
+  
 
   const [branchForm,   setBranchForm]   = useState({ name: "", location: "", manager: "" });
   const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
   const [phoneError,      setPhoneError]      = useState("");
   const [agentPhoneError, setAgentPhoneError] = useState("");
+  useEffect(() => {
+  fetchPriceHistory(selectedIngredient);
+  }, [selectedIngredient,fetchPriceHistory]);
 
   const [itemForm, setItemForm] = useState({
     name: "", sku: "", sku_prefix: "",
@@ -1015,8 +1032,17 @@ export default function Masters() {
   }
 
   async function handleSaveItem() {
-    if (!itemForm.name.trim() || !itemForm.unit.trim()) { setError(t("masters.err.itemRequired")); return; }
-    setSaving(true); setError("");
+    if (!itemForm.name.trim() || !itemForm.unit.trim()) {
+      setError(t("masters.err.itemRequired"));
+      return;
+    }
+    setSaving(true);
+    setError("");
+
+    const savedName       = itemForm.name;
+    const savedSupplierId = itemForm.supplier_id;
+    const savedCost       = itemForm.standard_cost;
+
     const result = await addItem({
       name:          itemForm.name,
       unit:          itemForm.unit,
@@ -1024,36 +1050,52 @@ export default function Masters() {
       sale_price:    itemForm.sale_price,
       reorder_level: itemForm.reorder_level,
       standard_cost: itemForm.standard_cost,
-      sku:        itemForm.sku        || "",
-      sku_prefix: itemForm.sku_prefix || undefined,
-      user_id:    currentUserId,
+      sku:           itemForm.sku        || "",
+      sku_prefix:    itemForm.sku_prefix || undefined,
+      user_id:       currentUserId,
     });
-    if (result?.id && itemForm.supplier_id && itemForm.standard_cost > 0) {
+
+    if (!result) {
+      setError(t("masters.err.itemSave"));
+      setSaving(false);
+      return;
+    }
+
+    // POST the initial price record BEFORE resetting anything
+    if (result.id && savedSupplierId && savedCost > 0) {
       try {
         await apiCall("/api/suppliers/price", {
           method: "POST",
           body: JSON.stringify({
             ingredient_id: result.id,
-            supplier_id:   itemForm.supplier_id,
-            price:         itemForm.standard_cost,
+            supplier_id:   savedSupplierId,
+            price:         savedCost,
             entry_date:    today(),
             notes:         "Initial cost on item creation",
           }),
         });
-      } catch { /* non-blocking — item saved, price record best-effort */ }
+      } catch { /* non-blocking */ }
     }
+
+    // Close modal and reset form
+    setModal(null);
+    setItemForm({
+      name: "", sku: "", sku_prefix: "", category: "raw_material",
+      unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0,
+      supplier_id: 0,
+    });
+
+    // Navigate and fetch fresh history directly with the known ID
+    if (result.id && savedSupplierId && savedCost > 0) {
+      setSelectedIngredient(result.id);
+      setSelectedIngredientName(savedName);
+      setTab("prices");
+      await fetchPriceHistory(result.id);
+    }
+
+    await refetchItemsRaw?.();
+    await refetchIngredients?.();
     setSaving(false);
-    if (result) {
-      setModal(null);
-      if (result.id && itemForm.supplier_id && itemForm.standard_cost > 0) {
-        setSelectedIngredient(result.id);
-        setSelectedIngredientName(itemForm.name);
-        setTimeout(() => refetchPrices?.(), 50);  // ← add this
-      }
-      setItemForm({ name: "", sku: "", sku_prefix: "", category: "raw_material", unit: "", sale_price: 0, reorder_level: 0, standard_cost: 0, supplier_id: 0 });
-      await refetchItemsRaw?.();
-      await refetchIngredients?.();
-    } else setError(t("masters.err.itemSave"));
   }
   async function handleUpdateItem() {
     if (!editingItem) return;
@@ -1105,23 +1147,44 @@ export default function Masters() {
   }
 
   async function handleSavePrice() {
-    if (!priceForm.supplier_id)   { setError(t("masters.err.selectSupplier"));   return; }
-    if (!priceForm.ingredient_id) { setError(t("masters.err.selectIngredient")); return; }
-    if (!priceForm.price)         { setError(t("masters.err.enterPrice"));        return; }
-    setSaving(true); setError("");
-    try {
-    await apiCall("/api/suppliers/price", { method: "POST", body: JSON.stringify(priceForm) });
-    const found = ingredients?.find(i => i.id === priceForm.ingredient_id);
-    setSelectedIngredient(priceForm.ingredient_id);
-    setSelectedIngredientName(found?.name ?? "");
+  if (!priceForm.supplier_id)   { setError(t("masters.err.selectSupplier"));   return; }
+  if (!priceForm.ingredient_id) { setError(t("masters.err.selectIngredient")); return; }
+  if (!priceForm.price)         { setError(t("masters.err.enterPrice"));        return; }
+
+  setSaving(true);
+  setError("");
+
+  // Capture before any state resets
+  const savedIngredientId   = priceForm.ingredient_id;
+  const savedIngredientName =
+    ingredients?.find(i => i.id === savedIngredientId)?.name ?? "";
+
+  try {
+    await apiCall("/api/suppliers/price", {
+      method: "POST",
+      body:   JSON.stringify(priceForm),
+    });
+
+    // Reset form
+    setPriceForm({
+      supplier_id: 0, ingredient_id: 0, price: 0,
+      entry_date: today(), notes: "",
+    });
     setModal(null);
-    setPriceForm({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
+
+    // Update selection
+    setSelectedIngredient(savedIngredientId);
+    setSelectedIngredientName(savedIngredientName);
     setTab("prices");
-    setTimeout(() => refetchPrices?.(), 50);
-  } catch { setError(t("masters.err.priceSave")); }
-    setSaving(false);
+
+    // Fetch directly — no closure, no stale state
+    await fetchPriceHistory(savedIngredientId);
+  } catch {
+    setError(t("masters.err.priceSave"));
   }
 
+  setSaving(false);
+}
   async function handleDeleteSupplier(s: SupplierRow) {
     if (selectedPeriodClosed) return;
     if (!confirm(t("masters.confirm.deleteSupplier").replace("{name}", s.name))) return;
