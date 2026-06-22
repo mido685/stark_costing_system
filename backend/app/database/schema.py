@@ -196,14 +196,40 @@ def init_db() -> None:
         """)
 
         # ── 14. Supplier Price History ────────────────────────────────────────
+        # price_type controls whether a quote updates standard cost (initial_cost only).
+        # All other types (market_price, contract_price, spot_price) are informational.
+        # effective_date = when the supplier's price takes effect (≠ entry_date).
+        # company_id is denormalized here for fast tenant-scoped queries.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS supplier_price_history (
-                id            SERIAL PRIMARY KEY,
-                supplier_id   INTEGER NOT NULL REFERENCES suppliers(id),
-                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
-                price         NUMERIC(12,4) NOT NULL,
-                entry_date    DATE NOT NULL DEFAULT CURRENT_DATE,
-                notes         TEXT
+                id             SERIAL PRIMARY KEY,
+                company_id     INTEGER NOT NULL REFERENCES companies(id),
+                supplier_id    INTEGER NOT NULL REFERENCES suppliers(id),
+                ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
+                price          NUMERIC(12,4) NOT NULL CHECK (price > 0),
+                price_type     VARCHAR(20) NOT NULL DEFAULT 'market_price'
+                    CHECK (price_type IN ('initial_cost','market_price','contract_price','spot_price')),
+                entry_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+                effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                notes          TEXT
+            )
+        """)
+
+        # ── 14b. Standard Cost History ────────────────────────────────────────
+        # Immutable audit trail for every formal change to ingredients.cost_per_unit.
+        # Written only via update_standard_cost() or initial_cost price entries.
+        # Never written directly by market/contract/spot price recording.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS standard_cost_history (
+                id             SERIAL PRIMARY KEY,
+                company_id     INTEGER NOT NULL REFERENCES companies(id),
+                ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
+                old_cost       NUMERIC(12,4) NOT NULL,
+                new_cost       NUMERIC(12,4) NOT NULL,
+                effective_date DATE NOT NULL,
+                approved_by    INTEGER REFERENCES app_users(id),
+                notes          TEXT,
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
@@ -232,7 +258,6 @@ def init_db() -> None:
 
         # ── 17. Purchases (PO) ────────────────────────────────────────────────
         # PO approval does NOT affect stock. Stock increases only via GRN (table 18).
-        # ── 17. Purchases (PO) ────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS purchases (
                 id             SERIAL PRIMARY KEY,
@@ -260,6 +285,27 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS company_po_sequences (
                 company_id  INTEGER PRIMARY KEY REFERENCES companies(id),
                 last_number INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+
+        # ── 17c. Purchase History (modification audit trail) ──────────────────
+        # One row per edit on a PO — captures what changed, who changed it, and why.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS purchase_history (
+                id            SERIAL PRIMARY KEY,
+                purchase_id   INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+                company_id    INTEGER NOT NULL REFERENCES companies(id),
+                changed_by    INTEGER NOT NULL REFERENCES app_users(id),
+                changed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                old_quantity  NUMERIC(12,3),
+                new_quantity  NUMERIC(12,3),
+                old_unit_cost NUMERIC(12,4),
+                new_unit_cost NUMERIC(12,4),
+                old_gross     NUMERIC(12,2),
+                new_gross     NUMERIC(12,2),
+                old_notes     TEXT,
+                new_notes     TEXT,
+                change_reason TEXT
             )
         """)
 
@@ -421,25 +467,25 @@ def init_db() -> None:
         # ── 26. Sales ─────────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS sales (
-                id               SERIAL PRIMARY KEY,
-                branch_id        INTEGER NOT NULL REFERENCES branches(id),
-                product_id       INTEGER NOT NULL REFERENCES products(id),
-                entry_date       DATE    NOT NULL,
-                quantity         NUMERIC(12,3) NOT NULL,
-                unit_price       NUMERIC(12,2) NOT NULL,
-                gross_amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
-                discount_amount  NUMERIC(12,2) NOT NULL DEFAULT 0,
-                promotion_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-                tax_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
-                net_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
-                payment_method   VARCHAR(20) NOT NULL DEFAULT 'cash'
+                id                SERIAL PRIMARY KEY,
+                branch_id         INTEGER NOT NULL REFERENCES branches(id),
+                product_id        INTEGER NOT NULL REFERENCES products(id),
+                entry_date        DATE    NOT NULL,
+                quantity          NUMERIC(12,3) NOT NULL,
+                unit_price        NUMERIC(12,2) NOT NULL,
+                gross_amount      NUMERIC(12,2) NOT NULL DEFAULT 0,
+                discount_amount   NUMERIC(12,2) NOT NULL DEFAULT 0,
+                promotion_amount  NUMERIC(12,2) NOT NULL DEFAULT 0,
+                tax_amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
+                net_amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
+                payment_method    VARCHAR(20) NOT NULL DEFAULT 'cash'
                     CHECK (payment_method IN ('cash','bank','credit')),
                 receivable_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-                notes            TEXT,
-                status           VARCHAR(20) NOT NULL DEFAULT 'approved'
+                notes             TEXT,
+                status            VARCHAR(20) NOT NULL DEFAULT 'approved'
                     CHECK (status IN ('pending','approved','rejected')),
-                created_by       INTEGER REFERENCES app_users(id),
-                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                created_by        INTEGER REFERENCES app_users(id),
+                created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
@@ -525,13 +571,16 @@ def init_db() -> None:
         """)
 
         # ── 32. Expenses ──────────────────────────────────────────────────────
+        # NOTE: `category` (text) is a legacy denormalized field kept for backward
+        # compatibility. All new code should use `category_id` (FK) instead.
+        # Do not write to `category` in new features.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
                 id            SERIAL PRIMARY KEY,
                 branch_id     INTEGER NOT NULL REFERENCES branches(id),
                 entry_date    DATE    NOT NULL,
-                category      VARCHAR(100),
                 category_id   INTEGER REFERENCES expense_categories(id),
+                category      VARCHAR(100),
                 expense_group VARCHAR(50)  NOT NULL DEFAULT 'operating',
                 subtype       VARCHAR(100) NOT NULL DEFAULT 'admin',
                 amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -679,33 +728,6 @@ def init_db() -> None:
                 uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
-# ── 17c. Purchase History (modification audit trail) ──────────────────
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS purchase_history (
-                id            SERIAL PRIMARY KEY,
-                purchase_id   INTEGER NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
-                company_id    INTEGER NOT NULL REFERENCES companies(id),
-                changed_by    INTEGER NOT NULL REFERENCES app_users(id),
-                changed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                old_quantity  NUMERIC(12,3),
-                new_quantity  NUMERIC(12,3),
-                old_unit_cost NUMERIC(12,4),
-                new_unit_cost NUMERIC(12,4),
-                old_gross     NUMERIC(12,2),
-                new_gross     NUMERIC(12,2),
-                old_notes     TEXT,
-                new_notes     TEXT,
-                change_reason TEXT
-            )
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_purchase_history_purchase
-                ON purchase_history(purchase_id)
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_purchase_history_company
-                ON purchase_history(company_id, changed_at)
-        """)
 
         # ── 41. Budgets ───────────────────────────────────────────────────────
         cur.execute("""
@@ -777,8 +799,6 @@ def init_db() -> None:
         # Frozen financial summary captured automatically at hard-lock time.
         # Company-scoped (not branch) because the period status is company-wide.
         # Used for stable past-period review — unaffected by future adjusting entries.
-        # Replaces the old branch-scoped period_snapshots (table 43 in prior schema)
-        # and period_backups (table 46 in prior schema), which are now removed.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS period_snapshots (
                 id              SERIAL PRIMARY KEY,
@@ -814,18 +834,17 @@ def init_db() -> None:
         # ── 47. Adjusting Entries ─────────────────────────────────────────────
         # Corrections posted in the current open period that reference a past
         # locked period. The locked period's snapshot is never touched.
-        # is_adjustment flag and references_period link back to the original month.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS adjusting_entries (
-                id                 SERIAL PRIMARY KEY,
-                company_id         INTEGER NOT NULL REFERENCES companies(id),
-                branch_id          INTEGER NOT NULL REFERENCES branches(id),
-                entry_date         DATE    NOT NULL DEFAULT CURRENT_DATE,
-                amount             NUMERIC(12,2) NOT NULL,
-                description        TEXT    NOT NULL,
-                references_period  VARCHAR(7) NOT NULL,
-                created_by         INTEGER REFERENCES app_users(id),
-                created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                id                SERIAL PRIMARY KEY,
+                company_id        INTEGER NOT NULL REFERENCES companies(id),
+                branch_id         INTEGER NOT NULL REFERENCES branches(id),
+                entry_date        DATE    NOT NULL DEFAULT CURRENT_DATE,
+                amount            NUMERIC(12,2) NOT NULL,
+                description       TEXT    NOT NULL,
+                references_period VARCHAR(7) NOT NULL,
+                created_by        INTEGER REFERENCES app_users(id),
+                created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
 
@@ -844,6 +863,9 @@ def init_db() -> None:
                 approved_at  TIMESTAMPTZ
             )
         """)
+
+        # ── 49. Period Backups ────────────────────────────────────────────────
+        # Legacy table — kept for backward compatibility. Do not write new rows.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS period_backups (
                 id           SERIAL PRIMARY KEY,
@@ -861,7 +883,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 49. Governance Action Log ─────────────────────────────────────────
+        # ── 50. Governance Action Log ─────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS governance_action_log (
                 id               SERIAL PRIMARY KEY,
@@ -882,7 +904,7 @@ def init_db() -> None:
             )
         """)
 
-        # ── 50. Audit Log ─────────────────────────────────────────────────────
+        # ── 51. Audit Log ─────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id         SERIAL PRIMARY KEY,
@@ -898,37 +920,63 @@ def init_db() -> None:
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
-         # ── 51. employee_groups ─────────────────────────────────────────────────────
+
+        # ── 52. Employee Groups ───────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS employee_groups (
-                id              SERIAL PRIMARY KEY,
-                company_id      INTEGER NOT NULL REFERENCES companies(id),
-                name            VARCHAR(120) NOT NULL,
-                burden_pct      NUMERIC(5,2) NOT NULL DEFAULT 26.00,
-                headcount       INTEGER NOT NULL DEFAULT 1,
-                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                id         SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL REFERENCES companies(id),
+                name       VARCHAR(120) NOT NULL,
+                burden_pct NUMERIC(5,2) NOT NULL DEFAULT 26.00,
+                headcount  INTEGER NOT NULL DEFAULT 1,
+                is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 UNIQUE(company_id, name)
-            );
+            )
         """)
 
-        # ── Indexes ───────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────
+        # INDEXES
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Inventory
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch     ON inventory_movements(branch_id, entry_date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_type       ON inventory_movements(movement_type)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_ingredient ON inventory_movements(ingredient_id)")
+
+        # Ingredients
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredients_company_active     ON ingredients(company_id, is_active, name)")
+
+        # Supplier price history
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_ingredient       ON supplier_price_history(ingredient_id, effective_date DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_company          ON supplier_price_history(company_id, ingredient_id)")
+
+        # Standard cost history
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_std_cost_history_ingredient    ON standard_cost_history(ingredient_id, effective_date DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_std_cost_history_company       ON standard_cost_history(company_id)")
+
+        # GRN / Purchases
         cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_branch          ON goods_receipts(branch_id, entry_date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_goods_receipts_purchase        ON goods_receipts(purchase_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_adjustments_branch       ON stock_adjustments(branch_id, status)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_purchases_branch               ON purchases(branch_id, entry_date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchase_history_purchase      ON purchase_history(purchase_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_purchase_history_company       ON purchase_history(company_id, changed_at)")
+
+        # Stock
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_adjustments_branch       ON stock_adjustments(branch_id, status)")
+
+        # Sales / Cash / Petty Cash
         cur.execute("CREATE INDEX IF NOT EXISTS idx_sales_branch                   ON sales(branch_id, entry_date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_branch          ON cash_purchases(branch_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cash_purchases_company         ON cash_purchases(company_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_petty_cash_branch              ON petty_cash_ledger(branch_id)")
+
+        # Invoices / Audit
         cur.execute("CREATE INDEX IF NOT EXISTS idx_invoices_ref                   ON purchase_invoices(ref_table, ref_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_company              ON audit_log(company_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_table_record         ON audit_log(table_name, record_id)")
 
-        # Period system indexes — critical for dashboard filtering performance
+        # Period system — critical for dashboard filtering performance
         cur.execute("CREATE INDEX IF NOT EXISTS idx_period_statuses_company        ON company_period_statuses(company_id, period)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_period_history_company_period  ON company_period_status_history(company_id, period)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_period_snapshots_company       ON period_snapshots(company_id, period)")

@@ -30,12 +30,14 @@ type ModalType = "branch" | "supplier" | "item" | "editItem" | "user" | "price" 
 type Tab = "branches" | "suppliers" | "items" | "users" | "prices" | "skuPrefixes";
 
 interface PriceHistoryRow {
-  entry_date:    string;
-  supplier_name: string;
-  price:         number;
-  notes:         string;
+  id:             number;
+  entry_date:     string;
+  effective_date: string | null;
+  supplier_name:  string;
+  price:          number;
+  price_type:     "initial_cost" | "market_price" | "contract_price" | "spot_price" | null;
+  notes:          string;
 }
-
 
 interface IngredientOption {
   id:            number;
@@ -1067,15 +1069,16 @@ export default function Masters() {
         await apiCall("/api/suppliers/price", {
           method: "POST",
           body: JSON.stringify({
-            ingredient_id: result.id,
-            supplier_id:   savedSupplierId,
-            price:         savedCost,
+            ingredient_id:  result.id,
+            supplier_id:    savedSupplierId,
+            price:          savedCost,
             entry_date: (() => {
-            const d = new Date();
-            d.setDate(d.getDate() - 1);
-            return d.toISOString().split("T")[0];
-          })(),
-          notes: "Initial cost on item creation",
+              const d = new Date();
+              d.setDate(d.getDate() - 1);
+              return d.toISOString().split("T")[0];
+            })(),
+            notes:      "Initial cost on item creation",
+            price_type: "initial_cost",
           }),
         });
       } catch { /* non-blocking */ }
@@ -1166,7 +1169,10 @@ export default function Masters() {
   try {
     await apiCall("/api/suppliers/price", {
       method: "POST",
-      body:   JSON.stringify(priceForm),
+      body:   JSON.stringify({
+        ...priceForm,
+        price_type: "market_price",
+      }),
     });
 
     // Reset form
@@ -1918,18 +1924,58 @@ export default function Masters() {
               : (
                 <>
                   {priceHistory.length >= 2 && (() => {
-                    const latest = priceHistory[0].price;
-                    const oldest = priceHistory[priceHistory.length - 1].price;
-                    const diff = latest - oldest;
-                    const pct  = oldest > 0 ? (diff / oldest) * 100 : 0;
+                    const latest  = priceHistory[0].price;
+                    const oldest  = priceHistory[priceHistory.length - 1].price;
+                    const diff    = latest - oldest;
+                    const pct     = oldest > 0 ? (diff / oldest) * 100 : 0;
+
+                    // Standard cost from ingredients list for variance vs market
+                    const stdCost = ingredients?.find(
+                      i => i.id === selectedIngredient
+                    )?.cost_per_unit ?? null;
+                    const latestMarket = priceHistory.find(
+                      r => r.price_type === "market_price" || !r.price_type
+                    );
+                    const variance    = stdCost != null && latestMarket
+                      ? latestMarket.price - stdCost
+                      : null;
+                    const variancePct = stdCost && stdCost > 0 && variance != null
+                      ? (variance / stdCost) * 100
+                      : null;
+
                     return (
-                      <div className="flex items-center gap-4 mb-4 p-3 rounded-lg bg-secondary/40 border border-border text-xs">
-                        <span className="text-muted-foreground">Overall change:</span>
-                        <span className={`flex items-center gap-1 font-semibold ${diff > 0 ? "text-red-500" : diff < 0 ? "text-green-600" : "text-muted-foreground"}`}>
-                          {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                          {diff > 0 ? "+" : ""}{formatCurrency(diff)} ({pct > 0 ? "+" : ""}{pct.toFixed(1)}%)
-                        </span>
-                        <span className="text-muted-foreground ml-auto">{priceHistory.length} records</span>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        <div className="p-3 rounded-lg bg-secondary/40 border border-border text-xs space-y-1">
+                          <p className="text-muted-foreground font-medium uppercase tracking-wider text-[10px]">Latest Price</p>
+                          <p className="font-bold text-foreground text-sm">{formatCurrency(latest)} {currencyLabel}</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-secondary/40 border border-border text-xs space-y-1">
+                          <p className="text-muted-foreground font-medium uppercase tracking-wider text-[10px]">Overall Change</p>
+                          <p className={`font-bold text-sm flex items-center gap-1 ${diff > 0 ? "text-red-500" : diff < 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                            {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                            {diff > 0 ? "+" : ""}{formatCurrency(diff)} ({pct > 0 ? "+" : ""}{pct.toFixed(1)}%)
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-secondary/40 border border-border text-xs space-y-1">
+                          <p className="text-muted-foreground font-medium uppercase tracking-wider text-[10px]">Standard Cost</p>
+                          <p className="font-bold text-foreground text-sm">
+                            {stdCost != null ? `${formatCurrency(stdCost)} ${currencyLabel}` : <span className="text-muted-foreground">—</span>}
+                          </p>
+                        </div>
+                        <div className={`p-3 rounded-lg border text-xs space-y-1 ${variance == null ? "bg-secondary/40 border-border" : variance > 0 ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700/40" : variance < 0 ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700/40" : "bg-secondary/40 border-border"}`}>
+                          <p className="text-muted-foreground font-medium uppercase tracking-wider text-[10px]">Market vs Standard</p>
+                          {variance == null ? (
+                            <p className="text-muted-foreground text-sm font-bold">—</p>
+                          ) : (
+                            <p className={`font-bold text-sm flex items-center gap-1 ${variance > 0 ? "text-red-500" : variance < 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                              {variance > 0 ? <TrendingUp className="w-3 h-3" /> : variance < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                              {variance > 0 ? "+" : ""}{formatCurrency(variance)} ({variancePct != null ? `${variancePct > 0 ? "+" : ""}${variancePct.toFixed(1)}%` : "—"})
+                            </p>
+                          )}
+                        </div>
+                        <div className="col-span-2 lg:col-span-4 flex justify-end">
+                          <span className="text-xs text-muted-foreground">{priceHistory.length} records</span>
+                        </div>
                       </div>
                     );
                   })()}
@@ -1938,7 +1984,9 @@ export default function Masters() {
                       <thead className="bg-secondary">
                         <tr>
                           <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.date")}</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">Effective</th>
                           <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.supplier")}</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">Type</th>
                           <th className="px-4 py-2 text-right font-semibold text-foreground">{t("masters.priceHistory.price").replace("{currency}", currencyLabel)}</th>
                           <th className="px-4 py-2 text-center font-semibold text-foreground">vs Previous</th>
                           <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.notes")}</th>
@@ -1950,19 +1998,65 @@ export default function Masters() {
                           const diff = prev ? row.price - prev.price : null;
                           const pct  = prev && prev.price > 0 ? (diff! / prev.price) * 100 : null;
                           return (
-                            <tr key={i} className={`border-b border-border hover:bg-secondary/50 transition-colors ${i % 2 === 0 ? "" : "bg-secondary/20"}`}>
-                              <td className="px-4 py-3 text-foreground">{row.entry_date}</td>
-                              <td className="px-4 py-3 font-medium text-foreground">{row.supplier_name}</td>
-                              <td className="px-4 py-3 text-right font-bold text-primary">{formatCurrency(row.price)}</td>
-                              <td className="px-4 py-3 text-center">
-                                {diff === null
-                                  ? <span className="text-muted-foreground text-xs">—</span>
-                                  : diff > 0
-                                    ? <span className="flex items-center justify-center gap-1 text-red-500 text-xs font-semibold"><TrendingUp className="w-3 h-3" />+{formatCurrency(diff)} ({pct!.toFixed(1)}%)</span>
-                                    : diff < 0
-                                      ? <span className="flex items-center justify-center gap-1 text-green-600 text-xs font-semibold"><TrendingDown className="w-3 h-3" />{formatCurrency(diff)} ({pct!.toFixed(1)}%)</span>
-                                      : <span className="text-muted-foreground text-xs">No change</span>}
+                            <tr
+                              key={i}
+                              className={`border-b border-border hover:bg-secondary/50 transition-colors ${i % 2 === 0 ? "" : "bg-secondary/20"}`}
+                            >
+                              <td className="px-4 py-3 text-foreground text-xs">{row.entry_date}</td>
+
+                              <td className="px-4 py-3 text-xs text-muted-foreground">
+                                {row.effective_date && row.effective_date !== row.entry_date
+                                  ? row.effective_date
+                                  : <span className="text-muted-foreground/40">—</span>}
                               </td>
+
+                              <td className="px-4 py-3 font-medium text-foreground">{row.supplier_name}</td>
+
+                              <td className="px-4 py-3">
+                                {row.price_type === "initial_cost" && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                    Initial
+                                  </span>
+                                )}
+                                {(row.price_type === "market_price" || !row.price_type) && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                    Market
+                                  </span>
+                                )}
+                                {row.price_type === "contract_price" && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                                    Contract
+                                  </span>
+                                )}
+                                {row.price_type === "spot_price" && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                                    Spot
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 text-right font-bold text-primary">
+                                {formatCurrency(row.price)}
+                              </td>
+
+                              <td className="px-4 py-3 text-center">
+                                {diff === null ? (
+                                  <span className="text-muted-foreground text-xs">—</span>
+                                ) : diff > 0 ? (
+                                  <span className="flex items-center justify-center gap-1 text-red-500 text-xs font-semibold">
+                                    <TrendingUp className="w-3 h-3" />
+                                    +{formatCurrency(diff)} ({pct!.toFixed(1)}%)
+                                  </span>
+                                ) : diff < 0 ? (
+                                  <span className="flex items-center justify-center gap-1 text-green-600 text-xs font-semibold">
+                                    <TrendingDown className="w-3 h-3" />
+                                    {formatCurrency(diff)} ({pct!.toFixed(1)}%)
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">No change</span>
+                                )}
+                              </td>
+
                               <td className="px-4 py-3 text-muted-foreground text-xs">{row.notes || "—"}</td>
                             </tr>
                           );
