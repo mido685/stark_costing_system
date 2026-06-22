@@ -10,7 +10,7 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to xlocalhost:8085
-export const API_BASE = "https://factory-quote-angeles-separate.trycloudflare.com";
+export const API_BASE = "https://multimedia-fires-memories-power.trycloudflare.com";
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
   if (!path) return "";
@@ -93,9 +93,7 @@ const UNWRAP_KEYS = new Set([
   "prefix",
   "prefixes",
   "backups",       // ← ADD THIS
-  "category",
-  "price",
-  "prices"
+  "category"
 ]);
 
 export async function apiUpload<T>(endpoint: string, formData: FormData): Promise<T> {
@@ -1391,29 +1389,5 @@ export async function seedSkuPrefixes(): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-// ─── Supplier Price Approvals ─────────────────────────────────────────────────
-
-export async function approveSupplierPrice(
-  priceId: number,
-  action: "approved" | "rejected"
-): Promise<boolean> {
-  try {
-    await apiCall(`/api/suppliers/price/${priceId}/approve`, {
-      method: "POST",
-      body: JSON.stringify({ action }),
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function getPendingPriceApprovals(): Promise<any[]> {
-  try {
-    return await apiCall<any[]>("/api/suppliers/price/pending");
-  } catch {
-    return [];
   }
 }
