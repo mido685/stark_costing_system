@@ -202,16 +202,19 @@ def init_db() -> None:
         # company_id is denormalized here for fast tenant-scoped queries.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS supplier_price_history (
-                id             SERIAL PRIMARY KEY,
-                company_id     INTEGER NOT NULL REFERENCES companies(id),
-                supplier_id    INTEGER NOT NULL REFERENCES suppliers(id),
-                ingredient_id  INTEGER NOT NULL REFERENCES ingredients(id),
-                price          NUMERIC(12,4) NOT NULL CHECK (price > 0),
-                price_type     VARCHAR(20) NOT NULL DEFAULT 'market_price'
+                id            SERIAL PRIMARY KEY,
+                company_id    INTEGER NOT NULL REFERENCES companies(id),
+                supplier_id   INTEGER NOT NULL REFERENCES suppliers(id),
+                ingredient_id INTEGER NOT NULL REFERENCES ingredients(id),
+                price         NUMERIC(12,4) NOT NULL CHECK (price > 0),
+                price_type    VARCHAR(20) NOT NULL DEFAULT 'market_price'
                     CHECK (price_type IN ('initial_cost','market_price','contract_price','spot_price')),
-                entry_date     DATE NOT NULL DEFAULT CURRENT_DATE,
-                effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                notes          TEXT
+                purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                status        VARCHAR(20) NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','approved','rejected')),
+                approved_by   INTEGER REFERENCES users(id),
+                approved_at   TIMESTAMP,
+                notes         TEXT
             )
         """)
 

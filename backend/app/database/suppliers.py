@@ -1,7 +1,7 @@
 """
 app/database/suppliers.py
 Enterprise-grade supplier management with proper price type gating,
-standard cost protection, and clean null-safe update pattern.
+standard cost protection, and approval-based cost updating.
 """
 
 import psycopg2
@@ -13,8 +13,8 @@ from .log_audit import log_audit
 # ── Valid price types ─────────────────────────────────────────────────────────
 VALID_PRICE_TYPES = {"initial_cost", "market_price", "contract_price", "spot_price"}
 
-# Only these price types are allowed to overwrite the ingredient standard cost.
-# All others are informational — recorded for monitoring, not costing.
+# Only initial_cost auto-approves and updates standard cost immediately.
+# All other types require manager approval before touching cost_per_unit.
 COST_UPDATING_PRICE_TYPES = {"initial_cost"}
 
 
@@ -149,9 +149,6 @@ def update_supplier(
 
         old_dict = dict(old)
 
-        # Build the resolved field values.
-        # None = caller didn't pass it → keep existing value.
-        # "" or any other value = caller explicitly set it → write it.
         resolved = {
             "name":                  name                  if name                  is not None else old_dict["name"],
             "contact":               contact               if contact               is not None else old_dict["contact"],
@@ -272,31 +269,21 @@ def add_supplier_price(
     supplier_id: int,
     ingredient_id: int,
     price: float,
-    entry_date: str,
+    purchase_date: str,
     company_id: int,
     user_id: int,
     notes: str = "",
     price_type: str = "market_price",
-    effective_date: str | None = None,
     ip_address: str | None = None,
 ) -> dict:
     """
-    Record a supplier price quote and optionally update the ingredient standard cost.
+    Record a supplier price quote.
 
-    Price type controls whether standard cost is updated:
-      - initial_cost  → sets cost_per_unit on the ingredient (first-time setup only)
-      - market_price  → recorded for variance monitoring; does NOT touch standard cost
-      - contract_price → recorded for reference; does NOT touch standard cost
-      - spot_price    → recorded for reference; does NOT touch standard cost
-
-    Standard cost changes outside of initial setup require a formal review
-    and should go through update_standard_cost() instead.
-
-    Args:
-        price_type:     One of VALID_PRICE_TYPES. Defaults to 'market_price'.
-        effective_date: When this price takes effect (supplier's price date).
-                        Distinct from entry_date (when you recorded it).
-                        Defaults to entry_date if not provided.
+    Price type controls approval flow and whether standard cost is updated:
+      - initial_cost   → auto-approved, sets cost_per_unit immediately (first-time setup)
+      - market_price   → pending approval; cost only updates after manager approves
+      - contract_price → pending approval; informational until approved
+      - spot_price     → pending approval; informational until approved
     """
     if price_type not in VALID_PRICE_TYPES:
         raise ValueError(
@@ -307,12 +294,14 @@ def add_supplier_price(
     if price <= 0:
         raise ValueError("Price must be greater than zero")
 
-    resolved_effective_date = effective_date or entry_date
+    # initial_cost is system-generated at item creation — auto-approve it.
+    # Everything else requires a manager to review before touching standard cost.
+    initial_status = "approved" if price_type == "initial_cost" else "pending"
 
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # Verify both supplier and ingredient belong to this company and are active
+        # Verify supplier and ingredient belong to this company and are active
         cur.execute("""
             SELECT s.id
             FROM suppliers s
@@ -328,16 +317,16 @@ def add_supplier_price(
 
         cur.execute("""
             INSERT INTO supplier_price_history
-                (supplier_id, ingredient_id, price, entry_date, notes, price_type, effective_date, company_id)
+                (supplier_id, ingredient_id, price, purchase_date, notes,
+                 price_type, status, company_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
-        """, (supplier_id, ingredient_id, price, entry_date, notes, price_type, resolved_effective_date, company_id))
+        """, (supplier_id, ingredient_id, price, purchase_date, notes,
+              price_type, initial_status, company_id))
         price_row = dict(cur.fetchone())
 
-        # ── Standard cost gate ────────────────────────────────────────────────
-        # Only initial_cost is allowed to overwrite the ingredient standard cost.
-        # Every other price type is informational — it belongs in the history
-        # table for variance analysis, not in cost_per_unit.
+        # Only initial_cost updates standard cost immediately (auto-approved).
+        # All other types wait for approve_supplier_price() to be called.
         if price_type in COST_UPDATING_PRICE_TYPES:
             cur.execute("""
                 UPDATE ingredients
@@ -346,22 +335,19 @@ def add_supplier_price(
                 WHERE id = %s AND company_id = %s
             """, (price, supplier_id, ingredient_id, company_id))
 
-            # Also write a record to standard_cost_history for the audit trail
-            # (table must exist — see migration notes)
             try:
                 cur.execute("""
                     INSERT INTO standard_cost_history
-                        (company_id, ingredient_id, old_cost, new_cost, effective_date, approved_by, notes)
-                    SELECT
-                        %s, %s, cost_per_unit, %s, %s, %s,
-                        'Set via initial_cost price entry'
+                        (company_id, ingredient_id, old_cost, new_cost,
+                         effective_date, approved_by, notes)
+                    SELECT %s, %s, cost_per_unit, %s, %s, %s,
+                           'Set via initial_cost price entry'
                     FROM ingredients
                     WHERE id = %s AND company_id = %s
-                """, (company_id, ingredient_id, price, resolved_effective_date, user_id, ingredient_id, company_id))
+                """, (company_id, ingredient_id, price, purchase_date,
+                      user_id, ingredient_id, company_id))
             except Exception:
-                # standard_cost_history may not exist yet on older installs.
-                # Don't fail the whole transaction — just skip the history row.
-                pass
+                pass  # standard_cost_history may not exist on older installs
 
         log_audit(
             conn,
@@ -370,11 +356,101 @@ def add_supplier_price(
             action="CREATE",
             table_name="supplier_price_history",
             record_id=price_row["id"],
-            new_data={**price_row, "price_type": price_type},
+            new_data={**price_row, "price_type": price_type, "status": initial_status},
             ip_address=ip_address,
         )
         conn.commit()
         return price_row
+
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def approve_supplier_price(
+    price_id: int,
+    company_id: int,
+    approver_id: int,
+    action: str,  # "approved" or "rejected"
+    ip_address: str | None = None,
+) -> dict:
+    """
+    Approve or reject a pending supplier price record.
+
+    Only on approval does the ingredient standard cost get updated.
+    Rejected records are preserved in history for audit purposes.
+    """
+    if action not in {"approved", "rejected"}:
+        raise ValueError("Action must be 'approved' or 'rejected'")
+
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT sph.*
+            FROM supplier_price_history sph
+            JOIN suppliers s ON s.id = sph.supplier_id
+            WHERE sph.id = %s
+              AND s.company_id = %s
+              AND sph.status = 'pending'
+        """, (price_id, company_id))
+        price_row = cur.fetchone()
+        if not price_row:
+            raise ValueError("Price record not found, already reviewed, or access denied")
+
+        price_row = dict(price_row)
+
+        cur.execute("""
+            UPDATE supplier_price_history
+            SET status      = %s,
+                approved_by = %s,
+                approved_at = NOW()
+            WHERE id = %s
+            RETURNING *
+        """, (action, approver_id, price_id))
+        updated = dict(cur.fetchone())
+
+        # Update standard cost only on approval
+        if action == "approved":
+            cur.execute("""
+                UPDATE ingredients
+                SET cost_per_unit = %s,
+                    supplier_id   = %s
+                WHERE id = %s AND company_id = %s
+            """, (price_row["price"], price_row["supplier_id"],
+                  price_row["ingredient_id"], company_id))
+
+            try:
+                cur.execute("""
+                    INSERT INTO standard_cost_history
+                        (company_id, ingredient_id, old_cost, new_cost,
+                         effective_date, approved_by, notes)
+                    SELECT %s, %s, cost_per_unit, %s, %s, %s,
+                           'Approved via supplier price review'
+                    FROM ingredients
+                    WHERE id = %s AND company_id = %s
+                """, (company_id, price_row["ingredient_id"], price_row["price"],
+                      price_row["purchase_date"], approver_id,
+                      price_row["ingredient_id"], company_id))
+            except Exception:
+                pass  # standard_cost_history may not exist on older installs
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=approver_id,
+            action="UPDATE",
+            table_name="supplier_price_history",
+            record_id=price_id,
+            old_data={"status": "pending"},
+            new_data={"status": action, "approved_by": approver_id},
+            ip_address=ip_address,
+        )
+        conn.commit()
+        return updated
 
     except Exception:
         conn.rollback()
@@ -397,11 +473,8 @@ def update_standard_cost(
     Formally update an ingredient's standard cost after a management review.
 
     This is the ONLY approved path for changing cost_per_unit outside of
-    initial item creation. It writes an immutable record to standard_cost_history
-    and logs the change to the audit trail.
-
-    Use this after quarterly cost reviews, contract renegotiations, or any
-    approved cost revision — never silently via a market price quote.
+    initial item creation or price approval. It writes an immutable record
+    to standard_cost_history and logs the change to the audit trail.
     """
     if new_cost <= 0:
         raise ValueError("New cost must be greater than zero")
@@ -429,9 +502,11 @@ def update_standard_cost(
 
         cur.execute("""
             INSERT INTO standard_cost_history
-                (company_id, ingredient_id, old_cost, new_cost, effective_date, approved_by, notes)
+                (company_id, ingredient_id, old_cost, new_cost,
+                 effective_date, approved_by, notes)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (company_id, ingredient_id, old_cost, new_cost, effective_date, user_id, notes))
+        """, (company_id, ingredient_id, old_cost, new_cost,
+              effective_date, user_id, notes))
 
         log_audit(
             conn,
@@ -461,8 +536,7 @@ def get_supplier_price_history(
 ) -> list[dict[str, Any]]:
     """
     Returns full price history for an ingredient, most recent first.
-    Uses company_id directly on the price history table (fast path)
-    with a fallback join for rows that predate the column addition.
+    Includes status so the frontend can show pending/approved/rejected badges.
     """
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -473,20 +547,58 @@ def get_supplier_price_history(
                 sph.supplier_id,
                 sph.ingredient_id,
                 sph.price,
-                sph.entry_date,
-                sph.effective_date,
+                sph.purchase_date,
                 sph.price_type,
+                sph.status,
+                sph.approved_by,
+                sph.approved_at,
                 sph.notes,
-                s.name  AS supplier_name,
-                i.name  AS ingredient_name
+                s.name AS supplier_name,
+                i.name AS ingredient_name
             FROM supplier_price_history sph
             JOIN suppliers   s ON s.id = sph.supplier_id
             JOIN ingredients i ON i.id = sph.ingredient_id
             WHERE sph.ingredient_id = %s
               AND s.company_id = %s
               AND i.company_id = %s
-            ORDER BY sph.effective_date DESC, sph.entry_date DESC, sph.id DESC
+            ORDER BY sph.purchase_date DESC, sph.id DESC
         """, (ingredient_id, company_id, company_id))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_pending_price_approvals(company_id: int) -> list[dict[str, Any]]:
+    """
+    Returns all pending price records across all ingredients for this company.
+    Used to populate the manager's approval queue.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT
+                sph.id,
+                sph.supplier_id,
+                sph.ingredient_id,
+                sph.price,
+                sph.purchase_date,
+                sph.price_type,
+                sph.status,
+                sph.notes,
+                s.name AS supplier_name,
+                i.name AS ingredient_name,
+                i.unit AS ingredient_unit,
+                i.cost_per_unit AS current_standard_cost
+            FROM supplier_price_history sph
+            JOIN suppliers   s ON s.id = sph.supplier_id
+            JOIN ingredients i ON i.id = sph.ingredient_id
+            WHERE sph.status = 'pending'
+              AND s.company_id = %s
+              AND i.company_id = %s
+            ORDER BY sph.purchase_date DESC, sph.id DESC
+        """, (company_id, company_id))
         return [dict(r) for r in cur.fetchall()]
     finally:
         cur.close()
@@ -498,13 +610,12 @@ def get_price_variance_report(
     company_id: int,
 ) -> dict[str, Any]:
     """
-    Returns standard cost vs. latest market price and the variance.
-    This is the number a costing manager actually acts on.
+    Returns standard cost vs. latest approved market price and the variance.
+    Only approved prices are used — pending records don't affect costing numbers.
     """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # Current standard cost
         cur.execute("""
             SELECT cost_per_unit, name, unit
             FROM ingredients
@@ -516,28 +627,29 @@ def get_price_variance_report(
 
         standard_cost = float(ingredient["cost_per_unit"])
 
-        # Latest market price quote
+        # Only approved market prices count for variance reporting
         cur.execute("""
-            SELECT price, entry_date, effective_date, supplier_id
+            SELECT sph.price, sph.purchase_date, sph.supplier_id
             FROM supplier_price_history sph
             JOIN suppliers s ON s.id = sph.supplier_id
             WHERE sph.ingredient_id = %s
               AND s.company_id = %s
               AND sph.price_type = 'market_price'
-            ORDER BY sph.effective_date DESC, sph.id DESC
+              AND sph.status = 'approved'
+            ORDER BY sph.purchase_date DESC, sph.id DESC
             LIMIT 1
         """, (ingredient_id, company_id))
         latest_market = cur.fetchone()
 
         if not latest_market:
             return {
-                "ingredient_name": ingredient["name"],
-                "unit":            ingredient["unit"],
-                "standard_cost":   standard_cost,
+                "ingredient_name":     ingredient["name"],
+                "unit":                ingredient["unit"],
+                "standard_cost":       standard_cost,
                 "latest_market_price": None,
-                "variance":        None,
-                "variance_pct":    None,
-                "has_market_data": False,
+                "variance":            None,
+                "variance_pct":        None,
+                "has_market_data":     False,
             }
 
         market_price = float(latest_market["price"])
@@ -549,7 +661,7 @@ def get_price_variance_report(
             "unit":                ingredient["unit"],
             "standard_cost":       standard_cost,
             "latest_market_price": market_price,
-            "market_price_date":   str(latest_market["effective_date"]),
+            "market_price_date":   str(latest_market["purchase_date"]),
             "variance":            round(variance, 4),
             "variance_pct":        round(variance_pct, 2) if variance_pct is not None else None,
             "has_market_data":     True,

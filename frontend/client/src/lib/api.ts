@@ -93,7 +93,9 @@ const UNWRAP_KEYS = new Set([
   "prefix",
   "prefixes",
   "backups",       // ← ADD THIS
-  "category"
+  "category",
+  "price",
+  "prices"
 ]);
 
 export async function apiUpload<T>(endpoint: string, formData: FormData): Promise<T> {
@@ -1389,5 +1391,29 @@ export async function seedSkuPrefixes(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+// ─── Supplier Price Approvals ─────────────────────────────────────────────────
+
+export async function approveSupplierPrice(
+  priceId: number,
+  action: "approved" | "rejected"
+): Promise<boolean> {
+  try {
+    await apiCall(`/api/suppliers/price/${priceId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getPendingPriceApprovals(): Promise<any[]> {
+  try {
+    return await apiCall<any[]>("/api/suppliers/price/pending");
+  } catch {
+    return [];
   }
 }

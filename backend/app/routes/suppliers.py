@@ -1,7 +1,7 @@
 """
 app/api/routes/suppliers.py
-Enterprise-grade supplier routes with price_type, effective_date,
-standard cost update endpoint, and variance report endpoint.
+Enterprise-grade supplier routes with approval-based price flow,
+standard cost protection, and variance reporting.
 """
 
 from fastapi import APIRouter, Request, Depends
@@ -10,6 +10,7 @@ from app.api.responses import success, error
 from app.database import suppliers as suppliers_db
 from app.schemas import (
     SupplierPriceRequest,
+    SupplierPriceApprovalRequest,
     SupplierRequest,
     SupplierUpdateRequest,
     StandardCostUpdateRequest,
@@ -124,36 +125,79 @@ def delete_supplier(
 def add_supplier_price(
     req: SupplierPriceRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager", "clerk")),
 ):
     """
     Record a supplier price quote.
 
-    price_type controls what happens to the ingredient's standard cost:
-      - initial_cost   → sets cost_per_unit (first-time setup, item creation)
-      - market_price   → recorded only; standard cost unchanged (default)
-      - contract_price → recorded only; standard cost unchanged
-      - spot_price     → recorded only; standard cost unchanged
+    price_type controls the approval flow:
+      - initial_cost   → auto-approved; sets cost_per_unit immediately (item creation only)
+      - market_price   → status = pending; cost unchanged until manager approves
+      - contract_price → status = pending; cost unchanged until manager approves
+      - spot_price     → status = pending; cost unchanged until manager approves
 
-    Pass effective_date when the supplier's price takes effect on a date
-    different from today (e.g. next month's contract price).
+    Clerks can record prices. Only managers/admins can approve them.
     """
     try:
         price = suppliers_db.add_supplier_price(
             supplier_id=req.supplier_id,
             ingredient_id=req.ingredient_id,
             price=req.price,
-            entry_date=req.entry_date,
+            purchase_date=req.purchase_date,
             company_id=current_user["company_id"],
             user_id=current_user["id"],
             notes=req.notes,
             price_type=req.price_type,
-            effective_date=req.effective_date,
             ip_address=request.client.host,
         )
-        return success("Supplier price recorded", price=price)
+        return success(
+            "Supplier price recorded — pending manager approval" if price["status"] == "pending"
+            else "Supplier price recorded and applied",
+            price=price,
+        )
     except ValueError as e:
         return error(str(e))
+
+
+@router.post("/price/{price_id}/approve")
+def approve_supplier_price(
+    price_id: int,
+    req: SupplierPriceApprovalRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    """
+    Approve or reject a pending supplier price record.
+
+    On approval → ingredient cost_per_unit is updated and written to
+    standard_cost_history. On rejection → record is preserved for audit,
+    standard cost is untouched.
+    """
+    try:
+        updated = suppliers_db.approve_supplier_price(
+            price_id=price_id,
+            company_id=current_user["company_id"],
+            approver_id=current_user["id"],
+            action=req.action,
+            ip_address=request.client.host,
+        )
+        msg = "Price approved and standard cost updated" if req.action == "approved" \
+              else "Price rejected"
+        return success(msg, price=updated)
+    except ValueError as e:
+        return error(str(e))
+
+
+@router.get("/price/pending")
+def get_pending_approvals(
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    """
+    Returns all pending price records for this company.
+    Used to populate the manager's approval queue.
+    """
+    prices = suppliers_db.get_pending_price_approvals(current_user["company_id"])
+    return success("Pending price approvals retrieved", prices=prices)
 
 
 @router.get("/price-history/{ingredient_id}")
@@ -162,8 +206,8 @@ def supplier_price_history(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Full price quote history for an ingredient, most recent effective date first.
-    Includes price_type and effective_date on every row.
+    Full price history for an ingredient, most recent first.
+    Includes status (pending/approved/rejected) on every row.
     """
     prices = suppliers_db.get_supplier_price_history(
         ingredient_id=ingredient_id,
@@ -178,8 +222,8 @@ def price_variance_report(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Returns standard cost vs. latest market price quote with variance and variance %.
-    This is the number a costing manager acts on — not the raw history table.
+    Standard cost vs. latest approved market price with variance %.
+    Only approved prices count — pending records never affect costing numbers.
     """
     try:
         report = suppliers_db.get_price_variance_report(
@@ -205,12 +249,9 @@ def update_standard_cost(
     """
     Formally revise an ingredient's standard cost after management review.
 
-    This is the ONLY approved path for changing cost_per_unit outside of
-    initial item creation. Restricted to owner and admin roles.
-
-    Writes an immutable record to standard_cost_history and logs to audit_log.
-    Use after quarterly cost reviews, contract renegotiations, or any
-    approved cost revision.
+    Restricted to owner and admin. Writes to standard_cost_history and audit_log.
+    Use after quarterly cost reviews or approved contract renegotiations —
+    never directly in response to a market price quote.
     """
     try:
         updated = suppliers_db.update_standard_cost(

@@ -30,13 +30,13 @@ type ModalType = "branch" | "supplier" | "item" | "editItem" | "user" | "price" 
 type Tab = "branches" | "suppliers" | "items" | "users" | "prices" | "skuPrefixes";
 
 interface PriceHistoryRow {
-  id:             number;
-  entry_date:     string;
-  effective_date: string | null;
-  supplier_name:  string;
-  price:          number;
-  price_type:     "initial_cost" | "market_price" | "contract_price" | "spot_price" | null;
-  notes:          string;
+  id:           number;
+  purchase_date: string;      // was entry_date
+  supplier_name: string;
+  price:         number;
+  price_type:    "initial_cost" | "market_price" | "contract_price" | "spot_price" | null;
+  status:        "pending" | "approved" | "rejected";
+  notes:         string;
 }
 
 interface IngredientOption {
@@ -251,7 +251,7 @@ function exportPriceHistoryPDF(rows: PriceHistoryRow[], ingredientName: string, 
         : r.change < 0
           ? `<td class="center down">▼ ${formatCurrency(Math.abs(r.change))} (${Math.abs(r.changePct!).toFixed(1)}%)</td>`
           : `<td class="center muted">— No change</td>`;
-    return `<tr class="${i % 2 === 0 ? "even" : ""}"><td>${r.entry_date}</td><td>${r.supplier_name}</td><td class="right bold">${formatCurrency(r.price)} ${currencyLabel}</td>${changeCell}<td class="muted">${r.notes || "—"}</td></tr>`;
+    return `<tr class="${i % 2 === 0 ? "even" : ""}"><td>${r.purchase_date}</td><td>${r.supplier_name}</td><td class="right bold">${formatCurrency(r.price)} ${currencyLabel}</td>${changeCell}<td class="muted">${r.notes || "—"}</td></tr>`;
   }).join("");
   const latest = rows[0]?.price ?? 0;
   const oldest = rows[rows.length - 1]?.price ?? 0;
@@ -279,7 +279,7 @@ function PriceChangeHistory({ rows, currencyLabel }: { rows: PriceHistoryRow[]; 
   for (let i = 0; i < rows.length - 1; i++) {
     const from = rows[i + 1].price; const to = rows[i].price;
     const diff = to - from; const pct = from > 0 ? (diff / from) * 100 : 0;
-    changes.push({ date: rows[i].entry_date, supplier: rows[i].supplier_name, from, to, diff, pct });
+    changes.push({ date: rows[i].purchase_date , supplier: rows[i].supplier_name, from, to, diff, pct });
   }
   return (
     <div className="mt-6 space-y-2">
@@ -971,7 +971,7 @@ export default function Masters() {
   });
 
   const [userForm,  setUserForm]  = useState({ username: "", display_name: "", role: "clerk" });
-  const [priceForm, setPriceForm] = useState({ supplier_id: 0, ingredient_id: 0, price: 0, entry_date: today(), notes: "" });
+  const [priceForm, setPriceForm] = useState({ supplier_id: 0, ingredient_id: 0, price: 0, purchase_date: today(), notes: "" });
 
   const openModal = (type: ModalType) => {
     setError(""); setPhoneError(""); setAgentPhoneError(""); setModal(type);
@@ -1072,7 +1072,7 @@ export default function Masters() {
             ingredient_id:  result.id,
             supplier_id:    savedSupplierId,
             price:          savedCost,
-            entry_date: (() => {
+            purchase_date: (() => {
               const d = new Date();
               d.setDate(d.getDate() - 1);
               return d.toISOString().split("T")[0];
@@ -1154,46 +1154,53 @@ export default function Masters() {
   }
 
   async function handleSavePrice() {
-  if (!priceForm.supplier_id)   { setError(t("masters.err.selectSupplier"));   return; }
-  if (!priceForm.ingredient_id) { setError(t("masters.err.selectIngredient")); return; }
-  if (!priceForm.price)         { setError(t("masters.err.enterPrice"));        return; }
+    if (!priceForm.supplier_id)   { setError(t("masters.err.selectSupplier"));   return; }
+    if (!priceForm.ingredient_id) { setError(t("masters.err.selectIngredient")); return; }
+    if (!priceForm.price)         { setError(t("masters.err.enterPrice"));        return; }
 
-  setSaving(true);
-  setError("");
+    setSaving(true);
+    setError("");
 
-  // Capture before any state resets
-  const savedIngredientId   = priceForm.ingredient_id;
-  const savedIngredientName =
-    ingredients?.find(i => i.id === savedIngredientId)?.name ?? "";
+    const savedIngredientId   = priceForm.ingredient_id;
+    const savedIngredientName = ingredients?.find(i => i.id === savedIngredientId)?.name ?? "";
 
-  try {
-    await apiCall("/api/suppliers/price", {
-      method: "POST",
-      body:   JSON.stringify({
-        ...priceForm,
-        price_type: "market_price",
-      }),
-    });
+    try {
+      // Record price — backend sets status to 'pending', cost NOT updated yet
+      await apiCall("/api/suppliers/price", {
+        method: "POST",
+        body:   JSON.stringify({
+          ...priceForm,
+          price_type: "market_price",
+        }),
+      });
 
-    // Reset form
-    setPriceForm({
-      supplier_id: 0, ingredient_id: 0, price: 0,
-      entry_date: today(), notes: "",
-    });
-    setModal(null);
-    setSelectedIngredient(savedIngredientId);
-    setSelectedIngredientName(savedIngredientName);
-    setTab("prices");
-    // Always fetch directly — even if selectedIngredient didn't change,
-    // the useEffect won't re-fire since the value is the same
-    await fetchPriceHistory(savedIngredientId);
-    
-  } catch {
-    setError(t("masters.err.priceSave"));
+      // Reset form
+      setPriceForm({
+        supplier_id:   0,
+        ingredient_id: 0,
+        price:         0,
+        purchase_date: today(),
+        notes:         "",
+      });
+
+      setModal(null);
+      setSelectedIngredient(savedIngredientId);
+      setSelectedIngredientName(savedIngredientName);
+      setTab("prices");
+
+      await Promise.all([
+        fetchPriceHistory(savedIngredientId),
+        refetchIngredients?.(),
+        refetchItemsRaw?.(),
+      ]);
+
+    } catch {
+      setError(t("masters.err.priceSave"));
+    }
+
+    setSaving(false);
   }
 
-  setSaving(false);
-}
   async function handleDeleteSupplier(s: SupplierRow) {
     if (selectedPeriodClosed) return;
     if (!confirm(t("masters.confirm.deleteSupplier").replace("{name}", s.name))) return;
@@ -1484,6 +1491,13 @@ export default function Masters() {
       {modal === "price" && (
         <Modal title={t("masters.modal.recordPrice")} onClose={() => setModal(null)} onSave={handleSavePrice} {...modalProps}>
           {error && <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+          {/* Add this inside the Price Modal, right after the error line */}
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              This price will be recorded as <strong>pending</strong> and requires manager approval before updating the standard cost.
+            </p>
+          </div>
           <Field label={t("masters.field.ingredient")}>
             <select className={inputClass} value={priceForm.ingredient_id || ""}
               onChange={e => setPriceForm({ ...priceForm, ingredient_id: Number(e.target.value) })}>
@@ -1505,15 +1519,14 @@ export default function Masters() {
                 onChange={e => setPriceForm({ ...priceForm, price: Number(e.target.value) })} />
             </Field>
             <Field label={t("masters.field.date")}>
-              <input type="date" className={inputClass} value={priceForm.entry_date}
-                onChange={e => setPriceForm({ ...priceForm, entry_date: e.target.value })} />
+              <input type="date" className={inputClass} value={priceForm.purchase_date}
+                onChange={e => setPriceForm({ ...priceForm, purchase_date: e.target.value })} />
             </Field>
           </div>
           <Field label={t("masters.field.notes")}>
             <textarea className={inputClass} rows={2} placeholder={t("masters.ph.priceNotes")}
               value={priceForm.notes} onChange={e => setPriceForm({ ...priceForm, notes: e.target.value })} />
           </Field>
-          <p className="text-xs text-muted-foreground">{t("masters.priceNote")}</p>
         </Modal>
       )}
 
@@ -1934,7 +1947,7 @@ export default function Masters() {
                       i => i.id === selectedIngredient
                     )?.cost_per_unit ?? null;
                     const latestMarket = priceHistory.find(
-                      r => r.price_type === "market_price" || !r.price_type
+                      r => (r.price_type === "market_price" || !r.price_type) && r.status === "approved"
                     );
                     const variance    = stdCost != null && latestMarket
                       ? latestMarket.price - stdCost
@@ -1984,7 +1997,7 @@ export default function Masters() {
                       <thead className="bg-secondary">
                         <tr>
                           <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.date")}</th>
-                          <th className="px-4 py-2 text-left font-semibold text-foreground">Effective</th>
+                          <th className="px-4 py-2 text-left font-semibold text-foreground">Status</th>
                           <th className="px-4 py-2 text-left font-semibold text-foreground">{t("masters.priceHistory.supplier")}</th>
                           <th className="px-4 py-2 text-left font-semibold text-foreground">Type</th>
                           <th className="px-4 py-2 text-right font-semibold text-foreground">{t("masters.priceHistory.price").replace("{currency}", currencyLabel)}</th>
@@ -2002,14 +2015,24 @@ export default function Masters() {
                               key={i}
                               className={`border-b border-border hover:bg-secondary/50 transition-colors ${i % 2 === 0 ? "" : "bg-secondary/20"}`}
                             >
-                              <td className="px-4 py-3 text-foreground text-xs">{row.entry_date}</td>
-
-                              <td className="px-4 py-3 text-xs text-muted-foreground">
-                                {row.effective_date && row.effective_date !== row.entry_date
-                                  ? row.effective_date
-                                  : <span className="text-muted-foreground/40">—</span>}
+                              <td className="px-4 py-3 text-foreground text-xs">{row.purchase_date}</td>
+                              <td className="px-4 py-3">
+                                {row.status === "pending" && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                    Pending
+                                  </span>
+                                )}
+                                {row.status === "approved" && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                    Approved
+                                  </span>
+                                )}
+                                {row.status === "rejected" && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                                    Rejected
+                                  </span>
+                                )}
                               </td>
-
                               <td className="px-4 py-3 font-medium text-foreground">{row.supplier_name}</td>
 
                               <td className="px-4 py-3">

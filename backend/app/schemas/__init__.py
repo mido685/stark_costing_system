@@ -168,43 +168,23 @@ class SupplierPriceRequest(BaseModel):
     supplier_id:   int
     ingredient_id: int
     price:         float = Field(..., gt=0, description="Must be greater than zero")
-    entry_date:    str   = Field(..., description="ISO date: YYYY-MM-DD")
+    purchase_date: str   = Field(..., description="ISO date: YYYY-MM-DD")
     notes:         str   = ""
-
     price_type: Literal[
         "initial_cost",
         "market_price",
         "contract_price",
         "spot_price",
     ] = "market_price"
-    """
-    Controls whether this quote updates the ingredient's standard cost:
-      - initial_cost   → sets cost_per_unit (use only on item creation)
-      - market_price   → recorded for variance monitoring only (default)
-      - contract_price → recorded for reference; standard cost unchanged
-      - spot_price     → recorded for reference; standard cost unchanged
-    """
 
-    effective_date: str | None = Field(
-        default=None,
-        description=(
-            "When this price takes effect (YYYY-MM-DD). "
-            "Defaults to entry_date if omitted. "
-            "Distinct from entry_date (when you recorded it)."
-        ),
-    )
-
-    @field_validator("entry_date", "effective_date", mode="before")
+    @field_validator("purchase_date", mode="before")
     @classmethod
-    def validate_date_format(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
+    def validate_date_format(cls, v: str) -> str:
         try:
             date.fromisoformat(v)
         except ValueError:
             raise ValueError("Date must be in YYYY-MM-DD format")
         return v
-
 
 class StandardCostUpdateRequest(BaseModel):
     """
@@ -537,3 +517,6 @@ class SkuPrefixRequest(BaseModel):
     label:     str
     prefix:    str
     item_type: Literal["raw_material", "finished_good", "both"] = "raw_material"
+    
+class SupplierPriceApprovalRequest(BaseModel):
+    action: Literal["approved", "rejected"]
