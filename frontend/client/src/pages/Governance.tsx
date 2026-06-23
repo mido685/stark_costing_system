@@ -30,6 +30,11 @@ type ApprovalItem = {
   currency?:        string;
   priority?:        "high" | "medium" | "low";
   fromProcurement?: boolean;
+  ingredientName?: string;
+  supplierName?:   string;
+  priceType?:      string;
+  previousCost?: number;
+  priceChangePct?: number;
 };
 
 type GovernanceHistoryRow = {
@@ -155,24 +160,41 @@ const SHARED_HTML_STYLES = `
   .doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}
   .doc-sub{font-size:12px;color:#64748b}
   .meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}
-  .status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px}
-  .section{margin-bottom:24px}
+  .watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:80px;font-weight:900;opacity:0.04;color:#dc2626;pointer-events:none;z-index:0;letter-spacing:8px;text-transform:uppercase}
+  @media print{.watermark{opacity:0.06}}
+  .section{margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #f1f5f9}
+  .section:last-of-type{border-bottom:none}
   .section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .info-block.full{grid-column:1/-1}
   .info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}
   .info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}
   .info-value{font-size:13px;font-weight:600;color:#0f172a}
-  .totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:20px}
+  .info-value.up{color:#dc2626}
+  .info-value.down{color:#16a34a}
+  .info-value.neutral{color:#64748b}
+  .totals{margin-left:auto;width:100%;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:20px}
   .totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}
   .totals-row.highlight{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}
   .totals-row.highlight span{color:#93c5fd}
-  .notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}
+  .notes-box{background:#fffbeb;border:1px solid #fde68a;border-left:3px solid #f59e0b;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}
+  .notes-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#92400e;margin-bottom:6px;display:flex;align-items:center;gap:4px}
   .footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}
   .footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}
   .footer-note{font-size:10px;color:#94a3b8}
   .print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}
   .print-btn:hover{background:#1e40af}
-  @media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}
+  @media print{
+  .print-btn{display:none}
+  body{background:#fff}
+  .page{padding:20px;max-width:100%;box-shadow:none}
+  .info-block{break-inside:avoid}
+  .section{break-inside:avoid}
+  .totals{margin-left:0;max-width:100%}
+  .header{break-after:avoid}
+  .footer{break-before:avoid}
+  @page{margin:1.5cm;size:A4}
+}
 `;
 
 interface HtmlViewerParams {
@@ -189,19 +211,33 @@ function openRecordAsHtml(params: HtmlViewerParams): void {
   const badgeHtml = badge ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>` : "";
   const sectionsHtml = sections.map(sec => `
     <div class="section"><div class="section-title">${sec.heading}</div><div class="info-grid">
-      ${sec.rows.map(r => `<div class="info-block"><div class="info-label">${r.label}</div><div class="info-value">${r.value}</div></div>`).join("")}
+    ${sec.rows.map((r, idx, arr) => {
+      const val        = r.value ?? "";
+      const colorClass = val.startsWith("▲") ? " up" : val.startsWith("▼") ? " down" : "";
+      const fullClass  = arr.length % 2 !== 0 && idx === arr.length - 1 ? " full" : "";
+      return `<div class="info-block${fullClass}"><div class="info-label">${r.label}</div><div class="info-value${colorClass}">${val}</div></div>`;
+    }).join("")}
     </div></div>`).join("");
   const totalsHtml = totals?.length ? `<div class="totals">${totals.map(t => `<div class="totals-row${t.highlight ? " highlight" : ""}"><span>${t.label}</span><span>${t.value}</span></div>`).join("")}</div>` : "";
-  const notesHtml  = notes ? `<div class="section"><div class="section-title">Notes</div><div class="notes-box">${notes}</div></div>` : "";
+  const notesHtml = notes
+  ? `<div class="section">
+       <div class="section-title">Notes</div>
+       <div class="notes-box">
+         <div class="notes-label">📝 Additional Information</div>
+         ${notes}
+       </div>
+     </div>`
+  : "";
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${ref} — STARK AI</title><style>${SHARED_HTML_STYLES}</style></head>
 <body><button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
 <div class="page">
+  ${badge?.label === "REJECTED" ? `<div class="watermark">REJECTED</div>` : ""}
   <div class="header">
     <div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">${title}</div><div class="doc-sub">${subtitle}</div></div>
     <div class="meta">${badgeHtml ? `<div>${badgeHtml}</div>` : ""}<div style="margin-top:8px">Generated: ${now}</div><div>Ref: ${ref}</div></div>
   </div>
   ${sectionsHtml}${totalsHtml}${notesHtml}
-  <div class="footer"><div class="footer-brand">STARK AI</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div>
+  <div class="footer"><div class="footer-brand">STARK AI · ${title}</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div>
 </div></body></html>`;
   const blob = new Blob([html], { type: "text/html" });
   const url  = URL.createObjectURL(blob);
@@ -240,20 +276,56 @@ function openPurchaseOrderHtml(row: PurchaseHistoryRow): void {
 
 function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
   const bc  = statusBadgeColors(a.status);
-  const ref = a.fromProcurement && a.purchaseId ? `PO-${String(a.purchaseId).padStart(5,"0")}` : `APR-${String(a.id).padStart(5,"0")}`;
+  const ref = a.fromProcurement && a.purchaseId
+    ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+    : `APR-${String(a.id).padStart(5, "0")}`;
+
+  const isPriceHistory = a.typeKey === "gov.approvalType.priceHistory";
+
+  const detailRows = isPriceHistory
+    ? [
+        { label: "Type",          value: t(a.typeKey)                          },
+        { label: "Ingredient",    value: a.ingredientName  ?? "—"              },
+        { label: "Supplier",      value: a.supplierName    ?? "—"              },
+        { label: "Price Type",    value: a.priceType       ?? "—"              },
+        { label: "Submitted By",  value: a.submitted_by    || "—"              },
+        { label: "Date",          value: formatDate(a.date)                    },
+        { label: "Priority",      value: (a.priority ?? "medium").toUpperCase()},
+        { label: "Source",        value: a.fromProcurement ? "Procurement" : "System" },
+        { label: "Change", value: a.priceChangePct != null ? `${a.priceChangePct > 0 ? "▲" : "▼"} ${Math.abs(a.priceChangePct).toFixed(2)}%` : "—" },
+      ]
+    : [
+        { label: "Type",          value: t(a.typeKey)                          },
+        { label: "Submitted By",  value: a.submitted_by    || "—"              },
+        { label: "Date",          value: formatDate(a.date)                    },
+        { label: "Priority",      value: (a.priority ?? "medium").toUpperCase()},
+        { label: "Source",        value: a.fromProcurement ? "Procurement" : "System" },
+      ];
+
   openRecordAsHtml({
-    title: t(a.typeKey), subtitle: `${ref} · ${formatDateShort(a.date)}`, ref,
+    title:    t(a.typeKey),
+    subtitle: `${ref} · ${formatDateShort(a.date)}`,
+    ref,
     badge: { label: a.status.toUpperCase(), color: bc.color, bg: bc.bg },
-    sections: [{ heading: "Approval Details", rows: [
-      { label: "Type", value: t(a.typeKey) }, { label: "Submitted By", value: a.submitted_by || "—" },
-      { label: "Date", value: formatDate(a.date) }, { label: "Priority", value: (a.priority ?? "medium").toUpperCase() },
-      { label: "Source", value: a.fromProcurement ? "Procurement" : "System" },
-    ]}],
-    totals: a.amount != null ? [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }] : undefined,
-    notes: a.desc,
+    sections: [{
+  heading: isPriceHistory
+    ? "Price Change Details"
+    : a.fromProcurement
+    ? "Purchase Order Details"
+    : "Approval Details",
+  rows: detailRows,
+}],
+  totals: a.amount != null
+  ? isPriceHistory
+    ? [
+        { label: "Previous Price", value: formatCurrency(a.previousCost, a.currency) ?? "—"  },
+        { label: "New Unit Price",  value: formatCurrency(a.amount,       a.currency) ?? "—", highlight: true },
+      ]
+    : [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }]
+    : undefined,
+    notes: isPriceHistory ? undefined : a.desc,
   });
 }
-
 function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
   const bc = statusBadgeColors(row.action === "approve" ? "approved" : "rejected");
   openRecordAsHtml({
@@ -371,6 +443,20 @@ function EyeBtn({ onClick, loading = false }: { onClick: () => void; loading?: b
     </button>
   );
 }
+function PriceChangePill({ pct }: { pct: number }) {
+    const isUp      = pct > 0;
+    const isNeutral = Math.abs(pct) < 0.01;
+    if (isNeutral) return null;
+    return (
+      <span className={`inline-flex items-center gap-0.5 text-[11px] font-bold px-1.5 py-0.5 rounded ${
+        isUp
+          ? "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
+          : "bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
+      }`}>
+        {isUp ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}%
+      </span>
+    );
+  }
 
 // ─── Pagination ───────────────────────────────────────────────────────────────
 
@@ -557,6 +643,7 @@ function CategorySelector({ value, onChange, categories, onCategoryCreated, clas
   className?:        string;
 }) {
   const [showModal, setShowModal] = useState(false);
+  
 
   const grouped = useMemo(() => {
     const groups: Record<string, ExpenseCategory[]> = {};
@@ -1025,14 +1112,14 @@ export default function Governance() {
         const desc    = row.entity_type === "purchase"
           ? [row.ingredient_name, row.supplier_name, row.branch_name,
               row.quantity  != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null,
-              row.unit_cost != null ? `@ ${row.unit_cost}` : null,
+              row.unit_cost != null ? `@ ${Number(row.unit_cost).toFixed(2)} ${row.currency ?? ""}`.trim() : null,
             ].filter(Boolean).join(" · ")
           : row.entity_type === "price_history"
           ? [
               row.ingredient_name ? `${row.ingredient_name}` : null,
               row.supplier_name   ? `from ${row.supplier_name}` : null,
-              row.unit_cost != null ? `@ ${row.unit_cost} ${row.currency ?? ""}` : null,
-              row.price_type      ? `(${row.price_type.replace(/_/g, " ")})` : null,
+              row.unit_cost != null ? `@ ${Number(row.unit_cost).toFixed(2)}` : null,
+              row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
             ].filter(Boolean).join(" · ")
           : String(row.description ?? row.notes ?? "");
         return {
@@ -1046,6 +1133,15 @@ export default function Governance() {
           currency:        row.currency ?? undefined,
           priority:        toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
+          ingredientName:  row.ingredient_name ?? undefined,
+          supplierName:    row.supplier_name   ?? undefined,
+          priceType:       row.price_type
+            ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+            : undefined,
+          previousCost:   row.previous_cost  != null ? Number(row.previous_cost)  : undefined,
+          priceChangePct: row.previous_cost  != null && row.unit_cost != null
+            ? ((Number(row.unit_cost) - Number(row.previous_cost)) / Number(row.previous_cost)) * 100
+            : undefined,
         };
       });
       setApprovals(serverItems); setPage(1);
@@ -1136,6 +1232,10 @@ export default function Governance() {
   const pendingPOCount = useMemo(() => approvals.filter((a) => a.status === "pending" && a.fromProcurement).length, [approvals]);
   const typeOptions    = useMemo(() => Array.from(new Set(approvals.map((a) => a.typeKey))), [approvals]);
   const openPeriods    = periodLoading ? "…" : periodClosed ? "0" : "1";
+  const priceAlertCount = useMemo(
+  () => approvals.filter((a) => a.typeKey === "gov.approvalType.priceHistory" && a.status === "pending").length,
+  [approvals]
+  );
 
   const filteredAndSorted = useMemo(() => {
     let result = [...approvals];
@@ -1172,10 +1272,15 @@ export default function Governance() {
   }, [approvals]);
 
   const approvalStatusRows = useMemo(() =>
-    ["gov.approvalType.purchase","gov.approvalType.expense","gov.approvalType.stockAdj","gov.approvalType.transfer"].map((k) => ({
+    [
+      "gov.approvalType.priceHistory",
+      "gov.approvalType.purchase",
+      "gov.approvalType.expense",
+      "gov.approvalType.stockAdj",
+      "gov.approvalType.transfer",
+    ].map((k) => ({
       typeKey: k, pending: byType[k]?.pending ?? 0, approved: byType[k]?.approved ?? 0,
     })), [byType]);
-
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1212,7 +1317,7 @@ export default function Governance() {
   }, [filteredAndSorted, t, todayStr, addToast]);
 
   // ── Tab definitions ───────────────────────────────────────────────────────
-
+  
   const tabs: { id: ActiveTab; label: string; icon: React.ElementType; badge?: number }[] = [
     { id: "approvals",   label: "Approvals",         icon: ShieldCheck, badge: pendingCount > 0 ? pendingCount : undefined },
     { id: "gov-history", label: "Governance History", icon: History },
@@ -1220,6 +1325,7 @@ export default function Governance() {
   ];
 
   // ─── Render ───────────────────────────────────────────────────────────────
+
 
   return (
     <>
@@ -1341,12 +1447,13 @@ export default function Governance() {
         {activeTab === "approvals" && (
           <>
             {/* Metrics */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
-                { label: t("gov.metric.pendingApprovals"),  value: pendingCount,  color: "text-amber-500 dark:text-amber-400",  icon: Clock,       sub: t("gov.metric.pendingApprovalsSub")  },
-                { label: t("gov.metric.approvedThisMonth"), value: approvedCount, color: "text-green-600 dark:text-green-400",  icon: CheckCircle, sub: t("gov.metric.approvedThisMonthSub") },
-                { label: t("gov.metric.rejected"),          value: rejectedCount, color: "text-red-600 dark:text-red-400",      icon: XCircle,     sub: t("gov.metric.rejectedSub")          },
-                { label: t("gov.metric.openPeriods"),       value: openPeriods,   color: "text-foreground",                    icon: Calendar,    sub: periodClosed ? t("gov.metric.openPeriodsClosed") : t("gov.metric.openPeriodsSub") },
+                { label: t("gov.metric.pendingApprovals"),  value: pendingCount,    color: "text-amber-500 dark:text-amber-400",   icon: Clock,        sub: t("gov.metric.pendingApprovalsSub")  },
+                { label: t("gov.metric.approvedThisMonth"), value: approvedCount,   color: "text-green-600 dark:text-green-400",   icon: CheckCircle,  sub: t("gov.metric.approvedThisMonthSub") },
+                { label: t("gov.metric.rejected"),          value: rejectedCount,   color: "text-red-600 dark:text-red-400",       icon: XCircle,      sub: t("gov.metric.rejectedSub")          },
+                { label: "Price Alerts",                    value: priceAlertCount, color: "text-orange-600 dark:text-orange-400", icon: TrendingUp,   sub: "Pending price changes"              },
+                { label: t("gov.metric.openPeriods"),       value: openPeriods,     color: "text-foreground",                      icon: Calendar,     sub: periodClosed ? t("gov.metric.openPeriodsClosed") : t("gov.metric.openPeriodsSub") },
               ].map((s, i) => (
                 <Card key={s.label} className="gov-fade-in p-5" style={{ animationDelay: `${i * 60}ms` }}>
                   <div className="flex items-start justify-between">
@@ -1354,13 +1461,14 @@ export default function Governance() {
                     <s.icon className="w-3.5 h-3.5 text-muted-foreground opacity-50" />
                   </div>
                   <p className={`text-3xl font-semibold mt-1.5 ${s.color}`}>
-                    {approvalsLoading || (s.label === t("gov.metric.openPeriods") && periodLoading) ? <Loader2 className="w-6 h-6 animate-spin" /> : s.value}
+                    {approvalsLoading || (s.label === t("gov.metric.openPeriods") && periodLoading)
+                      ? <Loader2 className="w-6 h-6 animate-spin" />
+                      : s.value}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>
                 </Card>
               ))}
             </div>
-
             {/* Approval status + quick actions */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <Card className="lg:col-span-2 p-5">
@@ -1418,6 +1526,20 @@ export default function Governance() {
                     <Button variant="outline" size="sm" onClick={() => { setFilterType("gov.approvalType.purchase"); setFilterStatus("pending"); }}
                       className="gov-btn-press w-full justify-start text-xs h-9 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30">
                       <ShoppingCart className="w-3.5 h-3.5 me-2" />Review {pendingPOCount} Pending PO{pendingPOCount !== 1 ? "s" : ""}
+                    </Button>
+                  )}
+                  {priceAlertCount > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFilterType("gov.approvalType.priceHistory");
+                        setFilterStatus("pending");
+                      }}
+                      className="gov-btn-press w-full justify-start text-xs h-9 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-950/30"
+                    >
+                      <TrendingUp className="w-3.5 h-3.5 me-2" />
+                      Review {priceAlertCount} Price Alert{priceAlertCount !== 1 ? "s" : ""}
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="gov-btn-press w-full justify-start text-xs h-9">
@@ -1552,19 +1674,72 @@ export default function Governance() {
                       if (a.status !== "pending") {
                         return (
                           <div key={a.id} className="gov-fade-in flex items-center gap-2 px-4 py-2.5 bg-muted/30 border border-border rounded-md opacity-60">
-                            {a.status === "approved" ? <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
-                            <p className="text-xs text-muted-foreground truncate flex-1">
-                              {t(a.typeKey)}{" "}
-                              <span className="font-mono">{a.fromProcurement && a.purchaseId ? `PO-${String(a.purchaseId).padStart(5,"0")}` : `#${a.id}`}</span>
-                              {a.desc && ` — ${a.desc}`}
-                            </p>
+                            {a.status === "approved"
+                              ? <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                              : <XCircle    className="w-3.5 h-3.5 text-red-500   flex-shrink-0" />}
+
+                            <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-muted-foreground">{t(a.typeKey)}</span>
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {a.fromProcurement && a.purchaseId
+                                  ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+                                  : `#${a.id}`}
+                              </span>
+
+                              {/* Price history inline summary */}
+                              {a.typeKey === "gov.approvalType.priceHistory" ? (
+                                <>
+                                  {a.ingredientName && (
+                                    <span className="text-xs text-muted-foreground font-medium truncate">
+                                      {a.ingredientName}
+                                    </span>
+                                  )}
+                                  {a.supplierName && (
+                                    <span className="text-xs text-muted-foreground truncate">
+                                      from {a.supplierName}
+                                    </span>
+                                  )}
+                                  {a.priceType && (
+                                    <span className="text-[10px] bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800 px-1.5 py-0.5 rounded">
+                                      {a.priceType}
+                                    </span>
+                                  )}
+                                  {a.previousCost != null && (
+                                    <span className="text-[11px] text-muted-foreground line-through">
+                                      {formatCurrency(a.previousCost, a.currency)}
+                                    </span>
+                                  )}
+                                  {a.priceChangePct != null && (
+                                    <PriceChangePill pct={a.priceChangePct} />
+                                  )}
+                                </>
+                              ) : (
+                                a.desc && (
+                                  <span className="text-xs text-muted-foreground truncate">
+                                    — {a.desc}
+                                  </span>
+                                )
+                              )}
+                            </div>
+
+                            {/* Source badges */}
                             {a.fromProcurement && (
                               <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0">
                                 <ShoppingCart className="w-2.5 h-2.5" /> PO
                               </span>
                             )}
+                            {a.typeKey === "gov.approvalType.priceHistory" && (
+                              <span className="text-[10px] font-medium text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0">
+                                <TrendingUp className="w-2.5 h-2.5" /> Price
+                              </span>
+                            )}
+
                             <EyeBtn onClick={() => openApprovalHtml(a, t)} />
-                            <span className={`text-xs font-medium ${a.status === "approved" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                            <span className={`text-xs font-semibold flex-shrink-0 ${
+                              a.status === "approved"
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-red-600 dark:text-red-400"
+                            }`}>
                               {a.status === "approved" ? t("gov.pending.approved") : t("gov.pending.rejected")}
                             </span>
                           </div>
@@ -1592,7 +1767,36 @@ export default function Governance() {
                               {formattedAmount && <span className="text-xs font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">{formattedAmount}</span>}
                               {isFocused && <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-200/60 dark:bg-amber-900/40 px-1.5 py-0.5 rounded ms-auto">focused · A approve · R reject</span>}
                             </div>
-                            {a.desc && <p className="text-xs text-muted-foreground mt-0.5 ms-3.5 line-clamp-1">{a.desc}</p>}
+                            {a.typeKey === "gov.approvalType.priceHistory" ? (
+                              <div className="flex items-center gap-2 mt-0.5 ms-3.5 flex-wrap">
+                                {a.ingredientName && (
+                                  <span className="text-xs text-foreground font-medium">{a.ingredientName}</span>
+                                )}
+                                {a.supplierName && (
+                                  <span className="text-xs text-muted-foreground">from {a.supplierName}</span>
+                                )}
+                                {a.priceType && (
+                                  <span className="text-[11px] bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800 px-1.5 py-0.5 rounded">
+                                    {a.priceType}
+                                  </span>
+                                )}
+                                {a.amount != null && (
+                                  <span className="text-xs font-semibold text-foreground">
+                                    {formatCurrency(a.amount, a.currency)}
+                                  </span>
+                                )}
+                                {a.previousCost != null && (
+                                  <span className="text-[11px] text-muted-foreground line-through">
+                                    {formatCurrency(a.previousCost, a.currency)}
+                                  </span>
+                                )}
+                                {a.priceChangePct != null && (
+                                  <PriceChangePill pct={a.priceChangePct} />
+                                )}
+                                </div>
+                            ) : (
+                              a.desc && <p className="text-xs text-muted-foreground mt-0.5 ms-3.5 line-clamp-1">{a.desc}</p>
+                            )}
                             <p className="text-[11px] text-muted-foreground mt-0.5 ms-3.5">
                               {a.submitted_by ? `${t("gov.pending.submittedBy")} ${a.submitted_by} · ` : ""}{formattedDate}
                             </p>

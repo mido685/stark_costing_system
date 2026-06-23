@@ -25,47 +25,76 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 ar.requested_at,
                 ar.approved_by,
                 ar.approved_at,
-                b.name              AS branch_name,
-                u.display_name      AS submitted_by,
-                p.quantity          AS quantity,
-                p.unit_cost         AS unit_cost,
-                p.gross_amount      AS amount,
-                p.tax_amount        AS tax_amount,
-                p.payable_amount    AS payable_amount,
-                p.entry_date        AS entry_date,
-                p.notes             AS notes,
-                s.name              AS supplier_name,
-                s.phone             AS supplier_phone,
-                i.name              AS ingredient_name,
-                i.unit              AS unit
+
+                b.name AS branch_name,
+                u.display_name AS submitted_by,
+
+                p.quantity,
+                COALESCE(p.unit_cost, sph.price)   AS unit_cost,
+                p.gross_amount                      AS amount,
+                p.tax_amount,
+                p.payable_amount,
+                p.entry_date,
+                p.notes,
+
+                COALESCE(s.name,   sph_s.name) AS supplier_name,
+                s.phone                         AS supplier_phone,
+                COALESCE(i.name,   sph_i.name) AS ingredient_name,
+                COALESCE(i.unit,   sph_i.unit) AS unit,
+
+                sph.price_type
+
             FROM approval_requests ar
-            LEFT JOIN branches      b        ON b.id       = ar.branch_id
-            LEFT JOIN app_users     u        ON u.id       = ar.requested_by
-            LEFT JOIN purchases     p        ON ar.entity_type = 'purchase'
-                                             AND ar.entity_id = p.id
-            LEFT JOIN branches      p_branch ON p_branch.id = p.branch_id
-            LEFT JOIN suppliers     s        ON s.id       = p.supplier_id
-            LEFT JOIN ingredients   i        ON i.id       = p.ingredient_id
-            LEFT JOIN supplier_price_history sph ON ar.entity_type = 'price_history'
-                                                 AND ar.entity_id = sph.id
-            LEFT JOIN suppliers     sph_s ON sph_s.id = sph.supplier_id
-            LEFT JOIN ingredients   sph_i ON sph_i.id = sph.ingredient_id
-            COALESCE(s.name,     sph_s.name) AS supplier_name,
-                COALESCE(i.name,     sph_i.name) AS ingredient_name,
-                COALESCE(i.unit,     sph_i.unit) AS unit,
-                sph.price           AS unit_cost,
-                sph.price_type      AS price_type,
-            WHERE (b.company_id = %s OR p_branch.company_id = %s OR (
-                ar.entity_type = 'price_history'
-                AND ar.branch_id IS NULL
-                AND %s IN (
-                    SELECT company_id FROM supplier_price_history
-                    WHERE id = ar.entity_id
+
+            LEFT JOIN branches b
+                ON b.id = ar.branch_id
+
+            LEFT JOIN app_users u
+                ON u.id = ar.requested_by
+
+            LEFT JOIN purchases p
+                ON ar.entity_type = 'purchase'
+                AND ar.entity_id = p.id
+
+            LEFT JOIN branches p_branch
+                ON p_branch.id = p.branch_id
+
+            LEFT JOIN suppliers s
+                ON s.id = p.supplier_id
+
+            LEFT JOIN ingredients i
+                ON i.id = p.ingredient_id
+
+            LEFT JOIN supplier_price_history sph
+                ON ar.entity_type = 'price_history'
+                AND ar.entity_id = sph.id
+
+            LEFT JOIN suppliers sph_s
+                ON sph_s.id = sph.supplier_id
+
+            LEFT JOIN ingredients sph_i
+                ON sph_i.id = sph.ingredient_id
+
+            WHERE (
+                b.company_id = %s
+                OR p_branch.company_id = %s
+                OR (
+                    ar.entity_type = 'price_history'
+                    AND ar.branch_id IS NULL
+                    AND %s IN (
+                        SELECT company_id
+                        FROM supplier_price_history
+                        WHERE id = ar.entity_id
+                    )
                 )
-            ))
-              AND ar.status = 'pending'
+            )
+            AND ar.status = 'pending'
             ORDER BY ar.requested_at DESC
-        """, (current_user["company_id"], current_user["company_id"], current_user["company_id"]))
+        """, (
+            current_user["company_id"],
+            current_user["company_id"],
+            current_user["company_id"],
+        ))
         return success("Pending approvals retrieved",
                        approvals=[dict(r) for r in cur.fetchall()])
     finally:
@@ -239,9 +268,11 @@ def _set_approval_status(
                 ar.entity_id,
                 ar.status           AS ar_status,
                 ar.requested_by,
+                ar.branch_id,
                 b_ar.company_id     AS ar_company_id,
                 u.display_name      AS submitted_by,
-                p.branch_id         AS branch_id,
+
+                p.branch_id         AS p_branch_id,
                 p.ingredient_id     AS ingredient_id,
                 p.supplier_id       AS supplier_id,
                 p.quantity          AS quantity,
@@ -252,15 +283,20 @@ def _set_approval_status(
                 p.notes             AS purchase_notes,
                 b_p.company_id      AS purchase_company_id,
                 s.name              AS supplier_name,
-                i.name              AS ingredient_name
+                i.name              AS ingredient_name,
+
+                sph.company_id      AS price_history_company_id
             FROM approval_requests ar
             LEFT JOIN branches    b_ar ON b_ar.id  = ar.branch_id
             LEFT JOIN app_users   u    ON u.id     = ar.requested_by
             LEFT JOIN purchases   p    ON ar.entity_type = 'purchase'
                                        AND ar.entity_id = p.id
             LEFT JOIN branches    b_p  ON b_p.id   = p.branch_id
-            LEFT JOIN suppliers   s    ON s.id      = p.supplier_id
-            LEFT JOIN ingredients i    ON i.id      = p.ingredient_id
+            LEFT JOIN suppliers   s    ON s.id     = p.supplier_id
+            LEFT JOIN ingredients i    ON i.id     = p.ingredient_id
+            LEFT JOIN supplier_price_history sph
+                                       ON ar.entity_type = 'price_history'
+                                       AND ar.entity_id = sph.id
             WHERE ar.id = %s
         """, (request_id,))
         old = cur.fetchone()
@@ -268,7 +304,11 @@ def _set_approval_status(
         if not old:
             return error("Approval request not found", status=404)
 
-        company_id = old["purchase_company_id"] or old["ar_company_id"]
+        company_id = (
+            old["purchase_company_id"]
+            or old["price_history_company_id"]
+            or old["ar_company_id"]
+        )
         if company_id != current_user["company_id"]:
             return error("Approval request not found", status=404)
 
@@ -288,7 +328,6 @@ def _set_approval_status(
         row = dict(cur.fetchone())
 
         # ── Sync source table status ──────────────────────────────────────────
-        # Stock only increases when a GRN is recorded against this PO.
         if old["entity_type"] == "purchase":
             cur.execute(
                 "UPDATE purchases SET status = %s WHERE id = %s",
@@ -313,7 +352,6 @@ def _set_approval_status(
                 WHERE id = %s
             """, (status, current_user["id"], old["entity_id"]))
 
-            # On approval → update ingredient standard cost
             if status == "approved":
                 cur.execute("""
                     UPDATE ingredients i
@@ -337,7 +375,7 @@ def _set_approval_status(
         else:
             description = f"{status.title()} {old['entity_type']} #{old['entity_id']}"
 
-        # ── Insert governance log with company_id ─────────────────────────────
+        # ── Insert governance log ─────────────────────────────────────────────
         cur.execute("""
             INSERT INTO governance_action_log
                 (item_id, entity_type, description, submitted_by, original_date,
