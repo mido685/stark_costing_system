@@ -46,10 +46,17 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
             LEFT JOIN branches      p_branch ON p_branch.id = p.branch_id
             LEFT JOIN suppliers     s        ON s.id       = p.supplier_id
             LEFT JOIN ingredients   i        ON i.id       = p.ingredient_id
-            WHERE (b.company_id = %s OR p_branch.company_id = %s)
+            WHERE (b.company_id = %s OR p_branch.company_id = %s OR (
+                ar.entity_type = 'price_history'
+                AND ar.branch_id IS NULL
+                AND %s IN (
+                    SELECT company_id FROM supplier_price_history
+                    WHERE id = ar.entity_id
+                )
+            ))
               AND ar.status = 'pending'
             ORDER BY ar.requested_at DESC
-        """, (current_user["company_id"], current_user["company_id"]))
+        """, (current_user["company_id"], current_user["company_id"], current_user["company_id"]))
         return success("Pending approvals retrieved",
                        approvals=[dict(r) for r in cur.fetchall()])
     finally:
@@ -288,6 +295,25 @@ def _set_approval_status(
                 "UPDATE expenses SET status = %s WHERE id = %s",
                 (status, old["entity_id"]),
             )
+        elif old["entity_type"] == "price_history":
+            cur.execute("""
+                UPDATE supplier_price_history
+                SET status      = %s,
+                    approved_by = %s,
+                    approved_at = NOW()
+                WHERE id = %s
+            """, (status, current_user["id"], old["entity_id"]))
+
+            # On approval → update ingredient standard cost
+            if status == "approved":
+                cur.execute("""
+                    UPDATE ingredients i
+                    SET cost_per_unit = sph.price,
+                        supplier_id   = sph.supplier_id
+                    FROM supplier_price_history sph
+                    WHERE sph.id = %s
+                      AND i.id   = sph.ingredient_id
+                """, (old["entity_id"],))
 
         # ── Build governance log description ──────────────────────────────────
         if old["entity_type"] == "purchase":

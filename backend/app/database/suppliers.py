@@ -347,6 +347,14 @@ def add_supplier_price(
                 VALUES (%s, %s, %s, %s, %s, %s, 'Set via initial_cost price entry')
             """, (company_id, ingredient_id, old_cost, price, purchase_date, user_id))
 
+        # ── Create approval request for non-initial prices ─────────────────
+        if price_type not in COST_UPDATING_PRICE_TYPES:
+            cur.execute("""
+                INSERT INTO approval_requests
+                    (entity_type, entity_id, branch_id, requested_by, status)
+                VALUES ('price_history', %s, NULL, %s, 'pending')
+            """, (price_row["id"], user_id))
+
         log_audit(
             conn,
             company_id=company_id,
