@@ -117,6 +117,22 @@ def audit_log(
     return success("Audit log retrieved", audit_log=rows)
 
 
+@router.get("/export")
+def export_report(
+    branch_id: int = Query(...),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    format: str = Query("csv"),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = reports_db.get_sales_export_rows(
+        company_id=current_user["company_id"],
+        branch_id=branch_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return _csv_response(f"sales_report_{branch_id}_{date_from or 'all'}.csv", rows)
+    
 @router.get("/reports/{report_type}")
 def get_report(
     report_type: str,
@@ -160,21 +176,3 @@ def get_report(
     if output_fmt == "csv":
         return _csv_response(f"{report_type}.csv", data)
     return success("Report retrieved", report=data)
-
-
-@router.get("/export")
-def export_report(
-    branch_id: int = Query(...),
-    date_from: str = Query(""),
-    date_to: str = Query(""),
-    format: str = Query("csv"),
-    current_user: dict = Depends(get_current_user),
-):
-    rows = reports_db.get_sales_export_rows(
-        company_id=current_user["company_id"],
-        branch_id=branch_id,
-        date_from=date_from,
-        date_to=date_to,
-    )
-    return _csv_response(f"sales_report_{branch_id}_{date_from or 'all'}.csv", rows)
-    

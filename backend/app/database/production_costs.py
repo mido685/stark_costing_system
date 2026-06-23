@@ -65,7 +65,7 @@ def add_production_cost(
     notes: str = "",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_frozen(branch_id, entry_date):
+    if is_period_frozen(company_id, entry_date):
         raise ValueError("This accounting period is closed for the selected branch")
 
     conn = get_connection()
@@ -73,8 +73,8 @@ def add_production_cost(
     try:
         # ── Auto-calculate material_cost from recipe ──────────────────────────
         recipe = get_recipe(product_id, company_id)
+        yield_factor = (float(recipe.get("yield_pct") or 100) / 100) or 1 if recipe else 1
         if recipe and recipe.get("ingredients"):
-            yield_factor = (float(recipe.get("yield_pct") or 100) / 100) or 1
             raw_cost_per_unit = sum(
                 (float(ing["qty_required"]) / yield_factor) * float(ing.get("cost_per_unit") or 0)
                 for ing in recipe["ingredients"]
@@ -106,10 +106,8 @@ def add_production_cost(
                       -required_qty, unit_cost, production_id, notes))
 
         # ── Add finished goods to inventory ───────────────────────────────────
-        total_unit_cost = (
-            (material_cost + labor_cost + overhead_cost) / quantity
-            if quantity else 0
-        )
+        total_costs = material_cost + labor_cost + overhead_cost
+        total_unit_cost = round(total_costs / quantity, 4) if quantity else 0
         cur.execute("""
             INSERT INTO finished_goods_movements
                 (branch_id, product_id, movement_type, entry_date,
@@ -156,7 +154,7 @@ def delete_production_cost(
         if not old:
             raise ValueError("Production cost not found or access denied")
 
-        if is_period_frozen(old["branch_id"], str(old["entry_date"])):
+        if is_period_frozen(company_id, str(old["entry_date"])):
             raise ValueError("Cannot delete — accounting period is closed")
 
         # ── Reverse inventory movements ───────────────────────────────────────

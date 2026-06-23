@@ -294,8 +294,6 @@ def add_supplier_price(
     if price <= 0:
         raise ValueError("Price must be greater than zero")
 
-    # initial_cost is system-generated at item creation — auto-approve it.
-    # Everything else requires a manager to review before touching standard cost.
     initial_status = "approved" if price_type == "initial_cost" else "pending"
 
     conn = get_connection()
@@ -328,6 +326,13 @@ def add_supplier_price(
         # Only initial_cost updates standard cost immediately (auto-approved).
         # All other types wait for approve_supplier_price() to be called.
         if price_type in COST_UPDATING_PRICE_TYPES:
+            cur.execute(
+                "SELECT cost_per_unit FROM ingredients WHERE id = %s AND company_id = %s",
+                (ingredient_id, company_id),
+            )
+            old_cost_row = cur.fetchone()
+            old_cost = float(old_cost_row["cost_per_unit"]) if old_cost_row else 0.0
+
             cur.execute("""
                 UPDATE ingredients
                 SET cost_per_unit = %s,
@@ -335,19 +340,12 @@ def add_supplier_price(
                 WHERE id = %s AND company_id = %s
             """, (price, supplier_id, ingredient_id, company_id))
 
-            try:
-                cur.execute("""
-                    INSERT INTO standard_cost_history
-                        (company_id, ingredient_id, old_cost, new_cost,
-                         effective_date, approved_by, notes)
-                    SELECT %s, %s, cost_per_unit, %s, %s, %s,
-                           'Set via initial_cost price entry'
-                    FROM ingredients
-                    WHERE id = %s AND company_id = %s
-                """, (company_id, ingredient_id, price, purchase_date,
-                      user_id, ingredient_id, company_id))
-            except Exception:
-                pass  # standard_cost_history may not exist on older installs
+            cur.execute("""
+                INSERT INTO standard_cost_history
+                    (company_id, ingredient_id, old_cost, new_cost,
+                     effective_date, approved_by, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, 'Set via initial_cost price entry')
+            """, (company_id, ingredient_id, old_cost, price, purchase_date, user_id))
 
         log_audit(
             conn,
@@ -415,6 +413,13 @@ def approve_supplier_price(
 
         # Update standard cost only on approval
         if action == "approved":
+            cur.execute(
+                "SELECT cost_per_unit FROM ingredients WHERE id = %s AND company_id = %s",
+                (price_row["ingredient_id"], company_id),
+            )
+            old_cost_row = cur.fetchone()
+            old_cost = float(old_cost_row["cost_per_unit"]) if old_cost_row else 0.0
+
             cur.execute("""
                 UPDATE ingredients
                 SET cost_per_unit = %s,
@@ -423,20 +428,13 @@ def approve_supplier_price(
             """, (price_row["price"], price_row["supplier_id"],
                   price_row["ingredient_id"], company_id))
 
-            try:
-                cur.execute("""
-                    INSERT INTO standard_cost_history
-                        (company_id, ingredient_id, old_cost, new_cost,
-                         effective_date, approved_by, notes)
-                    SELECT %s, %s, cost_per_unit, %s, %s, %s,
-                           'Approved via supplier price review'
-                    FROM ingredients
-                    WHERE id = %s AND company_id = %s
-                """, (company_id, price_row["ingredient_id"], price_row["price"],
-                      price_row["purchase_date"], approver_id,
-                      price_row["ingredient_id"], company_id))
-            except Exception:
-                pass  # standard_cost_history may not exist on older installs
+            cur.execute("""
+                INSERT INTO standard_cost_history
+                    (company_id, ingredient_id, old_cost, new_cost,
+                     effective_date, approved_by, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, 'Approved via supplier price review')
+            """, (company_id, price_row["ingredient_id"], old_cost, price_row["price"],
+                  price_row["purchase_date"], approver_id))
 
         log_audit(
             conn,

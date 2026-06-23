@@ -35,8 +35,8 @@ def create_production(
     request: Request,
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
-    check_period_open(req.entry_date, current_user)
     try:
+        check_period_open(req.entry_date, current_user)
         row = production_db.add_production_cost(
             branch_id=req.branch_id,
             product_id=req.product_id,

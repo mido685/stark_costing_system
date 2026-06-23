@@ -198,7 +198,7 @@ def init_db() -> None:
         # ── 14. Supplier Price History ────────────────────────────────────────
         # price_type controls whether a quote updates standard cost (initial_cost only).
         # All other types (market_price, contract_price, spot_price) are informational.
-        # effective_date = when the supplier's price takes effect (≠ entry_date).
+    
         # company_id is denormalized here for fast tenant-scoped queries.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS supplier_price_history (
@@ -212,7 +212,7 @@ def init_db() -> None:
                 purchase_date DATE NOT NULL DEFAULT CURRENT_DATE,
                 status        VARCHAR(20) NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending','approved','rejected')),
-                approved_by   INTEGER REFERENCES users(id),
+                approved_by   INTEGER REFERENCES app_users(id),
                 approved_at   TIMESTAMP,
                 notes         TEXT
             )
@@ -951,7 +951,7 @@ def init_db() -> None:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_ingredients_company_active     ON ingredients(company_id, is_active, name)")
 
         # Supplier price history
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_ingredient       ON supplier_price_history(ingredient_id, effective_date DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_ingredient       ON supplier_price_history(ingredient_id, purchase_date DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_price_history_company          ON supplier_price_history(company_id, ingredient_id)")
 
         # Standard cost history

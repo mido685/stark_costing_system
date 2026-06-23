@@ -687,30 +687,25 @@ def get_variance_legacy(
 def list_audit_log(
     company_id: int, branch_id: int | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:
-    """
-    Query audit_log via app_users (which carries company_id).
-    audit_log has no company_id / branch_id columns directly.
-    """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
         if branch_id:
-            # Filter to entries whose details mention this branch
             cur.execute("""
-                SELECT al.id, al.action, al.entity_type, al.entity_id,
-                       al.details, al.created_at,
+                SELECT al.id, al.action, al.table_name, al.record_id,
+                       al.old_data, al.new_data, al.ip_address, al.created_at,
                        u.display_name AS user_name, u.company_id
                 FROM audit_log al
                 LEFT JOIN app_users u ON u.id = al.user_id
                 WHERE u.company_id = %s
-                  AND al.details ILIKE %s
+                  AND al.branch_id = %s
                 ORDER BY al.created_at DESC, al.id DESC
                 LIMIT %s
-            """, (company_id, f"%branch: {branch_id}%", limit))
+            """, (company_id, branch_id, limit))
         else:
             cur.execute("""
-                SELECT al.id, al.action, al.entity_type, al.entity_id,
-                       al.details, al.created_at,
+                SELECT al.id, al.action, al.table_name, al.record_id,
+                       al.old_data, al.new_data, al.ip_address, al.created_at,
                        u.display_name AS user_name, u.company_id
                 FROM audit_log al
                 LEFT JOIN app_users u ON u.id = al.user_id
@@ -722,7 +717,6 @@ def list_audit_log(
     finally:
         cur.close()
         conn.close()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Budget vs Actual
@@ -853,9 +847,13 @@ def get_branch_stock_balances(
                 i.unit,
                 i.cost_per_unit,
                 i.reorder_level,
-                COALESCE(SUM(im.quantity_delta), 0)              AS balance_qty,
-                COALESCE(SUM(im.quantity_delta), 0)
-                    * i.cost_per_unit                            AS stock_value
+                COALESCE(SUM(im.quantity_delta), 0) AS balance_qty,
+                CASE
+                    WHEN SUM(im.quantity_delta) FILTER (WHERE im.quantity_delta > 0) > 0
+                    THEN SUM(im.quantity_delta * im.unit_cost) FILTER (WHERE im.quantity_delta > 0)
+                    / SUM(im.quantity_delta)                FILTER (WHERE im.quantity_delta > 0)
+                    ELSE i.cost_per_unit
+                END AS avg_unit_cost
             FROM ingredients i
             LEFT JOIN inventory_movements im
                 ON im.ingredient_id = i.id AND im.branch_id = %s
@@ -865,8 +863,10 @@ def get_branch_stock_balances(
         """, (branch_id, company_id))
         rows = [_row(dict(r)) for r in cur.fetchall()]
         for r in rows:
-            r["negative_alert"] = r["balance_qty"] < 0
-            r["reorder_alert"]  = 0 <= r["balance_qty"] <= r["reorder_level"]
+            r["stock_value"]     = round(r["balance_qty"] * r["avg_unit_cost"], 2)
+            r["inventory_value"] = r["stock_value"]
+            r["negative_alert"]  = r["balance_qty"] < 0
+            r["reorder_alert"]   = 0 <= r["balance_qty"] <= r["reorder_level"]
         return rows
     finally:
         cur.close()

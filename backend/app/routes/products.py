@@ -44,7 +44,7 @@ def list_items(
                 "unit":          p.get("unit", ""),
                 "sale_price":    float(p.get("sale_price") or 0),
                 "reorder_level": 0,
-                "standard_cost": float(p.get("standard_cost") or 0),
+                "standard_cost": float(p.get("sale_price") or 0),
                 "image_url":     p.get("image_url") or None,
             })
 
@@ -85,16 +85,16 @@ def create_item(
                 ip_address=request.client.host,
             )
         else:
-            item = products_db.add_product(
-                name=req.name,
-                unit=req.unit,
-                sale_price=req.sale_price,
-                company_id=current_user["company_id"],
-                user_id=current_user["id"],
-                sku=req.sku,
-                sku_prefix=req.sku_prefix,
-                ip_address=request.client.host,
-            )
+            product = products_db.add_product(
+            name=req.name,
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            unit=req.unit,
+            sale_price=req.sale_price,
+            sku=req.sku,
+            sku_prefix=req.sku_prefix,
+            ip_address=request.client.host,
+        )
         return success("Item created", item=item)
     except ValueError as e:
         return error(str(e))

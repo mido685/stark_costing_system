@@ -29,6 +29,17 @@ def list_suppliers(current_user: dict = Depends(get_current_user)):
     suppliers = suppliers_db.list_suppliers(current_user["company_id"])
     return success("Suppliers retrieved", suppliers=suppliers)
 
+@router.get("/price/pending")
+def get_pending_approvals(
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    """
+    Returns all pending price records for this company.
+    Used to populate the manager's approval queue.
+    """
+    prices = suppliers_db.get_pending_price_approvals(current_user["company_id"])
+    return success("Pending price approvals retrieved", prices=prices)
+    
 
 @router.get("/{supplier_id}")
 def get_supplier(
@@ -188,16 +199,6 @@ def approve_supplier_price(
         return error(str(e))
 
 
-@router.get("/price/pending")
-def get_pending_approvals(
-    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
-):
-    """
-    Returns all pending price records for this company.
-    Used to populate the manager's approval queue.
-    """
-    prices = suppliers_db.get_pending_price_approvals(current_user["company_id"])
-    return success("Pending price approvals retrieved", prices=prices)
 
 
 @router.get("/price-history/{ingredient_id}")

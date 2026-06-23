@@ -220,7 +220,7 @@ def get_low_stock_alerts(company_id: int) -> list[dict[str, Any]]:
               AND i.is_active = TRUE
               AND i.company_id = %s
             ORDER BY shortage DESC
-        """, (company_id,))
+        """, (company_id, company_id,))
         return [dict(r) for r in cur.fetchall()]
     finally:
         cur.close()

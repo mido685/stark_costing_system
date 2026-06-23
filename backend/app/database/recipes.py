@@ -231,7 +231,7 @@ def calculate_recipe_cost(product_id: int, company_id: int) -> dict[str, Any]:
     if not recipe:
         return {}
 
-    yield_factor = (float(recipe["yield_pct"]) or 100) / 100
+    yield_factor = (float(recipe.get("yield_pct") or 100) / 100) or 1
     raw_cost = sum(
         (float(i["qty_required"]) / yield_factor) * float(i["cost_per_unit"])
         for i in recipe["ingredients"]

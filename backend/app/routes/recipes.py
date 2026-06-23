@@ -6,6 +6,16 @@ from app.security.dependencies import get_current_user, require_roles
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
+@router.get("/{product_id}/cost")
+def get_recipe_cost(
+    product_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    cost = recipes_db.calculate_recipe_cost(product_id, current_user["company_id"])
+    if not cost:
+        return error("Recipe not found", status=404)
+    return success("Recipe cost calculated", cost=cost)
+
 
 @router.get("/{product_id}")
 def get_recipe(
@@ -22,15 +32,6 @@ def get_recipe(
     return success("Recipe retrieved", recipe=recipe, cost=cost)
 
 
-@router.get("/{product_id}/cost")
-def get_recipe_cost(
-    product_id: int,
-    current_user: dict = Depends(get_current_user),
-):
-    cost = recipes_db.calculate_recipe_cost(product_id, current_user["company_id"])
-    if not cost:
-        return error("Recipe not found", status=404)
-    return success("Recipe cost calculated", cost=cost)
 
 
 @router.post("/{product_id}")

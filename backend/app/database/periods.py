@@ -245,37 +245,22 @@ def _capture_snapshot(cur, company_id: int, period: str) -> None:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def is_period_frozen(branch_id: int, entry_date: str) -> bool:
-    """
-    Returns True if the period is closed OR locked.
-    Use this guard on every write route (purchases, sales, expenses, etc.).
-    Opens its own connection — use is_period_frozen_with_cur inside DB functions.
-    """
+def is_period_frozen(company_id: int, entry_date: str) -> bool:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        cur.execute(
-            "SELECT company_id FROM branches WHERE id = %s",
-            (branch_id,)
-        )
-        row = cur.fetchone()
-        if not row:
-            return False
-
         period = entry_date[:7]
         cur.execute("""
             SELECT status FROM company_period_statuses
             WHERE company_id = %s AND period = %s
-        """, (row["company_id"], period))
+        """, (company_id, period))
         status_row = cur.fetchone()
         if not status_row:
             return False
-
         return status_row["status"] in ("closed", "locked")
     finally:
         cur.close()
         conn.close()
-
 
 def is_period_frozen_with_cur(cur, company_id: int, entry_date: str) -> bool:
     """
@@ -369,12 +354,12 @@ def set_period_status(
 
         cur.execute("""
             INSERT INTO company_period_statuses
-                (company_id, period, status, updated_by, note)
+                (company_id, period, status, updated_by, notes)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (company_id, period) DO UPDATE
                 SET status     = EXCLUDED.status,
                     updated_by = EXCLUDED.updated_by,
-                    note       = EXCLUDED.note,
+                    notes       = EXCLUDED.notes,
                     updated_at = NOW()
             RETURNING *
         """, (company_id, period, new_status, user_id, note))

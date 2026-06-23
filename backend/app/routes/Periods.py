@@ -132,13 +132,11 @@ def check_is_closed(
     Quick frozen-check used by the frontend before showing write forms.
     Returns is_closed (bool) + current status string.
     """
-    frozen = is_period_frozen(branch_id, entry_date)
     period = entry_date[:7]
-
     company_id = current_user["company_id"]
+    frozen = is_period_frozen(company_id, entry_date)
     row = get_period_status(company_id, period)
     status = row.get("status", "open")
-
     return success(
         "Period closure checked",
         is_closed=frozen,

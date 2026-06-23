@@ -23,8 +23,8 @@ interface Branch { id: number; name: string; }
 
 interface MenuEngItem {
   product_name: string;
-  total_qty_sold: number;
-  total_revenue: number;
+  qty_sold: number;
+  revenue: number;
   raw_cost: number;
   margin: number;
   food_cost_pct: number;
@@ -167,7 +167,7 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
       // FIX: use ? not & and always include period
       const params = new URLSearchParams({ period });
       if (branchId) params.set("branch_id", branchId);
-      const result = await generateReport(`menu?${params}`);
+      const result = await apiCall<any[]>(`/api/reports/menu?${params}`);
       setData(result ?? []);
       setFetched(true);
     } finally { setLoading(false); }
@@ -225,8 +225,8 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
                     return (
                       <tr key={i} className="border-t border-border hover:bg-secondary/40">
                         <td className="px-4 py-3 font-medium text-foreground">{item.product_name}</td>
-                        <td className="px-4 py-3 text-right">{Number(item.total_qty_sold).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right">{formatCurrency(Number(item.total_revenue))}</td>
+                        <td className="px-4 py-3 text-right">{Number(item.qty_sold).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">{formatCurrency(Number(item.revenue))}</td>
                         <td className="px-4 py-3 text-right">{formatCurrency(Number(item.raw_cost))}</td>
                         <td className="px-4 py-3 text-right">{formatCurrency(Number(item.margin))}</td>
                         <td className="px-4 py-3 text-right">

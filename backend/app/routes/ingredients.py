@@ -38,17 +38,18 @@ def create_ingredient(
 ):
     try:
         ingredient = ingredients_db.add_ingredient(
-            name=req.name,
-            unit=req.unit,
-            company_id=current_user["company_id"],
-            user_id=current_user["id"],
-            cost_per_unit=req.cost_per_unit,
-            stock_qty=req.stock_qty,
-            reorder_level=req.reorder_level,
-            supplier_id=req.supplier_id,
-            sku=req.sku,  
-            ip_address=request.client.host,
-        )
+        name=req.name,
+        unit=req.unit,
+        company_id=current_user["company_id"],
+        user_id=current_user["id"],
+        cost_per_unit=req.cost_per_unit,
+        stock_qty=req.stock_qty,
+        reorder_level=req.reorder_level,
+        supplier_id=req.supplier_id,
+        sku=req.sku,
+        sku_prefix=req.sku_prefix,
+        ip_address=request.client.host,
+    )
         return success("Ingredient created", ingredient=ingredient)
     except ValueError as e:
         return error(str(e))

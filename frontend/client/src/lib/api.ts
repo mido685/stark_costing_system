@@ -92,7 +92,6 @@ const UNWRAP_KEYS = new Set([
   "inventory_movements",
   "prefix",
   "prefixes",
-  "backups",       // ← ADD THIS
   "category"
 ]);
 
@@ -543,15 +542,17 @@ export async function addItem(data: {
     return null;
   }
 }
-export async function deleteItem(itemId: number): Promise<boolean> {
+export async function deleteItem(itemId: number, category: string): Promise<boolean> {
   try {
-    await apiCall(`/api/products/${itemId}`, { method: "DELETE" });
+    const endpoint = category === "finished_good"
+      ? `/api/products/${itemId}`
+      : `/api/ingredients/${itemId}`;
+    await apiCall(endpoint, { method: "DELETE" });
     return true;
   } catch {
     return false;
   }
 }
-
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 
 export async function getSuppliers(): Promise<SupplierRow[]> {
@@ -1319,15 +1320,14 @@ export async function updateItem(data: {
   try {
     if (data.category === "finished_good") {
       await apiCall(`/api/products/${data.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: data.name,
-          unit: data.unit,
-          sale_price: data.sale_price,
-          standard_cost: data.standard_cost,
-          sku: data.sku,
-        }),
-      });
+      method: "PUT",
+      body: JSON.stringify({
+        name:       data.name,
+        unit:       data.unit,
+        sale_price: data.sale_price,
+        sku:        data.sku,
+      }),
+    });
     } else {
       await apiCall(`/api/ingredients/${data.id}`, {
         method: "PUT",
