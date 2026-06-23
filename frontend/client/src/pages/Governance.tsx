@@ -89,6 +89,7 @@ const CATEGORY_TYPES: { value: CategoryType; label: string }[] = [
 
 function toTypeKey(row: any): string {
   const src = String(row.table_name ?? row.type ?? row.record_type ?? row.kind ?? row.entity_type ?? "").toLowerCase();
+  if (src.includes("price_history") || src.includes("price history")) return "gov.approvalType.priceHistory";
   if (src.includes("purchase") || src.includes("po")) return "gov.approvalType.purchase";
   if (src.includes("expense"))                         return "gov.approvalType.expense";
   if (src.includes("transfer"))                        return "gov.approvalType.transfer";

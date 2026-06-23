@@ -46,6 +46,15 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
             LEFT JOIN branches      p_branch ON p_branch.id = p.branch_id
             LEFT JOIN suppliers     s        ON s.id       = p.supplier_id
             LEFT JOIN ingredients   i        ON i.id       = p.ingredient_id
+            LEFT JOIN supplier_price_history sph ON ar.entity_type = 'price_history'
+                                                 AND ar.entity_id = sph.id
+            LEFT JOIN suppliers     sph_s ON sph_s.id = sph.supplier_id
+            LEFT JOIN ingredients   sph_i ON sph_i.id = sph.ingredient_id
+            COALESCE(s.name,     sph_s.name) AS supplier_name,
+                COALESCE(i.name,     sph_i.name) AS ingredient_name,
+                COALESCE(i.unit,     sph_i.unit) AS unit,
+                sph.price           AS unit_cost,
+                sph.price_type      AS price_type,
             WHERE (b.company_id = %s OR p_branch.company_id = %s OR (
                 ar.entity_type = 'price_history'
                 AND ar.branch_id IS NULL
