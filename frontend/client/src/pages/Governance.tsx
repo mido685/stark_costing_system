@@ -1027,6 +1027,13 @@ export default function Governance() {
               row.quantity  != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null,
               row.unit_cost != null ? `@ ${row.unit_cost}` : null,
             ].filter(Boolean).join(" · ")
+          : row.entity_type === "price_history"
+          ? [
+              row.ingredient_name ? `${row.ingredient_name}` : null,
+              row.supplier_name   ? `from ${row.supplier_name}` : null,
+              row.unit_cost != null ? `@ ${row.unit_cost} ${row.currency ?? ""}` : null,
+              row.price_type      ? `(${row.price_type.replace(/_/g, " ")})` : null,
+            ].filter(Boolean).join(" · ")
           : String(row.description ?? row.notes ?? "");
         return {
           id:              String(row.id),
