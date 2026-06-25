@@ -42,7 +42,17 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 COALESCE(i.name,   sph_i.name) AS ingredient_name,
                 COALESCE(i.unit,   sph_i.unit) AS unit,
 
-                sph.price_type
+                sph.price_type,
+                (
+                    SELECT sph2.price
+                    FROM supplier_price_history sph2
+                    WHERE sph2.ingredient_id = sph.ingredient_id
+                    AND sph2.supplier_id   = sph.supplier_id
+                    AND sph2.status        = 'approved'
+                    AND sph2.id            < sph.id
+                    ORDER BY sph2.id DESC
+                    LIMIT 1
+                ) AS previous_price
 
             FROM approval_requests ar
 

@@ -596,15 +596,25 @@ def get_pending_price_approvals(company_id: int) -> list[dict[str, Any]]:
                 s.name AS supplier_name,
                 i.name AS ingredient_name,
                 i.unit AS ingredient_unit,
-                i.cost_per_unit AS current_standard_cost
+                i.cost_per_unit AS current_standard_cost,
+                (
+                    SELECT sph2.price
+                    FROM supplier_price_history sph2
+                    WHERE sph2.ingredient_id = sph.ingredient_id
+                    AND sph2.supplier_id   = sph.supplier_id
+                    AND sph2.status        = 'approved'
+                    AND sph2.id            < sph.id
+                    ORDER BY sph2.id DESC
+                    LIMIT 1
+                ) AS previous_price
             FROM supplier_price_history sph
             JOIN suppliers   s ON s.id = sph.supplier_id
             JOIN ingredients i ON i.id = sph.ingredient_id
             WHERE sph.status = 'pending'
-              AND s.company_id = %s
-              AND i.company_id = %s
+            AND s.company_id = %s
+            AND i.company_id = %s
             ORDER BY sph.purchase_date DESC, sph.id DESC
-        """, (company_id, company_id))
+    """, (company_id, company_id))
         return [dict(r) for r in cur.fetchall()]
     finally:
         cur.close()

@@ -1119,7 +1119,7 @@ export default function Governance() {
               row.ingredient_name ? `${row.ingredient_name}` : null,
               row.supplier_name   ? `from ${row.supplier_name}` : null,
               row.unit_cost != null ? `@ ${Number(row.unit_cost).toFixed(2)}` : null,
-              row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+              row.price_type ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : null
             ].filter(Boolean).join(" · ")
           : String(row.description ?? row.notes ?? "");
         return {
@@ -1138,9 +1138,9 @@ export default function Governance() {
           priceType:       row.price_type
             ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
             : undefined,
-          previousCost:   row.previous_cost  != null ? Number(row.previous_cost)  : undefined,
-          priceChangePct: row.previous_cost  != null && row.unit_cost != null
-            ? ((Number(row.unit_cost) - Number(row.previous_cost)) / Number(row.previous_cost)) * 100
+          previousCost:   row.previous_price != null ? Number(row.previous_price) : undefined,
+          priceChangePct: row.previous_price != null && row.unit_cost != null && Number(row.previous_price) > 0
+            ? ((Number(row.unit_cost) - Number(row.previous_price)) / Number(row.previous_price)) * 100
             : undefined,
         };
       });
