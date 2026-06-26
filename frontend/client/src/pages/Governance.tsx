@@ -292,7 +292,9 @@ function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
         { label: "Date",          value: formatDate(a.date)                    },
         { label: "Priority",      value: (a.priority ?? "medium").toUpperCase()},
         { label: "Source",        value: a.fromProcurement ? "Procurement" : "System" },
-        { label: "Change", value: a.priceChangePct != null ? `${a.priceChangePct > 0 ? "▲" : "▼"} ${Math.abs(a.priceChangePct).toFixed(2)}%` : "—" },
+        { label: "Price Before",  value: a.previousCost != null ? formatCurrency(a.previousCost, a.currency) ?? "—" : "—" },
+        { label: "Price After",   value: a.amount       != null ? formatCurrency(a.amount,       a.currency) ?? "—" : "—" },
+        { label: "Change",        value: a.priceChangePct != null ? `${a.priceChangePct > 0 ? "▲" : "▼"} ${Math.abs(a.priceChangePct).toFixed(2)}%` : "—" },
       ]
     : [
         { label: "Type",          value: t(a.typeKey)                          },
