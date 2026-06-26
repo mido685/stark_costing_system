@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, FileText, Loader2, X, Search, Clock } from "lucide-react";
 import {
-  generateReport,
+  getMenuEngineering,
   getBranches,
   exportReport,
   apiCall,
@@ -185,6 +185,7 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
         branches={branches} branchId={branchId} setBranchId={setBranchId}
         period={period} setPeriod={setPeriod}
         onGenerate={handleGenerate} loading={loading}
+        requireBranch 
       />
       <div className="px-6 py-4">
         {!fetched && <EmptyState emoji="🍽️" text="Select a branch and click Generate" />}
@@ -362,7 +363,7 @@ function BranchComparisonModal({ onClose }: { onClose: () => void }) {
     setLoading(true);
     try {
       // FIX: was `branch-compare&period=` — & is wrong, must be ?
-      const result = await generateReport(`branch-compare?period=${period}`);
+      const result = await apiCall<any[]>(`/api/reports/branch-compare?period=${period}`);
       setData(result ?? []);
       setFetched(true);
     } finally { setLoading(false); }
@@ -421,6 +422,7 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
   const [period,   setPeriod]   = useState(currentPeriod());
   const [data,     setData]     = useState<any>(null);
   const [loading,  setLoading]  = useState(false);
+  const [fetched,  setFetched]  = useState(false);
 
   useEffect(() => { getBranches().then(setBranches); }, []);
 
@@ -428,11 +430,13 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
     if (!branchId) return;
     setLoading(true);
     try {
-      const result = await apiCall<any>(`/api/reports/pl?branch_id=${branchId}&period=${period}`);
-      setData(result);
+      const result = await apiCall<any>(
+        `/api/reports/pl?branch_id=${branchId}&period=${period}`
+      );
+      setData(result ?? null);
+      setFetched(true);
     } finally { setLoading(false); }
-  }
-
+}
   const branch = branches.find(b => String(b.id) === branchId);
 
   return (
@@ -512,9 +516,7 @@ function BudgetModal({ onClose }: { onClose: () => void }) {
     if (!branchId) return;
     setLoading(true);
     try {
-      // FIX: use getBudgetVsActual which unwraps budget key correctly
       const result = await apiCall<any>(`/api/budgets/${branchId}/${period}`);
-      // handle both array and {budget:[]} shapes
       setData(Array.isArray(result) ? result : (result?.budget ?? []));
       setFetched(true);
     } finally { setLoading(false); }

@@ -159,7 +159,7 @@ def get_report(
             return error("period (YYYY-MM) is required")
         data = reports_db.compare_branches_by_period(company_id, period)
     elif report_type == "menu":
-        data = reports_db.get_menu_engineering(company_id, branch_id)
+        data = reports_db.get_menu_engineering(company_id, branch_id,period or None)
     elif report_type == "waste-summary":
         data = reports_db.get_waste_summary(company_id, branch_id)
     elif report_type == "stock":

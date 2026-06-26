@@ -29,6 +29,10 @@ export function assetUrl(path: string | null | undefined): string {
 
 
 const UNWRAP_KEYS = new Set([
+  "report",      // ← add this
+  "audit_log",   // ← add this too (used by audit trail)
+  "variance",    // ← add this (used by variance reports)
+  "trend",
   "accrual",
   "accruals",
   "adjustment",
@@ -1254,15 +1258,20 @@ export async function rejectRequest(
 }
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
-
-export async function generateReport(
-  reportType: string,
-  format = "json"
-): Promise<any> {
+export async function getMenuEngineering(
+  branchId: number,
+  period: string
+): Promise<any[]> {
   try {
-    return await apiCall(`/api/reports/${reportType}?format=${format}`);
+    const params = new URLSearchParams({
+      branch_id: String(branchId),
+      period,
+    });
+    const res = await apiCall<any>(`/api/reports/menu?${params.toString()}`);
+    // The backend wraps it in { report: [...] }, normalizeApiResponse unwraps to res directly
+    return Array.isArray(res) ? res : (res?.report ?? []);
   } catch {
-    return null;
+    return [];
   }
 }
 

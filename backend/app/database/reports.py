@@ -878,20 +878,32 @@ def get_branch_stock_balances(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_menu_engineering(
-    company_id: int, branch_id: int | None = None
+    company_id: int, branch_id: int | None = None, period: str | None = None
 ) -> list[dict[str, Any]]:
-    """
-    Menu engineering matrix (Star / Plow Horse / Puzzle / Dog).
-    Recipe cost computed in-SQL — no Python loop per product.
-    """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        sale_filter = "AND s.branch_id = %s" if branch_id else ""
-        params: list[Any] = [company_id]
+        # Build WHERE conditions for the sales join
+        sale_conditions = ["s.status = 'approved'"]
+        params: list[Any] = [company_id]  # for p.company_id in WHERE
+
         if branch_id:
-            params.append(branch_id)
-        params.append(company_id)
+            sale_conditions.append("s.branch_id = %s")
+        if period:
+            sale_conditions.append("TO_CHAR(s.entry_date, 'YYYY-MM') = %s")
+
+        sale_filter = "AND " + " AND ".join(sale_conditions) if sale_conditions else ""
+
+        # Now build params in the correct order for the SQL
+        # First param is for p.company_id (WHERE clause at the bottom)
+        # Params inside the JOIN come BEFORE the WHERE param
+        join_params: list[Any] = []
+        if branch_id:
+            join_params.append(branch_id)
+        if period:
+            join_params.append(period)
+
+        all_params = join_params + [company_id]
 
         cur.execute(f"""
             SELECT
@@ -912,15 +924,16 @@ def get_menu_engineering(
                 ), 0) AS raw_cost
             FROM products p
             LEFT JOIN sales s
-                ON s.product_id = p.id AND s.status = 'approved' {sale_filter}
+                ON s.product_id = p.id {sale_filter}
             WHERE p.company_id = %s AND p.is_active = TRUE
             GROUP BY p.id, p.name, p.sale_price
             ORDER BY revenue DESC
-        """, params)
+        """, all_params)
+
         rows = [_row(dict(r)) for r in cur.fetchall()]
 
         for r in rows:
-            r["margin"]        = round(r["sale_price"] - r["raw_cost"], 2)
+            r["margin"] = round(r["sale_price"] - r["raw_cost"], 2)
             r["food_cost_pct"] = (
                 round(r["raw_cost"] / r["sale_price"] * 100, 2)
                 if r["sale_price"] else 0.0
@@ -943,7 +956,6 @@ def get_menu_engineering(
     finally:
         cur.close()
         conn.close()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Waste Summary
