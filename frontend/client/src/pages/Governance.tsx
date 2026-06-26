@@ -135,9 +135,10 @@ function formatDateShort(dateStr: string): string {
 
 function formatCurrency(amount?: number, currency?: string): string | null {
   if (amount == null) return null;
+  const cur = currency ?? "EGP";
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency ?? "USD", minimumFractionDigits: 2 }).format(amount);
-  } catch { return `${currency ?? "$"} ${amount.toLocaleString()}`; }
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: cur, minimumFractionDigits: 2 }).format(amount);
+  } catch { return `${cur} ${amount.toLocaleString()}`; }
 }
 
 function formatNumber(n?: number, decimals = 3): string {
@@ -1131,7 +1132,9 @@ export default function Governance() {
           submitted_by:    String(row.submitted_by ?? row.requested_by_name ?? ""),
           date:            String(row.requested_at  ?? row.entry_date ?? ""),
           status:          normalizeStatus(row.status),
-          amount:          row.payable_amount != null ? Number(row.payable_amount) : row.amount != null ? Number(row.amount) : undefined,
+          amount: row.entity_type === "price_history"
+          ? (row.unit_cost != null ? Number(row.unit_cost) : undefined)
+          : row.payable_amount != null ? Number(row.payable_amount) : row.amount != null ? Number(row.amount) : undefined,
           currency:        row.currency ?? undefined,
           priority:        toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
