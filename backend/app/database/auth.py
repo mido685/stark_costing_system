@@ -1,17 +1,22 @@
-import os, shutil
-from typing import Any
 import psycopg2
+from typing import Any
+
 from .connection import get_connection, dict_cursor
 from app.security.auth import hash_password, verify_password
 
+
+# ─── Companies ────────────────────────────────────────────────────────────────
 
 def list_companies() -> list[dict[str, Any]]:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        cur.execute(
-            "SELECT id, name, slug, logo_url FROM companies WHERE is_active = TRUE ORDER BY name"
-        )
+        cur.execute("""
+            SELECT id, name, slug, logo_url
+            FROM companies
+            WHERE is_active = TRUE
+            ORDER BY name
+        """)
         return [dict(r) for r in cur.fetchall()]
     finally:
         cur.close()
@@ -24,18 +29,20 @@ def register_company(
     owner_username: str,
     owner_display_name: str,
     owner_password: str,
-    logo_url: str | None = None,       # ← new
+    logo_url: str | None = None,
 ) -> dict:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        cur.execute(
-            """INSERT INTO companies (name, slug, logo_url)
-               VALUES (%s, %s, %s) RETURNING *""",
-            (company_name, company_slug.lower().strip(), logo_url),
-        )
+        # ── 1. Create company ─────────────────────────────────────────────────
+        cur.execute("""
+            INSERT INTO companies (name, slug, logo_url)
+            VALUES (%s, %s, %s)
+            RETURNING *
+        """, (company_name, company_slug.lower().strip(), logo_url))
         company = dict(cur.fetchone())
 
+        # ── 2. Seed default roles ─────────────────────────────────────────────
         for name, description in [
             ("owner",      "Full system access"),
             ("admin",      "Company administration"),
@@ -49,19 +56,26 @@ def register_company(
                 ON CONFLICT (company_id, name) DO NOTHING
             """, (company["id"], name, description))
 
-        cur.execute(
-            "SELECT id FROM roles WHERE company_id = %s AND name = 'owner'",
-            (company["id"],)
-        )
+        # ── 3. Fetch owner role id ────────────────────────────────────────────
+        cur.execute("""
+            SELECT id FROM roles
+            WHERE company_id = %s AND name = 'owner'
+        """, (company["id"],))
         owner_role_id = cur.fetchone()["id"]
 
+        # ── 4. Create owner user ──────────────────────────────────────────────
         cur.execute("""
             INSERT INTO app_users
                 (company_id, username, display_name, role_id, password_hash)
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id, username, display_name, role_id, is_active, created_at
-        """, (company["id"], owner_username, owner_display_name,
-              owner_role_id, hash_password(owner_password)))
+        """, (
+            company["id"],
+            owner_username,
+            owner_display_name,
+            owner_role_id,
+            hash_password(owner_password),
+        ))
         user = dict(cur.fetchone())
 
         conn.commit()
@@ -78,25 +92,36 @@ def register_company(
         conn.close()
 
 
+# ─── Auth ─────────────────────────────────────────────────────────────────────
+
 def login_user(company_slug: str, username: str, password: str) -> dict:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        cur.execute(
-            """SELECT id, logo_url FROM companies
-               WHERE slug = %s AND is_active = TRUE""",
-            (company_slug.lower().strip(),),
-        )
+        # ── 1. Verify company exists and is active ────────────────────────────
+        cur.execute("""
+            SELECT id, logo_url
+            FROM companies
+            WHERE slug = %s AND is_active = TRUE
+        """, (company_slug.lower().strip(),))
         company = cur.fetchone()
         if not company:
             raise ValueError("Company not found")
 
+        # ── 2. Verify user credentials ────────────────────────────────────────
         cur.execute("""
-            SELECT u.id, u.username, u.display_name, u.role_id,
-                   u.password_hash, r.name AS role
+            SELECT
+                u.id,
+                u.username,
+                u.display_name,
+                u.role_id,
+                u.password_hash,
+                r.name AS role
             FROM app_users u
             JOIN roles r ON r.id = u.role_id
-            WHERE u.company_id = %s AND u.username = %s AND u.is_active = TRUE
+            WHERE u.company_id = %s
+              AND u.username = %s
+              AND u.is_active = TRUE
         """, (company["id"], username))
         user = cur.fetchone()
 
@@ -110,7 +135,7 @@ def login_user(company_slug: str, username: str, password: str) -> dict:
             "role_id":      user["role_id"],
             "role":         user["role"],
             "company_id":   company["id"],
-            "company_logo": company["logo_url"],   # ← new
+            "company_logo": company["logo_url"],
         }
 
     except ValueError:

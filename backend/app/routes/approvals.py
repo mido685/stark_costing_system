@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, Query, Request
 from app.api.responses import error, success
 from app.database.connection import dict_cursor, get_connection
+from app.database.suppliers import approve_supplier_price
+from app.database.log_audit import log_audit
+from app.database.system_logger import log_event
 from app.security.dependencies import get_current_user, require_roles
 
 router = APIRouter(tags=["approvals"])
@@ -328,6 +331,8 @@ def _set_approval_status(
                 status=409,
             )
 
+        old_dict = dict(old)
+
         # ── Update approval_requests ──────────────────────────────────────────
         cur.execute("""
             UPDATE approval_requests
@@ -354,58 +359,50 @@ def _set_approval_status(
                 (status, old["entity_id"]),
             )
         elif old["entity_type"] == "price_history":
-            cur.execute("""
-                UPDATE supplier_price_history
-                SET status      = %s,
-                    approved_by = %s,
-                    approved_at = NOW()
-                WHERE id = %s
-            """, (status, current_user["id"], old["entity_id"]))
-
-            if status == "approved":
-                cur.execute("""
-                    UPDATE ingredients i
-                    SET cost_per_unit = sph.price,
-                        supplier_id   = sph.supplier_id
-                    FROM supplier_price_history sph
-                    WHERE sph.id = %s
-                      AND i.id   = sph.ingredient_id
-                """, (old["entity_id"],))
-
-        # ── Build governance log description ──────────────────────────────────
-        if old["entity_type"] == "purchase":
-            description = (
-                f"{status.title()} purchase of "
-                f"{old.get('ingredient_name') or 'item'} "
-                f"from {old.get('supplier_name') or 'supplier'} — "
-                f"{old.get('quantity') or ''} units "
-                f"@ {old.get('unit_cost') or ''} "
-                f"(payable: {old.get('payable_amount') or old.get('gross_amount') or ''})"
+            # Delegate entirely to the db function — it handles
+            # supplier_price_history status, ingredients.cost_per_unit,
+            # standard_cost_history, log_audit, and log_event in one place.
+            conn.commit()
+            approve_supplier_price(
+                price_id=old["entity_id"],
+                company_id=company_id,
+                approver_id=current_user["id"],
+                action=status,
+                ip_address=ip_address,
             )
-        else:
-            description = f"{status.title()} {old['entity_type']} #{old['entity_id']}"
+            # governance log + audit for the approval_requests row itself
+            # are handled below; re-open connection for those writes.
+            conn2 = get_connection()
+            cur2 = dict_cursor(conn2)
+            try:
+                _write_governance_and_audit(
+                    cur2, conn2,
+                    old_dict=old_dict,
+                    row=row,
+                    status=status,
+                    company_id=company_id,
+                    current_user=current_user,
+                    ip_address=ip_address,
+                )
+                conn2.commit()
+            except Exception:
+                conn2.rollback()
+                raise
+            finally:
+                cur2.close()
+                conn2.close()
+            return success(f"Approval {status}", approval=row)
 
-        # ── Insert governance log ─────────────────────────────────────────────
-        cur.execute("""
-            INSERT INTO governance_action_log
-                (item_id, entity_type, description, submitted_by, original_date,
-                 action, amount, currency, from_procurement, actor_id, branch_id,
-                 company_id)
-            VALUES (%s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            str(old["entity_id"]),
-            old["entity_type"],
-            description,
-            old.get("submitted_by") or current_user.get("username"),
-            "approve" if status == "approved" else "reject",
-            float(old["payable_amount"] or old["gross_amount"] or 0)
-            if old["entity_type"] == "purchase" else None,
-            None,
-            old["entity_type"] == "purchase",
-            current_user["id"],
-            old["branch_id"],
-            current_user["company_id"],
-        ))
+        # ── Audit + log_event for approval_requests row ───────────────────────
+        _write_governance_and_audit(
+            cur, conn,
+            old_dict=old_dict,
+            row=row,
+            status=status,
+            company_id=company_id,
+            current_user=current_user,
+            ip_address=ip_address,
+        )
 
         conn.commit()
         return success(f"Approval {status}", approval=row)
@@ -416,3 +413,95 @@ def _set_approval_status(
     finally:
         cur.close()
         conn.close()
+
+
+def _write_governance_and_audit(
+    cur, conn,
+    old_dict: dict,
+    row: dict,
+    status: str,
+    company_id: int,
+    current_user: dict,
+    ip_address: str | None,
+) -> None:
+    """Write governance log, log_audit, and log_event for an approval decision."""
+
+    # ── Build governance log description ─────────────────────────────────────
+    if old_dict["entity_type"] == "purchase":
+        description = (
+            f"{status.title()} purchase of "
+            f"{old_dict.get('ingredient_name') or 'item'} "
+            f"from {old_dict.get('supplier_name') or 'supplier'} — "
+            f"{old_dict.get('quantity') or ''} units "
+            f"@ {old_dict.get('unit_cost') or ''} "
+            f"(payable: {old_dict.get('payable_amount') or old_dict.get('gross_amount') or ''})"
+        )
+    else:
+        description = (
+            f"{status.title()} {old_dict['entity_type']} #{old_dict['entity_id']}"
+        )
+
+    # ── Insert governance log ─────────────────────────────────────────────────
+    cur.execute("""
+        INSERT INTO governance_action_log
+            (item_id, entity_type, description, submitted_by, original_date,
+             action, amount, currency, from_procurement, actor_id, branch_id,
+             company_id)
+        VALUES (%s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
+    """, (
+        str(old_dict["entity_id"]),
+        old_dict["entity_type"],
+        description,
+        old_dict.get("submitted_by") or current_user.get("username"),
+        "approve" if status == "approved" else "reject",
+        float(old_dict["payable_amount"] or old_dict["gross_amount"] or 0)
+        if old_dict["entity_type"] == "purchase" else None,
+        None,
+        old_dict["entity_type"] == "purchase",
+        current_user["id"],
+        old_dict["branch_id"],
+        company_id,
+    ))
+
+    # ── log_audit ─────────────────────────────────────────────────────────────
+    log_audit(
+        conn,
+        company_id=company_id,
+        user_id=current_user["id"],
+        action="UPDATE",
+        table_name="approval_requests",
+        record_id=row["id"],
+        old_data={"status": "pending"},
+        new_data={"status": status, "approved_by": current_user["id"]},
+        ip_address=ip_address,
+    )
+
+    # ── log_event ─────────────────────────────────────────────────────────────
+    log_event(
+        conn,
+        company_id=company_id,
+        user_id=current_user["id"],
+        action="approved" if status == "approved" else "rejected",
+        category="data",
+        level="info" if status == "approved" else "warning",
+        entity_type="approval_requests",
+        entity_id=row["id"],
+        payload={
+            "entity_type":  old_dict["entity_type"],
+            "entity_id":    old_dict["entity_id"],
+            "branch_id":    old_dict["branch_id"],
+            "submitted_by": old_dict.get("submitted_by"),
+            "changes":      {"status": status},
+            "original":     {"status": "pending"},
+            **(
+                {
+                    "supplier_name":    old_dict.get("supplier_name"),
+                    "ingredient_name":  old_dict.get("ingredient_name"),
+                    "quantity":         float(old_dict["quantity"]) if old_dict.get("quantity") else None,
+                    "payable_amount":   float(old_dict["payable_amount"] or old_dict.get("gross_amount") or 0),
+                }
+                if old_dict["entity_type"] == "purchase" else {}
+            ),
+        },
+        ip_address=ip_address,
+    )

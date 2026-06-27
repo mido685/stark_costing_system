@@ -3,7 +3,7 @@ from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
 from .periods import is_period_frozen
-
+from .system_logger import log_event
 
 def list_sales(
     company_id: int,
@@ -155,6 +155,28 @@ def add_sale(
             new_data=sale,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="sales",
+            entity_id=sale["id"],
+            payload={
+                "product_id":      product_id,
+                "quantity":        quantity,
+                "unit_price":      unit_price,
+                "gross_amount":    gross_amount,
+                "net_amount":      net_amount,
+                "discount_amount": discount_amount,
+                "payment_method":  payment_method,
+                "unit_cost":       unit_cost,
+                "entry_date":      entry_date,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return sale
 
@@ -203,6 +225,25 @@ def delete_sale(
             table_name="sales",
             record_id=sale_id,
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=old["branch_id"],
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="sales",
+            entity_id=sale_id,
+            payload={
+                "product_id":   old["product_id"],
+                "quantity":     float(old["quantity"]),
+                "net_amount":   float(old["net_amount"]),
+                "entry_date":   str(old["entry_date"]),
+                "reversal":     True,
+            },
             ip_address=ip_address,
         )
         conn.commit()

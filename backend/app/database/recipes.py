@@ -1,7 +1,9 @@
 import psycopg2
 from typing import Any
+
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .system_logger import log_event
 
 
 def get_recipe(product_id: int, company_id: int) -> dict[str, Any] | None:
@@ -46,13 +48,16 @@ def save_recipe(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # verify product belongs to company
         cur.execute(
             "SELECT id FROM products WHERE id = %s AND company_id = %s",
             (product_id, company_id)
         )
         if not cur.fetchone():
             raise ValueError("Product not found or access denied")
+
+        # Detect whether this is an insert or update for accurate log label
+        cur.execute("SELECT id FROM recipes WHERE product_id = %s", (product_id,))
+        is_update = cur.fetchone() is not None
 
         cur.execute("""
             INSERT INTO recipes (product_id, yield_pct, portion_size, portion_unit, notes)
@@ -74,6 +79,23 @@ def save_recipe(
             table_name="recipes",
             record_id=recipe["id"],
             new_data=recipe,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="updated" if is_update else "created",
+            category="data",
+            entity_type="recipes",
+            entity_id=recipe["id"],
+            payload={
+                "product_id":   product_id,
+                "yield_pct":    yield_pct,
+                "portion_size": portion_size,
+                "portion_unit": portion_unit,
+                "notes":        notes,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -121,6 +143,23 @@ def delete_recipe(
             old_data=dict(old),
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="recipes",
+            entity_id=old["id"],
+            payload={
+                "product_id":   product_id,
+                "yield_pct":    float(old["yield_pct"]),
+                "portion_size": float(old["portion_size"]),
+                "portion_unit": old["portion_unit"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
 
     except Exception:
@@ -142,7 +181,6 @@ def save_recipe_ingredient(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # verify recipe belongs to company
         cur.execute("""
             SELECT r.id FROM recipes r
             JOIN products p ON p.id = r.product_id
@@ -150,6 +188,13 @@ def save_recipe_ingredient(
         """, (recipe_id, company_id))
         if not cur.fetchone():
             raise ValueError("Recipe not found or access denied")
+
+        # Detect insert vs update for accurate log label
+        cur.execute(
+            "SELECT qty_required FROM recipe_ingredients WHERE recipe_id = %s AND ingredient_id = %s",
+            (recipe_id, ingredient_id)
+        )
+        existing = cur.fetchone()
 
         cur.execute("""
             INSERT INTO recipe_ingredients (recipe_id, ingredient_id, qty_required)
@@ -168,6 +213,22 @@ def save_recipe_ingredient(
             table_name="recipe_ingredients",
             record_id=row["id"],
             new_data=row,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="updated" if existing else "created",
+            category="data",
+            entity_type="recipe_ingredients",
+            entity_id=row["id"],
+            payload={
+                "recipe_id":     recipe_id,
+                "ingredient_id": ingredient_id,
+                "qty_required":  qty_required,
+                **({"original": {"qty_required": float(existing["qty_required"])}} if existing else {}),
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -214,6 +275,22 @@ def remove_recipe_ingredient(
             table_name="recipe_ingredients",
             record_id=old["id"],
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="recipe_ingredients",
+            entity_id=old["id"],
+            payload={
+                "recipe_id":     recipe_id,
+                "ingredient_id": ingredient_id,
+                "qty_required":  float(old["qty_required"]),
+            },
             ip_address=ip_address,
         )
         conn.commit()

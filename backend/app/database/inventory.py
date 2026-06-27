@@ -5,6 +5,7 @@ from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
 from .periods import is_period_frozen
+from .system_logger import log_event
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +54,6 @@ def _ingredient_weighted_avg_cost(cur, ingredient_id: int, branch_id: int) -> fl
     if row and row["wac"] is not None:
         return float(row["wac"])
 
-    # Fallback: master cost
     cur.execute(
         "SELECT cost_per_unit FROM ingredients WHERE id = %s",
         (ingredient_id,),
@@ -63,7 +63,7 @@ def _ingredient_weighted_avg_cost(cur, ingredient_id: int, branch_id: int) -> fl
 
 
 # ---------------------------------------------------------------------------
-# Stock balances
+# Stock balances  (read-only — no logging needed)
 # ---------------------------------------------------------------------------
 
 def get_branch_stock_balances(company_id: int, branch_id: int) -> list[dict[str, Any]]:
@@ -97,12 +97,12 @@ def get_branch_stock_balances(company_id: int, branch_id: int) -> list[dict[str,
         )
         rows = [_row(dict(r)) for r in cur.fetchall()]
         for row in rows:
-            qty = row["balance_qty"]
+            qty  = row["balance_qty"]
             cost = row["avg_unit_cost"]
-            row["stock_value"]    = round(qty * cost, 2)
+            row["stock_value"]     = round(qty * cost, 2)
             row["inventory_value"] = row["stock_value"]
-            row["negative_alert"] = qty < 0
-            row["reorder_alert"]  = 0 <= qty <= row["reorder_level"]
+            row["negative_alert"]  = qty < 0
+            row["reorder_alert"]   = 0 <= qty <= row["reorder_level"]
         return rows
     finally:
         cur.close()
@@ -141,10 +141,10 @@ def get_finished_goods_balances(company_id: int, branch_id: int) -> list[dict[st
         for row in rows:
             qty  = row["balance_qty"]
             cost = row["avg_unit_cost"]
-            row["stock_value"]    = round(qty * cost, 2)
+            row["stock_value"]     = round(qty * cost, 2)
             row["inventory_value"] = row["stock_value"]
-            row["negative_alert"] = qty < 0
-            row["reorder_alert"]  = False
+            row["negative_alert"]  = qty < 0
+            row["reorder_alert"]   = False
         return rows
     finally:
         cur.close()
@@ -178,7 +178,6 @@ def create_grn(
     cur = dict_cursor(conn)
     try:
         _verify_branch(cur, branch_id, company_id)
-        # Verify the purchase belongs to this company (purchases has no company_id; join via branches)
         cur.execute(
             """
             SELECT p.id FROM purchases p
@@ -189,7 +188,7 @@ def create_grn(
         )
         if not cur.fetchone():
             raise ValueError("Purchase not found, not approved, or access denied")
-        # Insert GRN record
+
         cur.execute(
             """
             INSERT INTO goods_receipts
@@ -221,6 +220,23 @@ def create_grn(
             table_name="goods_receipts",
             record_id=grn["id"],
             new_data=grn,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="goods_receipts",
+            entity_id=grn["id"],
+            payload={
+                "purchase_id":   purchase_id,
+                "ingredient_id": ingredient_id,
+                "received_qty":  received_qty,
+                "unit_cost":     unit_cost,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -336,7 +352,7 @@ def add_stock_issue(
         )
         issue = dict(cur.fetchone())
 
-        is_opening = issued_to == "opening_stock"
+        is_opening     = issued_to == "opening_stock"
         movement_type  = "opening_stock" if is_opening else "issue"
         quantity_delta = qty_issued if is_opening else -qty_issued
 
@@ -360,6 +376,24 @@ def add_stock_issue(
             table_name="stock_issues",
             record_id=issue["id"],
             new_data=issue,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="stock_issues",
+            entity_id=issue["id"],
+            payload={
+                "ingredient_id": ingredient_id,
+                "qty_issued":    qty_issued,
+                "movement_type": movement_type,
+                "issued_to":     issued_to,
+                "unit_cost":     unit_cost,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -440,7 +474,6 @@ def add_stock_count(
         )
         count = dict(cur.fetchone())
 
-        # Apply the delta to inventory so the balance reflects the physical count
         if delta != 0:
             unit_cost = _ingredient_weighted_avg_cost(cur, ingredient_id, branch_id)
             cur.execute(
@@ -450,7 +483,8 @@ def add_stock_count(
                      quantity_delta, unit_cost, reference_table, reference_id, notes)
                 VALUES (%s, %s, 'stock_count', %s, %s, %s, 'stock_counts', %s, %s)
                 """,
-                (branch_id, ingredient_id, entry_date, delta, unit_cost, count["id"], notes or "stock count adjustment"),
+                (branch_id, ingredient_id, entry_date, delta, unit_cost,
+                 count["id"], notes or "stock count adjustment"),
             )
 
         log_audit(
@@ -462,6 +496,23 @@ def add_stock_count(
             table_name="stock_counts",
             record_id=count["id"],
             new_data=count,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="stock_counts",
+            entity_id=count["id"],
+            payload={
+                "ingredient_id": ingredient_id,
+                "system_qty":    system_qty,
+                "counted_qty":   counted_qty,
+                "delta":         delta,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -556,6 +607,22 @@ def add_adjustment(
             new_data=adjustment,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="stock_adjustments",
+            entity_id=adjustment["id"],
+            payload={
+                "ingredient_id":  ingredient_id,
+                "quantity_delta": quantity_delta,
+                "notes":          notes,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return adjustment
     except Exception:
@@ -593,10 +660,8 @@ def approve_adjustment(
         adjustment = cur.fetchone()
         if not adjustment:
             raise ValueError("Adjustment not found, already processed, or access denied")
-
         adjustment = dict(adjustment)
 
-        # Update the adjustment record status
         cur.execute(
             "UPDATE stock_adjustments SET status = %s, approved_by = %s, approval_notes = %s WHERE id = %s",
             (status, user_id, notes, adj_id),
@@ -637,6 +702,25 @@ def approve_adjustment(
             new_data={"status": status, "notes": notes},
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=adjustment["branch_id"],
+            action=status,                          # "approved" or "rejected"
+            category="data",
+            level="warning" if status == "rejected" else "info",
+            entity_type="stock_adjustments",
+            entity_id=adj_id,
+            payload={
+                "ingredient_id":  adjustment["ingredient_id"],
+                "quantity_delta": float(adjustment["quantity_delta"]),
+                "changes":        {"status": status},
+                "original":       {"status": "pending"},
+                "notes":          notes,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -647,7 +731,7 @@ def approve_adjustment(
 
 
 # ---------------------------------------------------------------------------
-# Opening stock
+# Opening stock  (read-only — no logging needed)
 # ---------------------------------------------------------------------------
 
 def list_opening_stock(
@@ -694,13 +778,13 @@ def list_transfers(
     cur = dict_cursor(conn)
     try:
         if branch_id:
-            where = "WHERE (t.from_branch_id = %s OR t.to_branch_id = %s) AND bf.company_id = %s AND bt.company_id = %s"
+            where         = "WHERE (t.from_branch_id = %s OR t.to_branch_id = %s) AND bf.company_id = %s AND bt.company_id = %s"
             direction_expr = "CASE WHEN t.to_branch_id = %s THEN 'in' ELSE 'out' END"
-            params = [branch_id, branch_id, company_id, company_id, branch_id, limit]
+            params        = [branch_id, branch_id, company_id, company_id, branch_id, limit]
         else:
-            where = "WHERE bf.company_id = %s AND bt.company_id = %s"
+            where         = "WHERE bf.company_id = %s AND bt.company_id = %s"
             direction_expr = "NULL"
-            params = [company_id, company_id, limit]
+            params        = [company_id, company_id, limit]
 
         cur.execute(
             f"""
@@ -743,7 +827,6 @@ def add_transfer(
         _verify_branch(cur, from_branch_id, company_id)
         _verify_branch(cur, to_branch_id, company_id)
 
-        # Use weighted-average cost from the sending branch
         unit_cost = _ingredient_weighted_avg_cost(cur, ingredient_id, from_branch_id)
 
         cur.execute(
@@ -783,6 +866,25 @@ def add_transfer(
             new_data=transfer,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=from_branch_id,
+            action="created",
+            category="data",
+            entity_type="transfers",
+            entity_id=transfer["id"],
+            payload={
+                "from_branch_id": from_branch_id,
+                "to_branch_id":   to_branch_id,
+                "ingredient_id":  ingredient_id,
+                "quantity":       quantity,
+                "unit_cost":      unit_cost,
+                "status":         status,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return transfer
     except Exception:
@@ -794,7 +896,7 @@ def add_transfer(
 
 
 # ---------------------------------------------------------------------------
-# Inventory movements (read-only audit / ledger view)
+# Inventory movements  (read-only — no logging needed)
 # ---------------------------------------------------------------------------
 
 def list_inventory_movements(
@@ -830,8 +932,10 @@ def list_inventory_movements(
     finally:
         cur.close()
         conn.close()
+
+
 # ---------------------------------------------------------------------------
-# PO Fulfillment  (costing manager — received vs ordered per PO)
+# PO Fulfillment  (read-only — no logging needed)
 # ---------------------------------------------------------------------------
 
 def get_po_fulfillment(

@@ -1,8 +1,10 @@
 import psycopg2
 from typing import Any
+
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
 from .sku_prefixes import next_sku
+from .system_logger import log_event
 
 
 def list_products(company_id: int) -> list[dict[str, Any]]:
@@ -51,6 +53,7 @@ def add_product(
                 RETURNING *
             """, (unit, sale_price, auto_sku, existing["id"], company_id))
             product = dict(cur.fetchone())
+            action_label = "reactivated"
         else:
             auto_sku = sku or next_sku(company_id, sku_prefix or "DISH", "products")
             cur.execute("""
@@ -59,6 +62,7 @@ def add_product(
                 RETURNING *
             """, (company_id, name, unit, sale_price, auto_sku))
             product = dict(cur.fetchone())
+            action_label = "created"
 
         log_audit(
             conn,
@@ -70,6 +74,22 @@ def add_product(
             new_data=product,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action=action_label,
+            category="data",
+            entity_type="products",
+            entity_id=product["id"],
+            payload={
+                "name":       product["name"],
+                "sku":        product["sku"],
+                "unit":       product["unit"],
+                "sale_price": product["sale_price"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return product
 
@@ -79,6 +99,7 @@ def add_product(
     finally:
         cur.close()
         conn.close()
+
 
 def update_product(
     product_id: int,
@@ -123,6 +144,28 @@ def update_product(
             new_data=new,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="updated",
+            category="data",
+            entity_type="products",
+            entity_id=product_id,
+            payload={
+                "changes": {
+                    k: new[k]
+                    for k in ("name", "unit", "sale_price", "sku")
+                    if new.get(k) != dict(old).get(k)
+                },
+                "original": {
+                    k: dict(old)[k]
+                    for k in ("name", "unit", "sale_price", "sku")
+                    if new.get(k) != dict(old).get(k)
+                },
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return new
 
@@ -137,7 +180,7 @@ def update_product(
         conn.close()
 
 
-def update_image(product_id: int, company_id: int, image_url: str) -> None:
+def update_image(product_id: int, company_id: int, image_url: str,user_id: int | None = None,ip_address: str | None = None) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
@@ -148,6 +191,27 @@ def update_image(product_id: int, company_id: int, image_url: str) -> None:
         """, (image_url, product_id, company_id))
         if cur.rowcount == 0:
             raise ValueError("Product not found or access denied")
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="UPDATE",
+            table_name="products",
+            record_id=product_id,
+            new_data={"image_url": image_url},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="image_updated",
+            category="data",
+            entity_type="products",
+            entity_id=product_id,
+            payload={"image_url": image_url},
+            ip_address=ip_address,
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -186,6 +250,21 @@ def deactivate_product(
             table_name="products",
             record_id=product_id,
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deactivated",
+            category="data",
+            level="warning",
+            entity_type="products",
+            entity_id=product_id,
+            payload={
+                "name": old["name"],
+                "sku":  old["sku"],
+            },
             ip_address=ip_address,
         )
         conn.commit()

@@ -11,6 +11,7 @@ Key design decisions:
 - unit_cost and cost_value are always floated before return so callers
   never receive raw Decimal objects.
 """
+from .system_logger import log_event
 from __future__ import annotations
 
 from typing import Any
@@ -242,6 +243,25 @@ def add_damage(
             new_data=damage,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="damage_log",
+            entity_id=damage_id,
+            payload={
+                "ingredient_id": ingredient_id,
+                "product_id":    product_id,
+                "quantity":      quantity,
+                "reason":        reason,
+                "unit_cost":     unit_cost,
+                "cost_value":    cost_value,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return damage
 
@@ -336,6 +356,27 @@ def delete_damage(
             table_name="damage_log",
             record_id=damage_id,
             old_data=old,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=old["branch_id"],
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="damage_log",
+            entity_id=damage_id,
+            payload={
+                "ingredient_id": old["ingredient_id"],
+                "product_id":    old["product_id"],
+                "quantity":      float(old["quantity"]),
+                "reason":        old["reason"],
+                "cost_value":    float(old["cost_value"] or 0),
+                "entry_date":    str(old["entry_date"]),
+                "reversal":      True,
+            },
             ip_address=ip_address,
         )
         conn.commit()

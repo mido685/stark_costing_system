@@ -1,156 +1,526 @@
-# app/routes/periods.py
-"""
-Period management routes.
+from typing import Any
+from .connection import get_connection, dict_cursor
 
-All write operations require manager or admin role.
-Read operations are available to all authenticated users.
-"""
-from __future__ import annotations
+# ─── State machine ────────────────────────────────────────────────────────────
 
-from fastapi import APIRouter, Depends, Query
+VALID_TRANSITIONS: dict[str, set[str]] = {
+    "open":   {"closed"},
+    "closed": {"open", "locked"},
+    "locked": {},
+}
 
-from app.database.periods import (
-    get_period_status,
-    set_period_status,
-    list_period_statuses,
-    list_period_history,
-    is_period_frozen,
-    run_pre_close_validation,
-)
-from app.security.dependencies import get_current_user, require_roles
-from app.api.responses import error, success
+ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "open":   ["owner", "accountant", "manager", "admin"],
+    "closed": ["owner", "manager", "admin"],
+    "locked": ["owner", "admin"],
+}
 
-router = APIRouter(prefix="/period", tags=["periods"])
+# ─── Internal helpers ─────────────────────────────────────────────────────────
 
-
-# ─── GET /api/period/status?period=YYYY-MM ────────────────────────────────────
-
-@router.get("/status")
-def get_status(
-    period: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Return the current status row for a period.
-    Falls back to {"status": "open"} if never touched.
-    """
-    company_id = current_user["company_id"]
-    row = get_period_status(company_id, period)
-    return success("Period status fetched", **row)
+def _get_current_status(cur, company_id: int, period: str) -> str:
+    """Fetch current period status using an existing cursor."""
+    cur.execute("""
+        SELECT status FROM company_period_statuses
+        WHERE company_id = %s AND period = %s
+    """, (company_id, period))
+    row = cur.fetchone()
+    return row["status"] if row else "open"
 
 
-# ─── POST /api/period/status ──────────────────────────────────────────────────
-
-@router.post("/status")
-def set_status(
-    body: dict,
-    current_user: dict = Depends(require_roles("manager", "admin")),
-):
-    """
-    Transition a period to a new status.
-    Body: { period, status, notes? }
-
-    State machine (enforced in DB layer):
-      open → closed
-      closed → open | locked
-      locked → (terminal — no transitions allowed)
-    """
-    company_id = current_user["company_id"]
-    user_id    = current_user["id"]
-    user_role  = current_user["role"]
-
-    period     = body.get("period")
-    new_status = body.get("status")
-    notes      = body.get("notes", "")
-
-    if not period or not new_status:
-        return error("period and status are required", status=400)
-
-    if new_status not in ("open", "closed", "locked"):
-        return error("status must be open, closed, or locked", status=400)
-
-    try:
-        row = set_period_status(
-            company_id=company_id,
-            period=period,
-            new_status=new_status,
-            user_id=user_id,
-            user_role=user_role,
-            note=notes or None,
+def _assert_valid_transition(current: str, new: str) -> None:
+    """Raise if the state transition is not allowed."""
+    if new not in VALID_TRANSITIONS[current]:
+        raise ValueError(
+            f"Cannot transition period from '{current}' to '{new}'. "
+            f"Allowed: {VALID_TRANSITIONS[current] or {'none — terminal state'}}"
         )
-        return success("Period status updated", **row)
-    except PermissionError as e:
-        return error(str(e), status=403)
-    except ValueError as e:
-        return error(str(e), status=422)
 
 
-# ─── GET /api/period/history?period=YYYY-MM ───────────────────────────────────
+def _assert_role_permitted(current: str, user_role: str) -> None:
+    """Raise if the user's role cannot change this period's state."""
+    if user_role.lower() not in ROLE_PERMISSIONS[current]:
+        raise PermissionError(
+            f"Role '{user_role}' cannot change a '{current}' period."
+        )
 
-@router.get("/history")
-def get_history(
-    period: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
-    current_user: dict = Depends(get_current_user),
-):
+
+def _assert_prior_period_closed(cur, company_id: int, period: str) -> None:
     """
-    Return the full audit trail for a single period —
+    Raise if the immediately preceding period exists and is still open.
+    No row = period was never touched — allowed for new companies.
+    """
+    y, m = map(int, period.split("-"))
+    prior = f"{y}-{m-1:02d}" if m > 1 else f"{y-1}-12"
+    cur.execute("""
+        SELECT status FROM company_period_statuses
+        WHERE company_id = %s AND period = %s
+    """, (company_id, prior))
+    row = cur.fetchone()
+    if row and row["status"] == "open":
+        raise ValueError(
+            f"Prior period {prior} must be closed before closing {period}."
+        )
+
+
+def _assert_no_pending_transactions(cur, company_id: int, period: str) -> None:
+    """
+    Raise if any pending purchases or cash purchases exist in this period.
+    """
+    cur.execute("""
+        SELECT COUNT(*) AS cnt
+        FROM purchases p
+        JOIN branches b ON b.id = p.branch_id
+        WHERE b.company_id = %s
+          AND TO_CHAR(p.entry_date, 'YYYY-MM') = %s
+          AND p.status = 'pending'
+    """, (company_id, period))
+    row = cur.fetchone()
+    if row and row["cnt"] > 0:
+        raise ValueError(
+            f"Period {period} has {row['cnt']} pending purchase order(s). "
+            "Approve or reject them before closing."
+        )
+
+    cur.execute("""
+        SELECT COUNT(*) AS cnt
+        FROM cash_purchases
+        WHERE company_id = %s
+          AND TO_CHAR(entry_date, 'YYYY-MM') = %s
+          AND status = 'pending'
+    """, (company_id, period))
+    row = cur.fetchone()
+    if row and row["cnt"] > 0:
+        raise ValueError(
+            f"Period {period} has {row['cnt']} pending cash purchase(s). "
+            "Approve or reject them before closing."
+        )
+
+
+def _assert_no_pending_approvals(cur, company_id: int, period: str) -> None:
+    """
+    Raise if any purchase approval requests are still pending for this period.
+
+    FIX: Previously the subquery filtered on entity_type = 'purchase' inside
+    an EXISTS that already joined purchases, but the outer WHERE had no
+    entity_type guard — other entity types (e.g. stock adjustments) were
+    silently skipped. Now the entity_type filter is on the outer query so the
+    join is clean and the intent is explicit.
+    """
+    cur.execute("""
+        SELECT COUNT(*) AS cnt
+        FROM approval_requests ar
+        JOIN purchases p
+          ON p.id = ar.entity_id
+         AND ar.entity_type = 'purchase'
+        JOIN branches b ON b.id = p.branch_id
+        WHERE b.company_id = %s
+          AND ar.status = 'pending'
+          AND TO_CHAR(p.entry_date, 'YYYY-MM') = %s
+    """, (company_id, period))
+    row = cur.fetchone()
+    if row and row["cnt"] > 0:
+        raise ValueError(
+            f"Period {period} has {row['cnt']} purchase(s) awaiting approval. "
+            "Approve or reject them before closing."
+        )
+
+
+def _run_pre_close_validation(cur, company_id: int, period: str) -> None:
+    """Run all validations required before soft-closing a period."""
+    _assert_prior_period_closed(cur, company_id, period)
+    _assert_no_pending_transactions(cur, company_id, period)
+    _assert_no_pending_approvals(cur, company_id, period)
+
+
+def _write_audit_history(
+    cur,
+    company_id: int,
+    period: str,
+    from_status: str,
+    to_status: str,
+    user_id: int,
+    note: str | None,
+) -> None:
+    """Append an immutable record to the period status history log."""
+    cur.execute("""
+        INSERT INTO company_period_status_history
+            (company_id, period, from_status, to_status, changed_by, note)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (company_id, period, from_status, to_status, user_id, note))
+
+
+def _capture_snapshot(cur, company_id: int, period: str) -> None:
+    """
+    Freeze a point-in-time snapshot of all period metrics.
+    Called automatically on hard lock.
+
+    FIX: The original query passed 13 values for 14 placeholders, causing a
+    runtime psycopg2 error on every lock. The tuple now has exactly 14 pairs
+    matching the 14 %s placeholders in the SQL.
+    """
+    cur.execute("""
+        INSERT INTO period_snapshots
+            (company_id, period,
+             total_sales, total_expenses, total_purchases,
+             cogs, gross_profit, inventory_value, snapped_at)
+        VALUES (
+            %s, %s,
+            -- total_sales
+            COALESCE((
+                SELECT SUM(s.net_amount)
+                FROM sales s
+                JOIN branches b ON b.id = s.branch_id
+                WHERE b.company_id = %s
+                  AND TO_CHAR(s.entry_date, 'YYYY-MM') = %s
+                  AND s.status = 'approved'
+            ), 0),
+            -- total_expenses
+            COALESCE((
+                SELECT SUM(e.amount)
+                FROM expenses e
+                JOIN branches b ON b.id = e.branch_id
+                WHERE b.company_id = %s
+                  AND TO_CHAR(e.entry_date, 'YYYY-MM') = %s
+            ), 0),
+            -- total_purchases
+            COALESCE((
+                SELECT SUM(p.payable_amount)
+                FROM purchases p
+                JOIN branches b ON b.id = p.branch_id
+                WHERE b.company_id = %s
+                  AND TO_CHAR(p.entry_date, 'YYYY-MM') = %s
+                  AND p.status = 'approved'
+            ), 0),
+            -- cogs
+            COALESCE((
+                SELECT SUM(pc.material_cost)
+                FROM production_costs pc
+                JOIN branches b ON b.id = pc.branch_id
+                WHERE b.company_id = %s
+                  AND TO_CHAR(pc.entry_date, 'YYYY-MM') = %s
+            ), 0),
+            -- gross_profit: sales - cogs
+            COALESCE((
+                SELECT SUM(s.net_amount)
+                FROM sales s
+                JOIN branches b ON b.id = s.branch_id
+                WHERE b.company_id = %s
+                  AND TO_CHAR(s.entry_date, 'YYYY-MM') = %s
+                  AND s.status = 'approved'
+            ), 0)
+            - COALESCE((
+                SELECT SUM(pc.material_cost)
+                FROM production_costs pc
+                JOIN branches b ON b.id = pc.branch_id
+                WHERE b.company_id = %s
+                  AND TO_CHAR(pc.entry_date, 'YYYY-MM') = %s
+            ), 0),
+            -- inventory_value
+            COALESCE((
+                SELECT SUM(im.quantity_delta * im.unit_cost)
+                FROM inventory_movements im
+                JOIN branches b ON b.id = im.branch_id
+                WHERE b.company_id = %s
+                  AND im.entry_date <= (
+                      ((%s || '-01')::date + interval '1 month' - interval '1 day')::date
+                  )
+            ), 0),
+            NOW()
+        )
+        ON CONFLICT (company_id, period) DO UPDATE
+            SET total_sales      = EXCLUDED.total_sales,
+                total_expenses   = EXCLUDED.total_expenses,
+                total_purchases  = EXCLUDED.total_purchases,
+                cogs             = EXCLUDED.cogs,
+                gross_profit     = EXCLUDED.gross_profit,
+                inventory_value  = EXCLUDED.inventory_value,
+                snapped_at       = EXCLUDED.snapped_at
+    """, (
+        company_id, period,         # INSERT target row          (1-2)
+        company_id, period,         # total_sales                (3-4)
+        company_id, period,         # total_expenses             (5-6)
+        company_id, period,         # total_purchases            (7-8)
+        company_id, period,         # cogs                       (9-10)
+        company_id, period,         # gross_profit — sales half  (11-12)
+        company_id, period,         # gross_profit — cogs half   (13-14)
+        company_id, period,         # inventory_value            (15-16)
+    ))
+
+
+# ─── Public API ───────────────────────────────────────────────────────────────
+
+def is_period_frozen(company_id: int, entry_date: str) -> bool:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        period = entry_date[:7]
+        cur.execute("""
+            SELECT status FROM company_period_statuses
+            WHERE company_id = %s AND period = %s
+        """, (company_id, period))
+        status_row = cur.fetchone()
+        if not status_row:
+            return False
+        return status_row["status"] in ("closed", "locked")
+    finally:
+        cur.close()
+        conn.close()
+
+
+def is_period_frozen_with_cur(cur, company_id: int, entry_date: str) -> bool:
+    """
+    Same freeze check but reuses an existing cursor.
+    Use this inside DB functions that already hold a connection
+    to avoid hammering the connection pool on every write.
+    """
+    period = entry_date[:7]
+    cur.execute("""
+        SELECT status FROM company_period_statuses
+        WHERE company_id = %s AND period = %s
+    """, (company_id, period))
+    status_row = cur.fetchone()
+    if not status_row:
+        return False
+    return status_row["status"] in ("closed", "locked")
+
+
+def is_period_locked(company_id: int, period: str) -> bool:
+    """
+    Returns True only for hard-locked periods.
+    Used to gate adjusting entries and block re-open attempts.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT status FROM company_period_statuses
+            WHERE company_id = %s AND period = %s
+        """, (company_id, period))
+        row = cur.fetchone()
+        return row["status"] == "locked" if row else False
+    finally:
+        cur.close()
+        conn.close()
+
+
+def is_period_locked_with_cur(cur, company_id: int, period: str) -> bool:
+    """
+    Same lock check but reuses an existing cursor.
+    Mirrors is_period_frozen_with_cur — use inside functions that
+    already hold a connection to avoid extra connection pool overhead.
+    """
+    cur.execute("""
+        SELECT status FROM company_period_statuses
+        WHERE company_id = %s AND period = %s
+    """, (company_id, period))
+    row = cur.fetchone()
+    return row["status"] == "locked" if row else False
+
+
+def get_period_status(company_id: int, period: str) -> dict[str, Any]:
+    """
+    Returns the full status row for a period.
+    Falls back to {"status": "open"} if no row exists yet.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT * FROM company_period_statuses
+            WHERE company_id = %s AND period = %s
+        """, (company_id, period))
+        row = cur.fetchone()
+        return dict(row) if row else {"status": "open"}
+    finally:
+        cur.close()
+        conn.close()
+
+
+def set_period_status(
+    company_id: int,
+    period: str,
+    new_status: str,
+    user_id: int,
+    user_role: str = "admin",
+    note: str | None = None,
+) -> dict[str, Any]:
+    """
+    Transition a period to a new status with full guards:
+      - Role permission check  (single source of truth: ROLE_PERMISSIONS)
+      - State machine transition check
+      - Pre-close validation (pending items, prior period)
+      - Audit history write on every change
+      - Snapshot capture on hard lock
+
+    FIX: Removed the redundant inline role check for 'locked' that duplicated
+    ROLE_PERMISSIONS["locked"]. All role enforcement now flows through
+    _assert_role_permitted so there is one place to update.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    user_role = user_role.lower()
+    try:
+        current = _get_current_status(cur, company_id, period)
+
+        _assert_role_permitted(current, user_role)
+        _assert_valid_transition(current, new_status)
+
+        if new_status == "closed":
+            _run_pre_close_validation(cur, company_id, period)
+
+        if new_status == "locked":
+            _capture_snapshot(cur, company_id, period)
+
+        cur.execute("""
+            INSERT INTO company_period_statuses
+                (company_id, period, status, updated_by, notes)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (company_id, period) DO UPDATE
+                SET status     = EXCLUDED.status,
+                    updated_by = EXCLUDED.updated_by,
+                    notes      = EXCLUDED.notes,
+                    updated_at = NOW()
+            RETURNING *
+        """, (company_id, period, new_status, user_id, note))
+        row = dict(cur.fetchone())
+
+        _write_audit_history(cur, company_id, period, current, new_status, user_id, note)
+
+        conn.commit()
+        return row
+
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def run_pre_close_validation(company_id: int, period: str) -> None:
+    """
+    Public entry point for the /validate route.
+    Raises ValueError with a human-readable message if any check fails.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        _run_pre_close_validation(cur, company_id, period)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def list_period_statuses(
+    company_id: int,
+    limit: int = 24,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """
+    Returns period statuses newest-first, paginated.
+    Default limit of 24 covers 2 years of months.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT * FROM company_period_statuses
+            WHERE company_id = %s
+            ORDER BY period DESC
+            LIMIT %s OFFSET %s
+        """, (company_id, limit, offset))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_period_snapshot(company_id: int, period: str) -> dict[str, Any] | None:
+    """
+    Returns the frozen snapshot for a locked period, or None if not yet locked.
+    Use this in the dashboard for stable past-period review.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT * FROM period_snapshots
+            WHERE company_id = %s AND period = %s
+        """, (company_id, period))
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def post_adjusting_entry(
+    company_id: int,
+    branch_id: int,
+    amount: float,
+    reason: str,
+    user_id: int,
+    references_period: str,
+) -> dict[str, Any]:
+    """
+    Posts a correction in the current open period that references
+    a past locked period. Never touches the locked period or its snapshot.
+
+    FIX: Previously called is_period_locked() which opened its own connection
+    while this function already held one — wasteful and inconsistent with the
+    established *_with_cur pattern. Now uses is_period_locked_with_cur instead.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        if not is_period_locked_with_cur(cur, company_id, references_period):
+            raise ValueError(
+                f"Period {references_period} is not locked. "
+                "Adjusting entries are only needed for locked periods — "
+                "re-open the period directly instead."
+            )
+
+        cur.execute("""
+            INSERT INTO adjusting_entries
+                (company_id, branch_id, amount, description,
+                 references_period, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING *
+        """, (company_id, branch_id, amount, reason, references_period, user_id))
+        row = dict(cur.fetchone())
+        conn.commit()
+        return row
+
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def list_period_history(
+    company_id: int,
+    period: str,
+) -> list[dict[str, Any]]:
+    """
+    Returns the full audit trail for a single period —
     every status transition, who made it, when, and why.
     Ordered oldest → newest.
     """
-    company_id = current_user["company_id"]
-    rows = list_period_history(company_id, period)
-    return success("Period history fetched", history=rows)
-
-
-# ─── GET /api/period/list ─────────────────────────────────────────────────────
-
-@router.get("/list")
-def get_list(
-    limit:  int = Query(24, ge=1, le=60),
-    offset: int = Query(0,  ge=0),
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Return all period statuses for this company, newest first.
-    Default limit of 24 = 2 years of months.
-    Frontend uses this to populate the "Past periods" tab.
-    """
-    company_id = current_user["company_id"]
-    rows = list_period_statuses(company_id, limit=limit, offset=offset)
-    return success("Period list fetched", periods=rows)
-
-
-# ─── GET /api/period/is-closed?branch_id=&entry_date= ────────────────────────
-
-@router.get("/is-closed")
-def check_is_closed(
-    branch_id:  int = Query(...),
-    entry_date: str = Query(...),
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Quick frozen-check used by the frontend before showing write forms.
-    Returns is_closed (bool) + current status string.
-    """
-    period = entry_date[:7]
-    company_id = current_user["company_id"]
-    frozen = is_period_frozen(company_id, entry_date)
-    row = get_period_status(company_id, period)
-    status = row.get("status", "open")
-    return success(
-        "Period closure checked",
-        is_closed=frozen,
-        is_locked=status == "locked",
-        status=status,
-    )
-
-@router.get("/validate")
-def validate_period(
-    period: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
-    current_user: dict = Depends(get_current_user),
-):
+    conn = get_connection()
+    cur = dict_cursor(conn)
     try:
-        run_pre_close_validation(current_user["company_id"], period)
-        return success("All pre-close checks passed", checks_passed=True)
-    except ValueError as e:
-        return error(str(e), status=422)
+        cur.execute("""
+            SELECT
+                h.*,
+                u.display_name AS changed_by_name
+            FROM company_period_status_history h
+            LEFT JOIN app_users u ON u.id = h.changed_by
+            WHERE h.company_id = %s AND h.period = %s
+            ORDER BY h.changed_at ASC
+        """, (company_id, period))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()

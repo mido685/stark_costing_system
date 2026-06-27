@@ -1,4 +1,5 @@
 import psycopg2
+from .system_logger import log_event
 from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
@@ -126,6 +127,27 @@ def add_production_cost(
             new_data=production,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="production_costs",
+            entity_id=production_id,
+            payload={
+                "product_id":    product_id,
+                "quantity":      quantity,
+                "material_cost": material_cost,
+                "labor_cost":    labor_cost,
+                "overhead_cost": overhead_cost,
+                "total_cost":    material_cost + labor_cost + overhead_cost,
+                "unit_cost":     total_unit_cost,
+                "entry_date":    entry_date,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return production
 
@@ -176,6 +198,27 @@ def delete_production_cost(
             table_name="production_costs",
             record_id=production_id,
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=old["branch_id"],
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="production_costs",
+            entity_id=production_id,
+            payload={
+                "product_id":    old["product_id"],
+                "quantity":      float(old["quantity"]),
+                "material_cost": float(old["material_cost"] or 0),
+                "labor_cost":    float(old["labor_cost"] or 0),
+                "overhead_cost": float(old["overhead_cost"] or 0),
+                "entry_date":    str(old["entry_date"]),
+                "reversal":      True,
+            },
             ip_address=ip_address,
         )
         conn.commit()

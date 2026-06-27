@@ -66,12 +66,14 @@ def list_items(
 
 
 @router.post("/items")
+@router.post("/items")
 def create_item(
     req: ItemRequest,
     request: Request,
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
+
         if req.category == "raw_material":
             item = ingredients_db.add_ingredient(
                 name=req.name,
@@ -84,22 +86,30 @@ def create_item(
                 sku_prefix=req.sku_prefix,
                 ip_address=request.client.host,
             )
+
         else:
-            product = products_db.add_product(
-            name=req.name,
-            company_id=current_user["company_id"],
-            user_id=current_user["id"],
-            unit=req.unit,
-            sale_price=req.sale_price,
-            sku=req.sku,
-            sku_prefix=req.sku_prefix,
-            ip_address=request.client.host,
-        )
+            item = products_db.add_product(
+                name=req.name,
+                company_id=current_user["company_id"],
+                user_id=current_user["id"],
+                unit=req.unit,
+                sale_price=req.sale_price,
+                sku=req.sku,
+                sku_prefix=req.sku_prefix,
+                ip_address=request.client.host,
+            )
+
         return success("Item created", item=item)
+
     except ValueError as e:
         return error(str(e))
 
-# ── Image Upload ──────────────────────────────────────────────────────────────
+    except psycopg2.errors.UniqueViolation:
+        return error("Item already exists")
+
+    except Exception as e:
+        print("create_item error:", repr(e))
+        return error("Unexpected server error")# ── Image Upload ──────────────────────────────────────────────────────────────
 
 @router.post("/{item_id}/image")
 async def upload_item_image(

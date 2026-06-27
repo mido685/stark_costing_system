@@ -1,5 +1,5 @@
 from typing import Any
-
+from .system_logger import log_event
 import psycopg2
 
 from .connection import get_connection, dict_cursor
@@ -67,6 +67,17 @@ def add_role(
             new_data=role,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="created",
+            category="security",
+            entity_type="roles",
+            entity_id=role["id"],
+            payload={"name": role["name"]},
+            ip_address=ip_address,
+        )
         conn.commit()
         return role
 
@@ -120,6 +131,20 @@ def update_role(
             new_data=new,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="updated",
+            category="security",
+            entity_type="roles",
+            entity_id=role_id,
+            payload={
+                "changes":  {k: new[k]  for k in ("name", "description") if new.get(k) != dict(old).get(k)},
+                "original": {k: dict(old)[k] for k in ("name", "description") if new.get(k) != dict(old).get(k)},
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return new
 
@@ -167,6 +192,21 @@ def toggle_role(
             record_id=role_id,
             old_data=dict(old),
             new_data=new,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="activated" if new["is_active"] else "deactivated",
+            category="security",
+            level="warning" if not new["is_active"] else "info",
+            entity_type="roles",
+            entity_id=role_id,
+            payload={
+                "name":      new["name"],
+                "is_active": new["is_active"],
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -283,6 +323,17 @@ def assign_permission_to_role(
             new_data={"role_id": role_id, "permission_id": permission_id},
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="permission_assigned",
+            category="security",
+            entity_type="role_permissions",
+            entity_id=row["id"] if row else None,
+            payload={"role_id": role_id, "permission_id": permission_id},
+            ip_address=ip_address,
+        )
         conn.commit()
         return {"role_id": role_id, "permission_id": permission_id, "assigned": True}
 
@@ -325,6 +376,18 @@ def revoke_permission_from_role(
             table_name="role_permissions",
             record_id=None,
             old_data={"role_id": role_id, "permission_id": permission_id},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="permission_revoked",
+            category="security",
+            level="warning",
+            entity_type="role_permissions",
+            entity_id=None,
+            payload={"role_id": role_id, "permission_id": permission_id},
             ip_address=ip_address,
         )
         conn.commit()
@@ -425,6 +488,22 @@ def set_user_permission_override(
             new_data=row,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="permission_override_set",
+            category="security",
+            level="warning" if not is_allowed else "info",
+            entity_type="user_permissions",
+            entity_id=row["id"],
+            payload={
+                "target_user_id": user_id,
+                "permission_id":  permission_id,
+                "is_allowed":     is_allowed,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return row
 
@@ -466,6 +545,21 @@ def remove_user_permission_override(
             table_name="user_permissions",
             record_id=None,
             old_data={"user_id": user_id, "permission_id": permission_id},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="permission_override_removed",
+            category="security",
+            level="warning",
+            entity_type="user_permissions",
+            entity_id=None,
+            payload={
+                "target_user_id": user_id,
+                "permission_id":  permission_id,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -548,6 +642,17 @@ def assign_user_to_branch(
             new_data={"user_id": user_id, "branch_id": branch_id},
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="branch_assigned",
+            category="security",
+            entity_type="user_branches",
+            entity_id=row["id"] if row else None,
+            payload={"target_user_id": user_id, "branch_id": branch_id},
+            ip_address=ip_address,
+        )
         conn.commit()
         return {"user_id": user_id, "branch_id": branch_id, "assigned": True}
 
@@ -589,6 +694,18 @@ def remove_user_from_branch(
             table_name="user_branches",
             record_id=None,
             old_data={"user_id": user_id, "branch_id": branch_id},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="branch_removed",
+            category="security",
+            level="warning",
+            entity_type="user_branches",
+            entity_id=None,
+            payload={"target_user_id": user_id, "branch_id": branch_id},
             ip_address=ip_address,
         )
         conn.commit()

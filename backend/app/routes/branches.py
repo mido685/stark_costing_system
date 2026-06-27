@@ -24,11 +24,11 @@ def get_branch(
     return success("Branch retrieved", branch=branch)
 
 
-@router.post("")
+@router.post("", status_code=201)
 def create_branch(
     req: BranchRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),  # ← changed
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         branch = branches_db.add_branch(
@@ -49,7 +49,7 @@ def update_branch(
     branch_id: int,
     req: BranchUpdateRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),  # ← changed
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         branch = branches_db.update_branch(
@@ -70,7 +70,7 @@ def update_branch(
 def delete_branch(
     branch_id: int,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),  # ← changed
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         branches_db.deactivate_branch(
@@ -81,4 +81,4 @@ def delete_branch(
         )
         return success("Branch deleted")
     except ValueError as e:
-        return error(str(e))
+        return error(str(e), status=404)

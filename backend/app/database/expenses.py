@@ -8,7 +8,7 @@ Table names passed to internal helpers are validated against an explicit
 whitelist to prevent SQL injection.
 """
 from __future__ import annotations
-
+from .system_logger import log_event
 import calendar
 from datetime import date, datetime
 from typing import Any
@@ -182,6 +182,22 @@ def _add_simple_amount(
             new_data=row,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type=table,
+            entity_id=row["id"],
+            payload={
+                "label":      label,
+                "amount":     amount,
+                "entry_date": entry_date,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return row
     except Exception:
@@ -233,6 +249,22 @@ def _delete_entry(
             table_name=table,
             record_id=entry_id,
             old_data=old,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=old["branch_id"],
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type=table,
+            entity_id=entry_id,
+            payload={
+                "entry_date": str(old["entry_date"]),
+                "amount":     float(old.get("amount") or old.get("total_amount") or 0),
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -296,6 +328,24 @@ def add_expense(
             table_name="expenses",
             record_id=row["id"],
             new_data=row,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="expenses",
+            entity_id=row["id"],
+            payload={
+                "category":      category,
+                "expense_group": expense_group,
+                "subtype":       subtype,
+                "amount":        amount,
+                "entry_date":    entry_date,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -373,6 +423,24 @@ def add_payroll(
             table_name="payroll_entries",
             record_id=row["id"],
             new_data=row,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="payroll_entries",
+            entity_id=row["id"],
+            payload={
+                "employee_group":  employee_group,
+                "base_salary":     base_salary,
+                "employer_burden": employer_burden,
+                "total_amount":    total,
+                "entry_date":      entry_date,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -532,6 +600,24 @@ def add_prepayment(
             new_data=row,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="prepayment_entries",
+            entity_id=row["id"],
+            payload={
+                "category":        category,
+                "amount":          amount,
+                "months":          months,
+                "monthly_expense": monthly,
+                "entry_date":      entry_date,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return row
     except Exception:
@@ -598,6 +684,22 @@ def set_budget(
                 table_name="budgets",
                 record_id=row["id"],
                 new_data=row,
+                ip_address=ip_address,
+            )
+            log_event(
+                conn,
+                company_id=company_id,
+                user_id=user_id,
+                branch_id=branch_id,
+                action="upserted",
+                category="data",
+                entity_type="budgets",
+                entity_id=row["id"],
+                payload={
+                    "category": category,
+                    "amount":   amount,
+                    "period":   period,
+                },
                 ip_address=ip_address,
             )
         conn.commit()
@@ -704,6 +806,23 @@ def create_period_snapshot(
             table_name="period_snapshots",
             record_id=row["id"],
             new_data=row,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="upserted",
+            category="data",
+            entity_type="period_snapshots",
+            entity_id=row["id"],
+            payload={
+                "period":          period,
+                "total_sales":     total_sales,
+                "total_expenses":  total_expenses,
+                "gross_profit":    gross_profit,
+                "inventory_value": inventory_value,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -995,6 +1114,21 @@ def set_company_period_status(
             new_data=row,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="period_status_set",
+            category="system",
+            entity_type="company_period_statuses",
+            entity_id=row.get("id"),
+            payload={
+                "period": period,
+                "status": status,
+                "notes":  notes,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1039,6 +1173,22 @@ def close_period(
             table_name="period_closures",
             record_id=row["id"],
             new_data=row,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="period_closed",
+            category="system",
+            level="warning",
+            entity_type="period_closures",
+            entity_id=row["id"],
+            payload={
+                "closed_to": closed_to,
+                "notes":     notes,
+            },
             ip_address=ip_address,
         )
         conn.commit()

@@ -2,6 +2,8 @@ import psycopg2
 import re
 from typing import Any
 from .connection import get_connection, dict_cursor
+from .log_audit import log_audit
+from .system_logger import log_event
 
 DEFAULT_RAW_MATERIAL_PREFIXES = [
     {"label": "Raw Material",       "prefix": "RM",    "item_type": "raw_material"},
@@ -80,6 +82,8 @@ def add_prefix(
     label: str,
     prefix: str,
     item_type: str = "both",
+    user_id: int | None = None,       # add
+    ip_address: str | None = None,    # add
 ) -> dict[str, Any]:
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -90,6 +94,31 @@ def add_prefix(
             RETURNING *
         """, (company_id, label, prefix.upper(), item_type))
         result = dict(cur.fetchone())
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="CREATE",
+            table_name="sku_prefixes",
+            record_id=result["id"],
+            new_data=result,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created",
+            category="data",
+            entity_type="sku_prefixes",
+            entity_id=result["id"],
+            payload={
+                "label":     label,
+                "prefix":    prefix.upper(),
+                "item_type": item_type,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return result
     except psycopg2.errors.UniqueViolation:
@@ -103,16 +132,55 @@ def add_prefix(
         conn.close()
 
 
-def delete_prefix(company_id: int, prefix_id: int) -> None:
+def delete_prefix(
+    company_id: int,
+    prefix_id: int,
+    user_id: int | None = None,
+    ip_address: str | None = None,
+) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
+        # Fetch first so we can log what was deleted
+        cur.execute(
+            "SELECT * FROM sku_prefixes WHERE id = %s AND company_id = %s",
+            (prefix_id, company_id)
+        )
+        old = cur.fetchone()
+        if not old:
+            raise ValueError("Prefix not found or access denied")
+        old = dict(old)
+
         cur.execute(
             "DELETE FROM sku_prefixes WHERE id = %s AND company_id = %s",
             (prefix_id, company_id)
         )
-        if cur.rowcount == 0:
-            raise ValueError("Prefix not found or access denied")
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="DELETE",
+            table_name="sku_prefixes",
+            record_id=prefix_id,
+            old_data=old,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="sku_prefixes",
+            entity_id=prefix_id,
+            payload={
+                "label":     old["label"],
+                "prefix":    old["prefix"],
+                "item_type": old["item_type"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -120,7 +188,6 @@ def delete_prefix(company_id: int, prefix_id: int) -> None:
     finally:
         cur.close()
         conn.close()
-
 
 def next_sku(company_id: int, prefix: str, table: str) -> str:
     """

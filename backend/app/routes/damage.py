@@ -33,11 +33,11 @@ def get_damage(
     return success("Damage retrieved", damage=damage)
 
 
-@router.post("")
+@router.post("", status_code=201)
 def create_damage(
     req: DamageRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
     try:
@@ -66,7 +66,7 @@ def create_damage(
 def delete_damage(
     damage_id: int,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         damage_db.delete_damage(
@@ -77,4 +77,4 @@ def delete_damage(
         )
         return success("Damage deleted")
     except ValueError as e:
-        return error(str(e))
+        return error(str(e), status=404)

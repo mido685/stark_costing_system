@@ -1,6 +1,8 @@
 import psycopg2
+
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .system_logger import log_event
 
 
 def _verify_branch_company(cur, branch_id: int, company_id: int) -> dict:
@@ -14,6 +16,10 @@ def _verify_branch_company(cur, branch_id: int, company_id: int) -> dict:
         raise ValueError("Branch not found or access denied")
     return dict(branch)
 
+
+# ---------------------------------------------------------------------------
+# List / Get  (read-only — no logging needed)
+# ---------------------------------------------------------------------------
 
 def list_branches(company_id: int | None = None) -> list[dict]:
     conn = get_connection()
@@ -47,6 +53,10 @@ def get_branch(branch_id: int, company_id: int) -> dict | None:
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Create
+# ---------------------------------------------------------------------------
+
 def add_branch(
     name: str,
     company_id: int,
@@ -64,6 +74,7 @@ def add_branch(
             RETURNING *
         """, (company_id, name, location, manager))
         branch = dict(cur.fetchone())
+
         log_audit(
             conn,
             company_id=company_id,
@@ -74,8 +85,24 @@ def add_branch(
             new_data=branch,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created",
+            category="system",
+            entity_type="branches",
+            entity_id=branch["id"],
+            payload={
+                "name":     name,
+                "location": location,
+                "manager":  manager,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return branch
+
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         raise ValueError("Branch name already exists for this company")
@@ -86,6 +113,10 @@ def add_branch(
         cur.close()
         conn.close()
 
+
+# ---------------------------------------------------------------------------
+# Update
+# ---------------------------------------------------------------------------
 
 def update_branch(
     branch_id: int,
@@ -100,6 +131,7 @@ def update_branch(
     cur = dict_cursor(conn)
     try:
         old = _verify_branch_company(cur, branch_id, company_id)
+
         cur.execute("""
             UPDATE branches
             SET name     = COALESCE(%s, name),
@@ -109,6 +141,7 @@ def update_branch(
             RETURNING *
         """, (name, location, manager, branch_id))
         new = dict(cur.fetchone())
+
         log_audit(
             conn,
             company_id=company_id,
@@ -120,8 +153,31 @@ def update_branch(
             new_data=new,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="updated",
+            category="system",
+            entity_type="branches",
+            entity_id=branch_id,
+            payload={
+                "changes": {
+                    k: new[k]
+                    for k in ("name", "location", "manager")
+                    if new.get(k) != old.get(k)
+                },
+                "original": {
+                    k: old[k]
+                    for k in ("name", "location", "manager")
+                    if new.get(k) != old.get(k)
+                },
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return new
+
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         raise ValueError("Branch name already exists for this company")
@@ -133,6 +189,10 @@ def update_branch(
         conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Deactivate
+# ---------------------------------------------------------------------------
+
 def deactivate_branch(
     branch_id: int,
     company_id: int,
@@ -143,7 +203,9 @@ def deactivate_branch(
     cur = dict_cursor(conn)
     try:
         old = _verify_branch_company(cur, branch_id, company_id)
+
         cur.execute("UPDATE branches SET is_active = FALSE WHERE id = %s", (branch_id,))
+
         log_audit(
             conn,
             company_id=company_id,
@@ -154,7 +216,24 @@ def deactivate_branch(
             old_data=old,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deactivated",
+            category="system",
+            level="warning",
+            entity_type="branches",
+            entity_id=branch_id,
+            payload={
+                "name":     old["name"],
+                "location": old["location"],
+                "manager":  old["manager"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
+
     except Exception:
         conn.rollback()
         raise

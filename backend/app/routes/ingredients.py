@@ -13,6 +13,8 @@ def list_ingredients(current_user: dict = Depends(get_current_user)):
     return success("Ingredients retrieved", ingredients=ingredients)
 
 
+# IMPORTANT: /low-stock must be declared before /{ingredient_id}, otherwise
+# FastAPI matches "low-stock" as the ingredient_id path parameter.
 @router.get("/low-stock")
 def low_stock_alerts(current_user: dict = Depends(get_current_user)):
     alerts = ingredients_db.get_low_stock_alerts(current_user["company_id"])
@@ -30,7 +32,7 @@ def get_ingredient(
     return success("Ingredient retrieved", ingredient=ingredient)
 
 
-@router.post("")
+@router.post("", status_code=201)
 def create_ingredient(
     req: IngredientRequest,
     request: Request,
@@ -38,18 +40,18 @@ def create_ingredient(
 ):
     try:
         ingredient = ingredients_db.add_ingredient(
-        name=req.name,
-        unit=req.unit,
-        company_id=current_user["company_id"],
-        user_id=current_user["id"],
-        cost_per_unit=req.cost_per_unit,
-        stock_qty=req.stock_qty,
-        reorder_level=req.reorder_level,
-        supplier_id=req.supplier_id,
-        sku=req.sku,
-        sku_prefix=req.sku_prefix,
-        ip_address=request.client.host,
-    )
+            name=req.name,
+            unit=req.unit,
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            cost_per_unit=req.cost_per_unit,
+            stock_qty=req.stock_qty,
+            reorder_level=req.reorder_level,
+            supplier_id=req.supplier_id,
+            sku=req.sku,
+            sku_prefix=req.sku_prefix,
+            ip_address=request.client.host,
+        )
         return success("Ingredient created", ingredient=ingredient)
     except ValueError as e:
         return error(str(e))
@@ -72,7 +74,7 @@ def update_ingredient(
             cost_per_unit=req.cost_per_unit,
             reorder_level=req.reorder_level,
             supplier_id=req.supplier_id,
-            sku=req.sku,    
+            sku=req.sku,
             ip_address=request.client.host,
         )
         return success("Ingredient updated", ingredient=ingredient)
@@ -95,4 +97,4 @@ def delete_ingredient(
         )
         return success("Ingredient deleted")
     except ValueError as e:
-        return error(str(e))
+        return error(str(e), status=404)

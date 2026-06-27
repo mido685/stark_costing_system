@@ -1,4 +1,5 @@
 import psycopg2
+from .system_logger import log_event
 from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
@@ -90,6 +91,23 @@ def add_ingredient(
         log_audit(conn, company_id=company_id, user_id=user_id,
                   action="CREATE", table_name="ingredients",
                   record_id=ingredient["id"], new_data=ingredient, ip_address=ip_address)
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created" if not existing else "reactivated",
+            category="data",
+            entity_type="ingredients",
+            entity_id=ingredient["id"],
+            payload={
+                "name":          ingredient["name"],
+                "unit":          unit,
+                "cost_per_unit": cost_per_unit,
+                "sku":           ingredient["sku"],
+                "supplier_id":   supplier_id,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return ingredient
 
@@ -147,6 +165,20 @@ def update_ingredient(
             new_data=new,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="updated",
+            category="data",
+            entity_type="ingredients",
+            entity_id=ingredient_id,
+            payload={
+                "changes":  {k: new[k] for k in ("name", "unit", "cost_per_unit", "reorder_level", "supplier_id", "sku") if new.get(k) != dict(old).get(k)},
+                "original": {k: dict(old)[k] for k in ("name", "unit", "cost_per_unit", "reorder_level", "supplier_id", "sku")},
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return new
 
@@ -190,6 +222,21 @@ def deactivate_ingredient(
             table_name="ingredients",
             record_id=ingredient_id,
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deactivated",
+            category="data",
+            level="warning",
+            entity_type="ingredients",
+            entity_id=ingredient_id,
+            payload={
+                "name": dict(old)["name"],
+                "sku":  dict(old)["sku"],
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -238,6 +285,24 @@ def update_image(ingredient_id: int, company_id: int, image_url: str) -> None:
         """, (image_url, ingredient_id, company_id))
         if cur.rowcount == 0:
             raise ValueError("Ingredient not found or access denied")
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=None,          # update_image has no user_id param — add it to the signature if needed
+            action="UPDATE",
+            table_name="ingredients",
+            record_id=ingredient_id,
+            new_data={"image_url": image_url},
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            action="image_updated",
+            category="data",
+            entity_type="ingredients",
+            entity_id=ingredient_id,
+            payload={"image_url": image_url},
+        )
         conn.commit()
     except Exception:
         conn.rollback()

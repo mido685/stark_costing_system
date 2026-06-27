@@ -3,6 +3,7 @@ from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
 from .periods import is_period_frozen
+from .system_logger import log_event
 
 
 def _ensure_purchase_access(cur, branch_id: int, supplier_id: int, ingredient_id: int, company_id: int) -> None:
@@ -113,8 +114,6 @@ def add_purchase(
         payable = payable_amount or gross_amount + tax_amount
 
         # ── Atomic per-company PO number ──────────────────────────────────────
-        # Uses INSERT ... ON CONFLICT to atomically increment the counter.
-        # Two simultaneous inserts can never get the same po_number.
         cur.execute("""
             INSERT INTO company_po_sequences (company_id, last_number)
             VALUES (%s, 1)
@@ -137,7 +136,6 @@ def add_purchase(
               notes, user_id, po_number))
         purchase = dict(cur.fetchone())
 
-        # ✅ No inventory_movements insert here.
         # Stock only increases when a GRN is recorded against this PO.
 
         log_audit(
@@ -149,6 +147,25 @@ def add_purchase(
             table_name="purchases",
             record_id=purchase["id"],
             new_data=purchase,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="purchases",
+            entity_id=purchase["id"],
+            payload={
+                "po_number":     po_number,
+                "supplier_id":   supplier_id,
+                "ingredient_id": ingredient_id,
+                "quantity":      quantity,
+                "unit_cost":     unit_cost,
+                "gross_amount":  gross_amount,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -193,7 +210,6 @@ def approve_purchase(
         """, (user_id, purchase_id))
         updated = dict(cur.fetchone())
 
-        # ✅ No inventory_movements insert here.
         # Stock only increases when a GRN is recorded against this PO.
 
         log_audit(
@@ -206,6 +222,22 @@ def approve_purchase(
             record_id=purchase_id,
             old_data={"status": "pending"},
             new_data={"status": "approved"},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="approved",
+            category="data",
+            entity_type="purchases",
+            entity_id=purchase_id,
+            payload={
+                "po_number": purchase.get("po_number"),
+                "changes":   {"status": "approved"},
+                "original":  {"status": "pending"},
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -259,6 +291,23 @@ def reject_purchase(
             new_data={"status": "rejected"},
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="rejected",
+            category="data",
+            level="warning",
+            entity_type="purchases",
+            entity_id=purchase_id,
+            payload={
+                "po_number": purchase.get("po_number"),
+                "changes":   {"status": "rejected"},
+                "original":  {"status": "pending"},
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return updated
     except Exception:
@@ -286,7 +335,6 @@ def update_purchase(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        # Fetch old values before update
         cur.execute("""
             SELECT * FROM purchases
             WHERE id = %s AND company_id = %s AND status = 'pending'
@@ -328,10 +376,10 @@ def update_purchase(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             purchase_id, company_id, user_id,
-            old["quantity"],    quantity,
-            old["unit_cost"],   unit_cost,
+            old["quantity"],     quantity,
+            old["unit_cost"],    unit_cost,
             old["gross_amount"], new_gross,
-            old["notes"],       notes,
+            old["notes"],        notes,
             change_reason,
         ))
         # ─────────────────────────────────────────────────────────────────
@@ -358,7 +406,30 @@ def update_purchase(
             },
             ip_address=ip_address,
         )
-
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=new["branch_id"],
+            action="updated",
+            category="data",
+            entity_type="purchases",
+            entity_id=purchase_id,
+            payload={
+                "changes": {
+                    "quantity":  quantity,
+                    "unit_cost": unit_cost,
+                    "notes":     notes,
+                },
+                "original": {
+                    "quantity":  float(old["quantity"]),
+                    "unit_cost": float(old["unit_cost"]),
+                    "notes":     old["notes"],
+                },
+                "change_reason": change_reason,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return new
     except Exception:
@@ -367,7 +438,8 @@ def update_purchase(
     finally:
         cur.close()
         conn.close()
-        
+
+
 def get_purchase_history(
     purchase_id: int,
     company_id: int,
@@ -390,6 +462,8 @@ def get_purchase_history(
     finally:
         cur.close()
         conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Delete  —  cascades to GRNs and their inventory movements
 # ---------------------------------------------------------------------------
@@ -397,6 +471,7 @@ def get_purchase_history(
 def delete_purchase(
     purchase_id: int,
     company_id: int,
+    user_id: int,
     ip_address: str | None = None,
 ) -> None:
     conn = get_connection()
@@ -427,6 +502,33 @@ def delete_purchase(
 
         # 4 — remove the purchase itself
         cur.execute("DELETE FROM purchases WHERE id = %s", (purchase_id,))
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="DELETE",
+            table_name="purchases",
+            record_id=purchase_id,
+            old_data=dict(purchase),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="purchases",
+            entity_id=purchase_id,
+            payload={
+                "po_number": purchase.get("po_number"),
+                "cascaded":  ["goods_receipts", "inventory_movements", "purchase_invoices"],
+            },
+            ip_address=ip_address,
+        )
 
         conn.commit()
     except Exception:
@@ -492,6 +594,23 @@ def add_purchase_return(
             table_name="purchase_returns",
             record_id=purchase_return["id"],
             new_data=purchase_return,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="purchase_returns",
+            entity_id=purchase_return["id"],
+            payload={
+                "quantity":      quantity,
+                "unit_cost":     unit_cost,
+                "refund_amount": refund,
+                "status":        status,
+            },
             ip_address=ip_address,
         )
         conn.commit()

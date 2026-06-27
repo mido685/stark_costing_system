@@ -3,6 +3,7 @@ from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
 from .periods import is_period_frozen
+from .system_logger import log_event
 
 
 def list_revenues(company_id: int, branch_id: int | None = None) -> list[dict[str, Any]]:
@@ -85,6 +86,23 @@ def add_revenue(
             new_data=revenue,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="revenues",
+            entity_id=revenue["id"],
+            payload={
+                "product_id": product_id,
+                "quantity":   quantity,
+                "amount":     amount,
+                "entry_date": entry_date,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return revenue
 
@@ -127,6 +145,24 @@ def delete_revenue(
             table_name="revenues",
             record_id=revenue_id,
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=old["branch_id"],
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="revenues",
+            entity_id=revenue_id,
+            payload={
+                "product_id": old["product_id"],
+                "amount":     float(old["amount"]),
+                "quantity":   float(old["quantity"] or 0),
+                "entry_date": str(old["entry_date"]),
+            },
             ip_address=ip_address,
         )
         conn.commit()

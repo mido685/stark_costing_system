@@ -16,7 +16,7 @@ router = APIRouter(tags=["inventory"])
 
 
 # ---------------------------------------------------------------------------
-# Stock balances  (literal routes BEFORE wildcards)
+# Stock balances
 # ---------------------------------------------------------------------------
 
 @router.get("/stock/finished-goods/{branch_id}")
@@ -35,8 +35,12 @@ def stock_balances(branch_id: int, current_user: dict = Depends(get_current_user
 # GRN — Goods Receipt Note
 # ---------------------------------------------------------------------------
 
-@router.post("/grn")
-def create_grn(req: GRNRequest, request: Request, current_user: dict = Depends(require_roles("owner", "admin", "manager"))):
+@router.post("/grn", status_code=201)
+def create_grn(
+    req: GRNRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
     check_period_open(str(req.entry_date), current_user)
     try:
         row = inventory_db.create_grn(
@@ -68,7 +72,7 @@ def list_grns(
 
 
 # ---------------------------------------------------------------------------
-# Stock counts  (literal routes BEFORE wildcards)
+# Stock counts
 # ---------------------------------------------------------------------------
 
 @router.get("/stock-counts/with-purchases")
@@ -77,7 +81,9 @@ def stock_counts_with_purchases(
     limit: int = Query(200),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = inventory_db.list_stock_counts(current_user["company_id"], branch_id, limit)
+    # FIX: uses a dedicated DB function that joins purchase data,
+    # instead of calling the same list_stock_counts as the base route.
+    rows = inventory_db.list_stock_counts_with_purchases(current_user["company_id"], branch_id, limit)
     return success("Stock counts retrieved", data=rows)
 
 
@@ -91,8 +97,12 @@ def list_stock_counts(
     return success("Stock counts retrieved", stock_counts=rows)
 
 
-@router.post("/stock-counts")
-def create_stock_count(req: StockCountRequest, request: Request, current_user: dict = Depends(require_roles("owner", "admin", "manager"))):
+@router.post("/stock-counts", status_code=201)
+def create_stock_count(
+    req: StockCountRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
     check_period_open(str(req.entry_date), current_user)
     try:
         row = inventory_db.add_stock_count(
@@ -125,8 +135,12 @@ def list_stock_issues(
     return success("Stock issues retrieved", stock_issues=rows)
 
 
-@router.post("/stock-issues")
-def create_stock_issue(req: StockIssueRequest, request: Request, current_user: dict = Depends(require_roles("owner", "admin", "manager"))):
+@router.post("/stock-issues", status_code=201)
+def create_stock_issue(
+    req: StockIssueRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
     check_period_open(str(req.entry_date), current_user)
     try:
         row = inventory_db.add_stock_issue(
@@ -146,7 +160,7 @@ def create_stock_issue(req: StockIssueRequest, request: Request, current_user: d
 
 
 # ---------------------------------------------------------------------------
-# Stock adjustments  (literal routes BEFORE wildcards)
+# Stock adjustments
 # ---------------------------------------------------------------------------
 
 @router.get("/stock-adjustments/by-branch")
@@ -155,7 +169,9 @@ def adjustments_by_branch(
     limit: int = Query(200),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = inventory_db.list_adjustments(current_user["company_id"], branch_id, limit)
+    # FIX: uses a dedicated DB function that groups/aggregates by branch,
+    # instead of calling the same list_adjustments as the base route.
+    rows = inventory_db.list_adjustments_by_branch(current_user["company_id"], branch_id, limit)
     return success("Adjustments retrieved", data=rows)
 
 
@@ -169,21 +185,32 @@ def list_adjustments(
     return success("Stock adjustments retrieved", adjustments=rows)
 
 
-@router.post("/stock-adjustments")
-def create_adjustment(req: StockAdjustmentRequest, request: Request, current_user: dict = Depends(require_roles("owner", "admin", "manager"))):
+@router.post("/stock-adjustments", status_code=201)
+def create_adjustment(
+    req: StockAdjustmentRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
     check_period_open(str(req.entry_date), current_user)
     try:
         ingredient_id = req.ingredient_id or req.item_id
         if not ingredient_id:
-            return error("ingredient_id or item_id is required")
-        quantity_delta = req.quantity_delta if req.quantity_delta is not None else req.counted_quantity
+            return error("ingredient_id or item_id is required", status=422)
+
+        # FIX: quantity_delta and counted_quantity are semantically different fields.
+        # quantity_delta is a signed delta (e.g. +10 or -5).
+        # counted_quantity is an absolute physical count — silently using it as a
+        # delta would post the wrong value. Require quantity_delta explicitly.
+        if req.quantity_delta is None:
+            return error("quantity_delta is required", status=422)
+
         row = inventory_db.add_adjustment(
             company_id=current_user["company_id"],
             user_id=current_user["id"],
             branch_id=req.branch_id,
             ingredient_id=ingredient_id,
             entry_date=req.entry_date,
-            quantity_delta=quantity_delta,
+            quantity_delta=req.quantity_delta,
             notes=req.notes,
             ip_address=request.client.host,
         )
@@ -200,7 +227,7 @@ def approve_adjustment(
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     if req.status not in ("approved", "rejected"):
-        return error("status must be 'approved' or 'rejected'")
+        return error("status must be 'approved' or 'rejected'", status=422)
     try:
         inventory_db.approve_adjustment(
             company_id=current_user["company_id"],
@@ -225,7 +252,9 @@ def opening_stock_by_branch(
     limit: int = Query(200),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = inventory_db.list_opening_stock(current_user["company_id"], branch_id, limit)
+    # FIX: uses a dedicated DB function that groups by branch,
+    # instead of calling the same list_opening_stock as the base route.
+    rows = inventory_db.list_opening_stock_by_branch(current_user["company_id"], branch_id, limit)
     return success("Opening stock retrieved", data=rows)
 
 
@@ -249,7 +278,9 @@ def transfers_by_branch(
     limit: int = Query(200),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = inventory_db.list_transfers(current_user["company_id"], branch_id, limit)
+    # FIX: uses a dedicated DB function that groups/filters by branch,
+    # instead of calling the same list_transfers as the base route.
+    rows = inventory_db.list_transfers_by_branch(current_user["company_id"], branch_id, limit)
     return success("Transfers retrieved", data=rows)
 
 
@@ -263,8 +294,12 @@ def list_transfers(
     return success("Transfers retrieved", transfers=rows)
 
 
-@router.post("/transfers")
-def create_transfer(req: TransferRequest, request: Request, current_user: dict = Depends(require_roles("owner", "admin", "manager"))):
+@router.post("/transfers", status_code=201)
+def create_transfer(
+    req: TransferRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
     check_period_open(str(req.entry_date), current_user)
     try:
         row = inventory_db.add_transfer(
@@ -295,7 +330,9 @@ def movements_by_branch(
     limit: int = Query(200),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = inventory_db.list_inventory_movements(
+    # FIX: uses a dedicated DB function that groups/filters by branch,
+    # instead of calling the same list_inventory_movements as the base route.
+    rows = inventory_db.list_inventory_movements_by_branch(
         current_user["company_id"], branch_id, movement_type, limit
     )
     return success("Movements retrieved", data=rows)

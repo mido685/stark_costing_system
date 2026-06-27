@@ -1400,3 +1400,52 @@ export async function seedSkuPrefixes(): Promise<boolean> {
     return false;
   }
 }
+// ─── System Logs ──────────────────────────────────────────────────────────────
+
+export interface SystemLogRow {
+  id: number;
+  company_id: number;
+  branch_id: number | null;
+  branch_name: string | null;
+  user_id: number | null;
+  user_name: string | null;
+  user_avatar: string | null;
+  level: "debug" | "info" | "warning" | "error" | "critical";
+  category: string;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  payload: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export async function getSystemLogs(options: {
+  date?: string;
+  action?: string;
+  user?: string;
+  branch_id?: number;
+  level?: string;
+  entity_type?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ rows: SystemLogRow[]; total: number }> {
+  const params = new URLSearchParams();
+  if (options.date)                          params.set("date",        options.date);
+  if (options.action)                        params.set("action",      options.action);
+  if (options.user)                          params.set("user",        options.user);
+  if (options.branch_id != null && options.branch_id !== 0)
+                                             params.set("branch_id",   String(options.branch_id));
+  if (options.level)                         params.set("level",       options.level);
+  if (options.entity_type)                   params.set("entity_type", options.entity_type);
+  params.set("limit",  String(options.limit  ?? 50));
+  params.set("offset", String(options.offset ?? 0));
+
+  try {
+    return await apiCall<{ rows: SystemLogRow[]; total: number }>(
+      `/api/system-logs?${params}`
+    );
+  } catch {
+    return { rows: [], total: 0 };
+  }
+}

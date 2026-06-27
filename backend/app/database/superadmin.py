@@ -4,7 +4,15 @@ import psycopg2
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .system_logger import log_event
 from app.security.auth import hash_password
+
+
+# ─── SuperAdmin identity ──────────────────────────────────────────────────────
+# All platform-level actions are logged against this company ID.
+# This must be the STARK AI / system owner company row in the companies table.
+# Never set to a tenant company — this is the internal operator account.
+SUPERADMIN_COMPANY_ID = 1
 
 
 _USER_COLS = """
@@ -17,6 +25,8 @@ _USER_COLS = """
     u.created_at
 """
 
+
+# ─── Companies ────────────────────────────────────────────────────────────────
 
 def list_companies() -> list[dict[str, Any]]:
     conn = get_connection()
@@ -45,11 +55,11 @@ def list_company_roles(company_id: int) -> list[dict[str, Any]]:
             WHERE company_id = %s AND is_active = TRUE
             ORDER BY
                 CASE name
-                    WHEN 'owner' THEN 1
-                    WHEN 'admin' THEN 2
-                    WHEN 'manager' THEN 3
+                    WHEN 'owner'      THEN 1
+                    WHEN 'admin'      THEN 2
+                    WHEN 'manager'    THEN 3
                     WHEN 'accountant' THEN 4
-                    WHEN 'clerk' THEN 5
+                    WHEN 'clerk'      THEN 5
                     ELSE 9
                 END,
                 name
@@ -109,6 +119,21 @@ def set_company_active(
             new_data=updated,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="activated" if is_active else "deactivated",
+            category="security",
+            level="warning" if not is_active else "info",
+            entity_type="companies",
+            entity_id=company_id,
+            payload={
+                "target_company":    old["name"],
+                "target_company_id": company_id,
+                "is_active":         is_active,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return updated
     except Exception:
@@ -123,32 +148,17 @@ def purge_company_data(
     company_id: int,
     ip_address: str | None = None,
 ) -> None:
-    """
-    Delete all operational data for a company while keeping:
-      companies, roles, app_users, branches, user_branches, user_permissions,
-      role_permissions, permissions, expense_categories intact.
-
-    Deletion is in strict FK-safe order (most-dependent child first).
-
-    Two strategies based on the actual schema:
-      - branch-scoped  → DELETE WHERE branch_id IN (SELECT id FROM branches WHERE company_id = %s)
-      - company-scoped → DELETE WHERE company_id = %s
-      - special        → transfers uses from_branch_id / to_branch_id
-    """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
         old = _ensure_company(cur, company_id)
 
-        b = "SELECT id FROM branches WHERE company_id = %s"  # branch subquery
+        b = "SELECT id FROM branches WHERE company_id = %s"
 
-        # ── 1. Leaf tables with no dependants ─────────────────────────────────
-        # governance_action_log, kpi_snapshots, period_snapshots, period_closures,
-        # accrual/depreciation/prepayment/payroll entries, budgets, assets
-        leaf_branch = [
+        # ── 1. Leaf tables (branch-scoped, no dependants) ─────────────────────
+        for table in [
             "governance_action_log",
             "kpi_snapshots",
-            "period_snapshots",
             "period_closures",
             "accrual_entries",
             "depreciation_entries",
@@ -156,17 +166,22 @@ def purge_company_data(
             "payroll_entries",
             "budgets",
             "assets",
-            "stock_counts",
             "stock_issues",
-        ]
-        for table in leaf_branch:
-            cur.execute(f"DELETE FROM {table} WHERE branch_id IN ({b})", (company_id,))  # noqa: S608
+            "stock_counts",
+            "stock_adjustments",
+        ]:
+            cur.execute(
+                f"DELETE FROM {table} WHERE branch_id IN ({b})",  # noqa: S608
+                (company_id,),
+            )
 
-        # ── 2. Period backups (has both branch_id and company_id) ─────────────
-        cur.execute(f"DELETE FROM period_backups WHERE branch_id IN ({b})", (company_id,))
-
-        # ── 3. Petty cash ledger (branch_id + company_id) ─────────────────────
+        # ── 2. Period backups (branch-scoped first) ───────────────────────────
+        cur.execute(f"DELETE FROM period_backups    WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM petty_cash_ledger WHERE branch_id IN ({b})", (company_id,))
+        cur.execute(f"DELETE FROM adjusting_entries WHERE branch_id IN ({b})", (company_id,))
+
+        # ── 3. GRN — references purchases and branches ────────────────────────
+        cur.execute(f"DELETE FROM goods_receipts WHERE branch_id IN ({b})", (company_id,))
 
         # ── 4. Movement / transaction tables ──────────────────────────────────
         cur.execute(f"DELETE FROM finished_goods_movements WHERE branch_id IN ({b})", (company_id,))
@@ -174,31 +189,36 @@ def purge_company_data(
         cur.execute(f"DELETE FROM production_costs         WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM waste_log                WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM damage_log               WHERE branch_id IN ({b})", (company_id,))
-        cur.execute(f"DELETE FROM stock_counts             WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM customer_returns         WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM purchase_returns         WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM revenues                 WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM sales                    WHERE branch_id IN ({b})", (company_id,))
-        cur.execute(f"DELETE FROM purchases                WHERE branch_id IN ({b})", (company_id,))
         cur.execute(f"DELETE FROM expenses                 WHERE branch_id IN ({b})", (company_id,))
+        cur.execute(f"DELETE FROM cash_purchases           WHERE branch_id IN ({b})", (company_id,))
 
-        # cash_purchases has both branch_id and company_id — branch delete is enough
-        cur.execute(f"DELETE FROM cash_purchases WHERE branch_id IN ({b})", (company_id,))
-
-        # transfers uses from_branch_id (no company_id column)
+        # transfers uses from/to branch ids
         cur.execute(
             f"DELETE FROM transfers WHERE from_branch_id IN ({b}) OR to_branch_id IN ({b})",
             (company_id, company_id),
         )
 
-        # ── 5. Approval requests ──────────────────────────────────────────────
+        # ── 5. Purchase history then purchases ────────────────────────────────
+        cur.execute("DELETE FROM purchase_history WHERE company_id = %s", (company_id,))
+        cur.execute(f"DELETE FROM purchases WHERE branch_id IN ({b})", (company_id,))
+
+        # ── 6. Approval requests ──────────────────────────────────────────────
         cur.execute(f"DELETE FROM approval_requests WHERE branch_id IN ({b})", (company_id,))
 
-        # ── 6. Company-scoped tables ──────────────────────────────────────────
-        # Must come after branch-scoped deletes that reference these rows
-        cur.execute("DELETE FROM period_backups          WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM company_period_statuses WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM purchase_invoices        WHERE company_id = %s", (company_id,))
+        # ── 7. Company-scoped tables ──────────────────────────────────────────
+        cur.execute("DELETE FROM period_backups                WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM period_snapshots              WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM company_period_status_history WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM company_period_statuses       WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM purchase_invoices             WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM adjusting_entries             WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM employee_groups               WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM sku_prefixes                  WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM company_po_sequences          WHERE company_id = %s", (company_id,))
 
         # recipe_ingredients → recipes → products
         cur.execute("""
@@ -214,28 +234,46 @@ def purge_company_data(
             WHERE product_id IN (SELECT id FROM products WHERE company_id = %s)
         """, (company_id,))
 
-        # supplier_price_history → suppliers / ingredients
+        # supplier_price_history → suppliers
         cur.execute("""
             DELETE FROM supplier_price_history
             WHERE supplier_id IN (SELECT id FROM suppliers WHERE company_id = %s)
         """, (company_id,))
 
-        cur.execute("DELETE FROM ingredients        WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM products           WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM suppliers          WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM expense_categories WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM standard_cost_history WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM ingredients           WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM products              WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM suppliers             WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM expense_categories    WHERE company_id = %s", (company_id,))
 
-        # ── 7. Audit log last (it references everything) ──────────────────────
-        cur.execute("DELETE FROM audit_log WHERE company_id = %s", (company_id,))
+        # ── 8. Tenant system_logs and audit_log ───────────────────────────────
+        cur.execute("DELETE FROM system_logs WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM audit_log   WHERE company_id = %s", (company_id,))
 
+        # ── 9. Log the purge against the SUPERADMIN company (safe — not deleted) ──
         log_audit(
             conn,
-            company_id=company_id,
+            company_id=company_id,       # will be gone after commit but written now
             user_id=None,
             action="SUPERADMIN_PURGE",
             table_name="companies",
             record_id=company_id,
             old_data=old,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,   # ← safe: never deleted
+            action="purged",
+            category="security",
+            level="critical",
+            entity_type="companies",
+            entity_id=company_id,
+            payload={
+                "target_company":    old["name"],
+                "target_company_id": company_id,
+                "scope":             "all_operational_data",
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -248,6 +286,7 @@ def purge_company_data(
 
 
 def deactivate_company(company_id: int, ip_address: str | None = None) -> None:
+    """Soft-delete: set is_active = FALSE."""
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
@@ -265,6 +304,20 @@ def deactivate_company(company_id: int, ip_address: str | None = None) -> None:
             table_name="companies",
             record_id=company_id,
             old_data=old,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="deactivated",
+            category="security",
+            level="warning",
+            entity_type="companies",
+            entity_id=company_id,
+            payload={
+                "target_company":    old["name"],
+                "target_company_id": company_id,
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -318,6 +371,22 @@ def add_company_user(
             new_data=user,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="user_created",
+            category="security",
+            entity_type="app_users",
+            entity_id=user_id,
+            payload={
+                "target_company":    company["name"],
+                "target_company_id": company_id,
+                "username":          username.strip(),
+                "display_name":      display_name.strip(),
+                "role_id":           role_id,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return user
 
@@ -343,6 +412,7 @@ def deactivate_company_user(
         old = _get_user(cur, user_id, company_id)
         if not old:
             raise ValueError("User not found or access denied")
+        company = _ensure_company(cur, company_id)
 
         cur.execute("""
             UPDATE app_users
@@ -360,8 +430,23 @@ def deactivate_company_user(
             old_data=old,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="user_deactivated",
+            category="security",
+            level="warning",
+            entity_type="app_users",
+            entity_id=user_id,
+            payload={
+                "target_company":    company["name"],
+                "target_company_id": company_id,
+                "username":          old["username"],
+                "display_name":      old["display_name"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
-
     except Exception:
         conn.rollback()
         raise
@@ -381,8 +466,8 @@ def restore_company_user(
         old = _get_user(cur, user_id, company_id)
         if not old:
             raise ValueError("User not found or access denied")
+        company = _ensure_company(cur, company_id)
         if old["is_active"] is False:
-            company = _ensure_company(cur, company_id)
             _ensure_user_limit(cur, company_id, company["max_users"])
 
         cur.execute("""
@@ -403,9 +488,99 @@ def restore_company_user(
             new_data=user,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="user_restored",
+            category="security",
+            entity_type="app_users",
+            entity_id=user_id,
+            payload={
+                "target_company":    company["name"],
+                "target_company_id": company_id,
+                "username":          user["username"],
+                "display_name":      user["display_name"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return user
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
+
+def delete_company_forever(company_id: int, ip_address: str | None = None) -> None:
+    """Purge all operational data then hard-delete the company row permanently."""
+
+    # Step 1: purge all operational data (includes system_logs + audit_log for tenant)
+    purge_company_data(company_id, ip_address=ip_address)
+
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        old = _ensure_company(cur, company_id)
+
+        # Step 2: log against SUPERADMIN_COMPANY_ID BEFORE the hard delete
+        # (safe — SUPERADMIN_COMPANY_ID is never the deleted company)
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=None,
+            action="SUPERADMIN_DELETE",
+            table_name="companies",
+            record_id=company_id,
+            old_data=old,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="deleted_forever",
+            category="security",
+            level="critical",
+            entity_type="companies",
+            entity_id=company_id,
+            payload={
+                "target_company":    old["name"],
+                "target_company_id": company_id,
+                "permanent":         True,
+            },
+            ip_address=ip_address,
+        )
+
+        # Step 3: cascade user/role/branch dependencies
+        cur.execute("DELETE FROM user_branches    WHERE user_id IN (SELECT id FROM app_users WHERE company_id = %s)", (company_id,))
+        cur.execute("DELETE FROM user_permissions WHERE user_id IN (SELECT id FROM app_users WHERE company_id = %s)", (company_id,))
+        cur.execute("DELETE FROM company_period_status_history WHERE company_id = %s", (company_id,))
+        cur.execute("""
+            DELETE FROM governance_action_log
+            WHERE actor_id IN (SELECT id FROM app_users WHERE company_id = %s)
+        """, (company_id,))
+        cur.execute("""
+            DELETE FROM approval_requests
+            WHERE requested_by IN (SELECT id FROM app_users WHERE company_id = %s)
+               OR approved_by  IN (SELECT id FROM app_users WHERE company_id = %s)
+               OR branch_id    IN (SELECT id FROM branches   WHERE company_id = %s)
+        """, (company_id, company_id, company_id))
+        cur.execute("DELETE FROM app_users        WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM role_permissions WHERE role_id IN (SELECT id FROM roles WHERE company_id = %s)", (company_id,))
+        cur.execute("DELETE FROM roles            WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM branches         WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM sku_prefixes     WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM company_po_sequences WHERE company_id = %s", (company_id,))
+        cur.execute("DELETE FROM employee_groups  WHERE company_id = %s", (company_id,))
+
+        # Step 4: clear remaining audit trail for this tenant
+        cur.execute("DELETE FROM audit_log WHERE company_id = %s", (company_id,))
+
+        # Step 5: delete the company row itself
+        cur.execute("DELETE FROM companies WHERE id = %s", (company_id,))
+
+        conn.commit()
     except Exception:
         conn.rollback()
         raise
@@ -430,8 +605,7 @@ def _ensure_company(cur, company_id: int) -> dict[str, Any]:
 
 def _ensure_role(cur, role_id: int, company_id: int) -> None:
     cur.execute("""
-        SELECT id
-        FROM roles
+        SELECT id FROM roles
         WHERE id = %s AND company_id = %s AND is_active = TRUE
     """, (role_id, company_id))
     if not cur.fetchone():
@@ -457,46 +631,3 @@ def _get_user(cur, user_id: int, company_id: int) -> dict[str, Any] | None:
     """, (user_id, company_id))
     row = cur.fetchone()
     return dict(row) if row else None
-def delete_company_forever(company_id: int, ip_address: str | None = None) -> None:
-    """Purge all data then hard-delete the company row permanently."""
-    # Step 1: purge all operational data (handles all FK-safe deletions)
-    purge_company_data(company_id, ip_address=ip_address)
-
-    conn = get_connection()
-    cur = dict_cursor(conn)
-    try:
-        old = _ensure_company(cur, company_id)
-
-        # Step 2: log BEFORE deleting the company row (FK constraint)
-        log_audit(
-            conn,
-            company_id=company_id,
-            user_id=None,
-            action="SUPERADMIN_DELETE",
-            table_name="companies",
-            record_id=company_id,
-            old_data=old,
-            ip_address=ip_address,
-        )
-
-        # Step 3: remove structural data
-        cur.execute("DELETE FROM user_branches   WHERE user_id  IN (SELECT id FROM app_users WHERE company_id = %s)", (company_id,))
-        cur.execute("DELETE FROM user_permissions WHERE user_id IN (SELECT id FROM app_users WHERE company_id = %s)", (company_id,))
-        cur.execute("DELETE FROM app_users        WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM role_permissions WHERE role_id  IN (SELECT id FROM roles    WHERE company_id = %s)", (company_id,))
-        cur.execute("DELETE FROM roles            WHERE company_id = %s", (company_id,))
-        cur.execute("DELETE FROM branches         WHERE company_id = %s", (company_id,))
-
-        # Step 4: audit_log rows must go before companies row (FK)
-        cur.execute("DELETE FROM audit_log WHERE company_id = %s", (company_id,))
-
-        # Step 5: finally delete the company itself
-        cur.execute("DELETE FROM companies WHERE id = %s", (company_id,))
-
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()

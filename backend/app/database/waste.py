@@ -2,6 +2,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .system_logger import log_event
 from .periods import is_period_frozen
 
 
@@ -160,6 +161,27 @@ def add_waste(
             new_data=waste,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created",
+            category="data",
+            level="warning",
+            entity_type="waste_log",
+            entity_id=waste["id"],
+            payload={
+                "branch_id":     branch_id,
+                "ingredient_id": ingredient_id,
+                "product_id":    product_id,
+                "quantity":      quantity,
+                "unit_cost":     unit_cost,
+                "cost_value":    cost_value,
+                "reason":        reason,
+                "entry_date":    entry_date,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return waste
     except Exception:
@@ -190,6 +212,8 @@ def delete_waste(
         if is_period_frozen(old["branch_id"], str(old["entry_date"])):
             raise ValueError("Cannot delete — accounting period is closed")
 
+        old_dict = dict(old)
+
         cur.execute("""
             DELETE FROM inventory_movements
             WHERE reference_table = 'waste_log' AND reference_id = %s
@@ -207,7 +231,27 @@ def delete_waste(
             action="DELETE",
             table_name="waste_log",
             record_id=waste_id,
-            old_data=dict(old),
+            old_data=old_dict,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deleted",
+            category="data",
+            level="warning",
+            entity_type="waste_log",
+            entity_id=waste_id,
+            payload={
+                "branch_id":     old_dict["branch_id"],
+                "ingredient_id": old_dict.get("ingredient_id"),
+                "product_id":    old_dict.get("product_id"),
+                "quantity":      float(old_dict["quantity"]),
+                "cost_value":    float(old_dict["cost_value"]),
+                "reason":        old_dict["reason"],
+                "entry_date":    str(old_dict["entry_date"]),
+            },
             ip_address=ip_address,
         )
         conn.commit()

@@ -1,6 +1,7 @@
 from .connection import get_connection, dict_cursor
 from app.security.auth import hash_password
 from .log_audit import log_audit
+from .system_logger import log_event
 import psycopg2
 from typing import Any
 
@@ -78,6 +79,21 @@ def add_user(
             new_data=user,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created",
+            category="data",
+            entity_type="app_users",
+            entity_id=user["id"],
+            payload={
+                "username":     user["username"],
+                "display_name": user["display_name"],
+                "role":         user["role"],
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return user
 
@@ -95,7 +111,7 @@ def add_user(
 def update_user(
     user_id: int,
     company_id: int,
-    actor_id: int | None = None,       # ← renamed from acting_user_id
+    actor_id: int | None = None,
     display_name: str | None = None,
     role_id: int | None = None,
     ip_address: str | None = None,
@@ -110,6 +126,8 @@ def update_user(
         old = cur.fetchone()
         if not old:
             raise ValueError("User not found or access denied")
+
+        old_dict = dict(old)
 
         cur.execute("""
             UPDATE app_users
@@ -132,8 +150,22 @@ def update_user(
             action="UPDATE",
             table_name="app_users",
             record_id=user_id,
-            old_data=dict(old),
+            old_data=old_dict,
             new_data=new,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="updated",
+            category="data",
+            entity_type="app_users",
+            entity_id=user_id,
+            payload={
+                "changes":  {k: new[k]      for k in ("display_name", "role_id") if new.get(k) != old_dict.get(k)},
+                "original": {k: old_dict[k] for k in ("display_name", "role_id") if new.get(k) != old_dict.get(k)},
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -147,7 +179,7 @@ def update_user(
         conn.close()
 
 
-def toggle_access(                      # ← new function
+def toggle_access(
     user_id: int,
     company_id: int,
     actor_id: int | None = None,
@@ -164,6 +196,8 @@ def toggle_access(                      # ← new function
         if not old:
             raise ValueError("User not found or access denied")
 
+        old_dict = dict(old)
+
         cur.execute("""
             UPDATE app_users
             SET is_active = NOT is_active
@@ -177,6 +211,9 @@ def toggle_access(                      # ← new function
         """, (user_id, company_id))
         new = dict(cur.fetchone())
 
+        new_is_active = new.get("is_active")
+        action        = "activated" if new_is_active else "deactivated"
+
         log_audit(
             conn,
             company_id=company_id,
@@ -184,8 +221,25 @@ def toggle_access(                      # ← new function
             action="UPDATE",
             table_name="app_users",
             record_id=user_id,
-            old_data=dict(old),
+            old_data=old_dict,
             new_data=new,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action=action,
+            category="data",
+            level="info" if new_is_active else "warning",
+            entity_type="app_users",
+            entity_id=user_id,
+            payload={
+                "username":     new["username"],
+                "display_name": new["display_name"],
+                "changes":      {"is_active": new_is_active},
+                "original":     {"is_active": old_dict["is_active"]},
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -219,7 +273,7 @@ def get_role_id_by_name(company_id: int, role: str) -> int:
 def deactivate_user(
     user_id: int,
     company_id: int,
-    actor_id: int | None = None,        # ← renamed from acting_user_id
+    actor_id: int | None = None,
     ip_address: str | None = None,
 ) -> None:
     conn = get_connection()
@@ -233,6 +287,8 @@ def deactivate_user(
         if not old:
             raise ValueError("User not found or access denied")
 
+        old_dict = dict(old)
+
         cur.execute(
             "UPDATE app_users SET is_active = FALSE WHERE id = %s AND company_id = %s",
             (user_id, company_id)
@@ -244,7 +300,22 @@ def deactivate_user(
             action="DELETE",
             table_name="app_users",
             record_id=user_id,
-            old_data=dict(old),
+            old_data=old_dict,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=actor_id,
+            action="deactivated",
+            category="data",
+            level="warning",
+            entity_type="app_users",
+            entity_id=user_id,
+            payload={
+                "username":     old_dict["username"],
+                "display_name": old_dict["display_name"],
+            },
             ip_address=ip_address,
         )
         conn.commit()

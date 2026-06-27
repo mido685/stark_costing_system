@@ -9,6 +9,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .system_logger import log_event
 
 # ── Valid price types ─────────────────────────────────────────────────────────
 VALID_PRICE_TYPES = {"initial_cost", "market_price", "contract_price", "spot_price"}
@@ -96,6 +97,22 @@ def add_supplier(
             table_name="suppliers",
             record_id=supplier["id"],
             new_data=supplier,
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created",
+            category="data",
+            entity_type="suppliers",
+            entity_id=supplier["id"],
+            payload={
+                "name":     supplier["name"],
+                "category": supplier["category"],
+                "phone":    supplier["phone"],
+                "email":    supplier["email"],
+            },
             ip_address=ip_address,
         )
         conn.commit()
@@ -206,6 +223,20 @@ def update_supplier(
             new_data=supplier,
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="updated",
+            category="data",
+            entity_type="suppliers",
+            entity_id=supplier_id,
+            payload={
+                "changes":  {k: supplier[k]  for k in resolved if supplier.get(k) != old_dict.get(k)},
+                "original": {k: old_dict[k]  for k in resolved if supplier.get(k) != old_dict.get(k)},
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return supplier
 
@@ -249,6 +280,18 @@ def deactivate_supplier(
             table_name="suppliers",
             record_id=supplier_id,
             old_data=dict(old),
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="deactivated",
+            category="data",
+            level="warning",
+            entity_type="suppliers",
+            entity_id=supplier_id,
+            payload={"name": dict(old)["name"]},
             ip_address=ip_address,
         )
         conn.commit()
@@ -365,6 +408,25 @@ def add_supplier_price(
             new_data={**price_row, "price_type": price_type, "status": initial_status},
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="created",
+            category="data",
+            entity_type="supplier_price_history",
+            entity_id=price_row["id"],
+            payload={
+                "supplier_id":   supplier_id,
+                "ingredient_id": ingredient_id,
+                "price":         price,
+                "price_type":    price_type,
+                "status":        initial_status,
+                "purchase_date": purchase_date,
+                "updates_cost":  price_type in COST_UPDATING_PRICE_TYPES,
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return price_row
 
@@ -455,6 +517,27 @@ def approve_supplier_price(
             new_data={"status": action, "approved_by": approver_id},
             ip_address=ip_address,
         )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=approver_id,
+            action="approved" if action == "approved" else "rejected",
+            category="data",
+            level="warning" if action == "rejected" else "info",
+            entity_type="supplier_price_history",
+            entity_id=price_id,
+            payload={
+                "ingredient_id": price_row["ingredient_id"],
+                "supplier_id":   price_row["supplier_id"],
+                "price":         float(price_row["price"]),
+                "price_type":    price_row["price_type"],
+                "cost_updated":  action == "approved",
+                **({"old_cost": old_cost, "new_cost": float(price_row["price"])} if action == "approved" else {}),
+                "changes":   {"status": action},
+                "original":  {"status": "pending"},
+            },
+            ip_address=ip_address,
+        )
         conn.commit()
         return updated
 
@@ -523,6 +606,25 @@ def update_standard_cost(
             record_id=ingredient_id,
             old_data={"cost_per_unit": old_cost},
             new_data={"cost_per_unit": new_cost, "effective_date": effective_date, "notes": notes},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            action="standard_cost_updated",
+            category="data",
+            level="warning",
+            entity_type="ingredients",
+            entity_id=ingredient_id,
+            payload={
+                "old_cost":       old_cost,
+                "new_cost":       new_cost,
+                "effective_date": effective_date,
+                "notes":          notes,
+                "changes":        {"cost_per_unit": new_cost},
+                "original":       {"cost_per_unit": old_cost},
+            },
             ip_address=ip_address,
         )
         conn.commit()

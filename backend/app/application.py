@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from pathlib import Path
 import os
 
-# Load .env from app/.env — must run before any os.getenv() calls
 load_dotenv(Path(__file__).parent / ".env")
 
 
@@ -25,6 +24,7 @@ def _cors_origins() -> list[str]:
         *extra_origins,
     ]
 
+
 def create_app() -> FastAPI:
     application = FastAPI(title=APP_NAME, version=APP_VERSION)
 
@@ -37,13 +37,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ── Serve uploaded logos ───────────────────────────────────────────────────
     os.makedirs("app/static/logos", exist_ok=True)
     application.mount("/static", StaticFiles(directory="app/static"), name="static")
 
     db.init_db()
 
-    # Register all routers
     from app.routes import (
         approvals as approvals_router,
         auth as auth_router,
@@ -68,28 +66,32 @@ def create_app() -> FastAPI:
         system as system_router,
         sku_prefixes as sku_prefixes_router,
         Periods as periods_router,
+        system_logs as system_logs_router,   # ← added
     )
-    application.include_router(system_router.router, prefix="/api")
-    application.include_router(approvals_router.router, prefix="/api")
-    application.include_router(auth_router.router, prefix="/api")
-    application.include_router(branches_router.router, prefix="/api")
-    application.include_router(cash_purchases_router.router, prefix="/api")
-    application.include_router(expenses_router.router, prefix="/api")
-    application.include_router(inventory_router.router, prefix="/api")
-    application.include_router(products_router.router, prefix="/api")
-    application.include_router(production_router.router, prefix="/api")
-    application.include_router(purchases_router.router, prefix="/api")
-    application.include_router(ingredients_router.router, prefix="/api")
-    application.include_router(recipes_router.router, prefix="/api")
-    application.include_router(reports_router.router, prefix="/api")
-    application.include_router(revenues_router.router, prefix="/api")
-    application.include_router(sales_router.router, prefix="/api")
-    application.include_router(suppliers_router.router, prefix="/api")
-    application.include_router(superadmin_router.router, prefix="/api")
-    application.include_router(waste_router.router, prefix="/api")
-    application.include_router(damage_router.router, prefix="/api")
-    application.include_router(user_router.router, prefix="/api")
-    application.include_router(rbac_router.router, prefix="/api")
-    application.include_router(sku_prefixes_router.router, prefix="/api")
-    application.include_router(periods_router.router, prefix="/api")
+
+    application.include_router(system_router.router,        prefix="/api")
+    application.include_router(approvals_router.router,     prefix="/api")
+    application.include_router(auth_router.router,          prefix="/api")
+    application.include_router(branches_router.router,      prefix="/api")
+    application.include_router(cash_purchases_router.router,prefix="/api")
+    application.include_router(expenses_router.router,      prefix="/api")
+    application.include_router(inventory_router.router,     prefix="/api")
+    application.include_router(products_router.router,      prefix="/api")
+    application.include_router(production_router.router,    prefix="/api")
+    application.include_router(purchases_router.router,     prefix="/api")
+    application.include_router(ingredients_router.router,   prefix="/api")
+    application.include_router(recipes_router.router,       prefix="/api")
+    application.include_router(reports_router.router,       prefix="/api")
+    application.include_router(revenues_router.router,      prefix="/api")
+    application.include_router(sales_router.router,         prefix="/api")
+    application.include_router(suppliers_router.router,     prefix="/api")
+    application.include_router(superadmin_router.router,    prefix="/api")
+    application.include_router(waste_router.router,         prefix="/api")
+    application.include_router(damage_router.router,        prefix="/api")
+    application.include_router(user_router.router,          prefix="/api")
+    application.include_router(rbac_router.router,          prefix="/api")
+    application.include_router(sku_prefixes_router.router,  prefix="/api")
+    application.include_router(periods_router.router,       prefix="/api")
+    application.include_router(system_logs_router.router,   prefix="/api")   # ← added
+
     return application

@@ -19,12 +19,14 @@ MAX_SIZE_MB = 10
 ALLOWED_REF_TABLES = {"cash_purchases", "expenses", "inventory_movements"}
 
 
+# ── Cash Purchases ────────────────────────────────────────────────────────────
+
 @router.get("/cash-purchases")
 def list_cash_purchases(
     branch_id: int | None = Query(None),
     purchase_type: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     purchases = cash_db.list_cash_purchases(
         company_id=current_user["company_id"],
@@ -38,7 +40,7 @@ def list_cash_purchases(
 @router.get("/cash-purchases/{purchase_id}")
 def get_cash_purchase(
     purchase_id: int,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     purchase = cash_db.get_cash_purchase(
         purchase_id=purchase_id,
@@ -49,11 +51,11 @@ def get_cash_purchase(
     return success("Cash purchase retrieved", cash_purchase=purchase)
 
 
-@router.post("/cash-purchases")
+@router.post("/cash-purchases", status_code=201)
 def create_cash_purchase(
     req: CashPurchaseRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
     try:
@@ -84,7 +86,7 @@ def create_cash_purchase(
 def approve_cash_purchase(
     purchase_id: int,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         purchase = cash_db.approve_cash_purchase(
@@ -99,10 +101,12 @@ def approve_cash_purchase(
         return error(str(e), status=status_code)
 
 
+# ── Petty Cash ────────────────────────────────────────────────────────────────
+
 @router.get("/petty-cash/balance")
 def get_petty_cash_balance(
     branch_id: int = Query(...),
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     balance = cash_db.get_petty_cash_balance(
         company_id=current_user["company_id"],
@@ -111,11 +115,11 @@ def get_petty_cash_balance(
     return success("Petty cash balance retrieved", branch_id=branch_id, balance=balance)
 
 
-@router.post("/petty-cash/top-up")
+@router.post("/petty-cash/top-up", status_code=201)
 def top_up_petty_cash(
     req: PettyCashTopUpRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     check_period_open(req.entry_date, current_user)
     try:
@@ -137,7 +141,7 @@ def top_up_petty_cash(
 def list_petty_cash_ledger(
     branch_id: int = Query(...),
     limit: int = Query(50, ge=1, le=500),
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     ledger = cash_db.list_petty_cash_ledger(
         company_id=current_user["company_id"],
@@ -147,10 +151,12 @@ def list_petty_cash_ledger(
     return success("Petty cash ledger retrieved", ledger=ledger)
 
 
+# ── Expense Categories ────────────────────────────────────────────────────────
+
 @router.get("/expense-categories")
 def list_expense_categories(
     category_type: str | None = Query(None),
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     categories = cash_db.list_expense_categories(
         company_id=current_user["company_id"],
@@ -159,11 +165,11 @@ def list_expense_categories(
     return success("Expense categories retrieved", categories=categories)
 
 
-@router.post("/expense-categories")
+@router.post("/expense-categories", status_code=201)
 def create_expense_category(
     req: ExpenseCategoryRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner","admin", "manager")),
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
     try:
         category = cash_db.add_expense_category(
@@ -178,16 +184,86 @@ def create_expense_category(
         return error(str(e))
 
 
-@router.post("/invoices/upload")
+# ── Invoices ──────────────────────────────────────────────────────────────────
+# IMPORTANT: /invoices/search and /invoices/file/{invoice_id} must be declared
+# BEFORE /invoices/{ref_table}/{ref_id}, otherwise FastAPI matches the wildcard
+# route first and these endpoints become unreachable.
+
+@router.get("/invoices/search")
+def search_invoices(
+    ref_table:      str | None = Query(None),
+    branch_id:      int | None = Query(None),
+    supplier_id:    int | None = Query(None),
+    invoice_number: str | None = Query(None),
+    date_from:      str | None = Query(None),
+    date_to:        str | None = Query(None),
+    limit:          int        = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
+):
+    invoices = cash_db.search_invoices(
+        company_id=current_user["company_id"],
+        ref_table=ref_table,
+        branch_id=branch_id,
+        supplier_id=supplier_id,
+        invoice_number=invoice_number,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
+    return success("Invoices retrieved", invoices=invoices)
+
+
+@router.get("/invoices/file/{invoice_id}")
+def download_invoice(
+    invoice_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    invoice = cash_db.get_invoice(
+        company_id=current_user["company_id"],
+        invoice_id=invoice_id,
+    )
+    if not invoice:
+        return error("Invoice not found", status=404)
+
+    file_path = Path(invoice["file_path"])
+    if not file_path.exists():
+        return error("Invoice file is missing from storage", status=500)
+
+    content = file_path.read_bytes()
+    return Response(
+        content=content,
+        media_type=invoice["mime_type"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{invoice["file_name"]}"',
+            "Content-Length": str(len(content)),
+        },
+    )
+
+
+@router.get("/invoices/{ref_table}/{ref_id}")
+def list_invoices(
+    ref_table: str,
+    ref_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    invoices = cash_db.list_invoices(
+        company_id=current_user["company_id"],
+        ref_table=ref_table,
+        ref_id=ref_id,
+    )
+    return success("Invoices retrieved", invoices=invoices)
+
+
+@router.post("/invoices/upload", status_code=201)
 async def upload_invoice(
-    ref_table:      str            = Form(...),
-    ref_id:         int            = Form(...),
-    notes:          str            = Form(""),
-    invoice_number: str            = Form(""),
-    invoice_date:   str            = Form(""),
-    amount:         float | None   = Form(None),
-    supplier_id:    int | None     = Form(None),
-    branch_id:      int | None     = Form(None),
+    ref_table:      str          = Form(...),
+    ref_id:         int          = Form(...),
+    notes:          str          = Form(""),
+    invoice_number: str          = Form(""),
+    invoice_date:   str          = Form(""),
+    amount:         float | None = Form(None),
+    supplier_id:    int | None   = Form(None),
+    branch_id:      int | None   = Form(None),
     file: UploadFile = File(...),
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
 ):
@@ -235,66 +311,3 @@ async def upload_invoice(
         file_name=file.filename,
         size_kb=size_kb,
     )
-
-@router.get("/invoices/file/{invoice_id}")
-def download_invoice(
-    invoice_id: int,
-    current_user: dict = Depends(get_current_user),
-):
-    invoice = cash_db.get_invoice(
-        company_id=current_user["company_id"],
-        invoice_id=invoice_id,
-    )
-    if not invoice:
-        return error("Invoice not found", status=404)
-
-    file_path = Path(invoice["file_path"])
-    if not file_path.exists():
-        return error("Invoice file is missing from storage", status=500)
-
-    content = file_path.read_bytes()
-    return Response(
-        content=content,
-        media_type=invoice["mime_type"],
-        headers={
-            "Content-Disposition": f'attachment; filename="{invoice["file_name"]}"',
-            "Content-Length": str(len(content)),
-        },
-    )
-
-@router.get("/invoices/{ref_table}/{ref_id}")
-def list_invoices(
-    ref_table: str,
-    ref_id: int,
-    current_user: dict = Depends(get_current_user),
-):
-    invoices = cash_db.list_invoices(
-        company_id=current_user["company_id"],
-        ref_table=ref_table,
-        ref_id=ref_id,
-    )
-    return success("Invoices retrieved", invoices=invoices)
-
-# Add to your router, BEFORE the wildcard route
-@router.get("/invoices/search")
-def search_invoices(
-    ref_table:      str | None = Query(None),
-    branch_id:      int | None = Query(None),
-    supplier_id:    int | None = Query(None),
-    invoice_number: str | None = Query(None),
-    date_from:      str | None = Query(None),
-    date_to:        str | None = Query(None),
-    limit:          int        = Query(50, ge=1, le=200),
-    current_user: dict = Depends(get_current_user),
-):
-    invoices = cash_db.search_invoices(
-        company_id=current_user["company_id"],
-        ref_table=ref_table,
-        branch_id=branch_id,
-        supplier_id=supplier_id,
-        invoice_number=invoice_number,
-        date_from=date_from,
-        date_to=date_to,
-        limit=limit,
-    )
-    return success("Invoices retrieved", invoices=invoices)

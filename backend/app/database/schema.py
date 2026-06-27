@@ -937,12 +937,36 @@ def init_db() -> None:
                 UNIQUE(company_id, name)
             )
         """)
+        # ── 53. System Logs ───────────────────────────────────────────────────────
+        # Structured operational log for background jobs, scheduled tasks, API errors,
+        # and system-level events that don't map to a specific user action.
+        # For user-action tracing, prefer audit_log (table 51).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id          SERIAL PRIMARY KEY,
+                company_id  INTEGER NOT NULL REFERENCES companies(id),
+                branch_id   INTEGER REFERENCES branches(id),
+                user_id     INTEGER REFERENCES app_users(id),
+                level       VARCHAR(10) NOT NULL DEFAULT 'info'
+                    CHECK (level IN ('debug','info','warning','error','critical')),
+                category    VARCHAR(50) NOT NULL DEFAULT 'system'
+                    CHECK (category IN ('auth','data','system','billing','api','security')),
+                action      VARCHAR(80) NOT NULL,
+                entity_type VARCHAR(80),
+                entity_id   INTEGER,
+                payload     JSONB,
+                ip_address  VARCHAR(45),
+                session_id  VARCHAR(120),
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
 
         # ─────────────────────────────────────────────────────────────────────
         # INDEXES
         # ─────────────────────────────────────────────────────────────────────
 
         # Inventory
+        
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_branch     ON inventory_movements(branch_id, entry_date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_type       ON inventory_movements(movement_type)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_movements_ingredient ON inventory_movements(ingredient_id)")
@@ -984,6 +1008,10 @@ def init_db() -> None:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_period_history_company_period  ON company_period_status_history(company_id, period)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_period_snapshots_company       ON period_snapshots(company_id, period)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_adjusting_entries_company      ON adjusting_entries(company_id, references_period)")
+        # System logs                                                              ← add here
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_company_time ON system_logs(company_id, created_at DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_level        ON system_logs(company_id, level)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_entity       ON system_logs(company_id, entity_type, entity_id)")
 
         conn.commit()
         print("✅ Database initialized successfully.")
