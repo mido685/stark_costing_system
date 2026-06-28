@@ -1,3 +1,4 @@
+import SystemLogsPage from "./pages/SystemLogsPage";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -53,6 +54,7 @@ function AppRouter() {
         <Route path="/governance"         component={Governance}        />
         <Route path="/report"             component={Report}            />
         <Route path="/user-management"    component={UserManagement}    />
+        <Route path="/system-logs"        component={SystemLogsPage} />
         <Route                            component={NotFound}          />
       </Switch>
     </DashboardLayout>

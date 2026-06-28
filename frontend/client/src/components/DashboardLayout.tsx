@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Settings2, Package, ShoppingCart,
   Factory, ClipboardList, DollarSign, TrendingUp,
   ShieldCheck, FileText, Menu, LogOut, ChevronRight,
-  Sun, Moon, Languages, Users, ChevronDown,
+  Sun, Moon, Languages, Users, ChevronDown,Activity,
 } from "lucide-react";
 import { useTheme }    from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { href: "/governance",         labelKey: "nav.governance",     icon: ShieldCheck,     color: "text-yellow-500"  },
   { href: "/report",             labelKey: "nav.report",         icon: FileText,        color: "text-pink-500"    },
   { href: "/user-management",    labelKey: "nav.userManagement", icon: Users,           color: "text-indigo-500"  },
+  { href: "/system-logs",        labelKey: "nav.systemLogs",     icon: Activity,        color: "text-teal-500"    },
 ] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

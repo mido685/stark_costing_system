@@ -37,6 +37,7 @@ const translations = {
     "nav.finance":     "Finance",
     "nav.governance":  "Governance",
     "nav.report":      "Report",
+    "nav.systemLogs": "System Logs",
     // Topbar
     "topbar.home":    "Home",
     "topbar.signout": "Sign out",
@@ -986,6 +987,7 @@ const translations = {
     "nav.finance":     "المالية",
     "nav.governance":  "الحوكمة",
     "nav.report":      "التقارير",
+    "nav.systemLogs": "سجلات النظام",
     // Topbar
     "topbar.home":    "الرئيسية",
     "topbar.signout": "تسجيل الخروج",

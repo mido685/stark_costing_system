@@ -12,7 +12,8 @@ from app.security.auth import hash_password
 # All platform-level actions are logged against this company ID.
 # This must be the STARK AI / system owner company row in the companies table.
 # Never set to a tenant company — this is the internal operator account.
-SUPERADMIN_COMPANY_ID = 1
+SUPERADMIN_COMPANY_ID = None
+
 
 
 _USER_COLS = """

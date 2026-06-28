@@ -944,7 +944,7 @@ def init_db() -> None:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS system_logs (
                 id          SERIAL PRIMARY KEY,
-                company_id  INTEGER NOT NULL REFERENCES companies(id),
+                company_id  INTEGER REFERENCES companies(id) ON DELETE SET NULL,
                 branch_id   INTEGER REFERENCES branches(id),
                 user_id     INTEGER REFERENCES app_users(id),
                 level       VARCHAR(10) NOT NULL DEFAULT 'info'

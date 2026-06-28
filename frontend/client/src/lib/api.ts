@@ -1431,20 +1431,32 @@ export async function getSystemLogs(options: {
   offset?: number;
 }): Promise<{ rows: SystemLogRow[]; total: number }> {
   const params = new URLSearchParams();
-  if (options.date)                          params.set("date",        options.date);
-  if (options.action)                        params.set("action",      options.action);
-  if (options.user)                          params.set("user",        options.user);
+  if (options.date)        params.set("date",        options.date);
+  if (options.action)      params.set("action",      options.action);
+  if (options.user)        params.set("user",        options.user);
   if (options.branch_id != null && options.branch_id !== 0)
-                                             params.set("branch_id",   String(options.branch_id));
-  if (options.level)                         params.set("level",       options.level);
-  if (options.entity_type)                   params.set("entity_type", options.entity_type);
+                           params.set("branch_id",   String(options.branch_id));
+  if (options.level)       params.set("level",       options.level);
+  if (options.entity_type) params.set("entity_type", options.entity_type);
   params.set("limit",  String(options.limit  ?? 50));
   params.set("offset", String(options.offset ?? 0));
 
   try {
-    return await apiCall<{ rows: SystemLogRow[]; total: number }>(
-      `/api/system-logs?${params}`
-    );
+    // Bypass normalizeApiResponse — we need both rows AND total
+    const token = localStorage.getItem("token");
+    const response = await fetch(`${API_BASE}/api/system-logs?${params}`, {
+      headers: {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!response.ok) return { rows: [], total: 0 };
+    const body = await response.json();
+    return {
+      rows:  body.rows  ?? [],
+      total: body.total ?? 0,
+    };
   } catch {
     return { rows: [], total: 0 };
   }

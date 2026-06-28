@@ -6,7 +6,7 @@ from psycopg2.extras import Json
 
 def log_event(
     conn,
-    company_id: int,
+    company_id: int | None,
     action: str,
     category: str = "data",
     level: str = "info",
