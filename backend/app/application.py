@@ -65,8 +65,8 @@ def create_app() -> FastAPI:
         rbac as rbac_router,
         system as system_router,
         sku_prefixes as sku_prefixes_router,
-        Periods as periods_router,
-        system_logs as system_logs_router,   # ← added
+        periods as periods_router,
+        system_logger as system_logs_router,   # ← added
     )
 
     application.include_router(system_router.router,        prefix="/api")

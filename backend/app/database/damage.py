@@ -11,8 +11,9 @@ Key design decisions:
 - unit_cost and cost_value are always floated before return so callers
   never receive raw Decimal objects.
 """
-from .system_logger import log_event
 from __future__ import annotations
+from .system_logger import log_event
+
 
 from typing import Any
 

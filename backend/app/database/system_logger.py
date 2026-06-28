@@ -1,3 +1,6 @@
+# app/database/system_logger.py
+from __future__ import annotations
+
 from psycopg2.extras import Json
 
 
@@ -15,11 +18,6 @@ def log_event(
     ip_address: str | None = None,
     session_id: str | None = None,
 ) -> None:
-    """
-    Write one row to system_logs inside the CALLER's transaction.
-    If the caller rolls back, this log row rolls back too — keeping
-    audit and action always in sync.
-    """
     try:
         cur = conn.cursor()
         cur.execute(
@@ -30,17 +28,10 @@ def log_event(
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                company_id,
-                branch_id,
-                user_id,
-                level,
-                category,
-                action,
-                entity_type,
-                entity_id,
+                company_id, branch_id, user_id, level, category, action,
+                entity_type, entity_id,
                 Json(payload) if payload else None,
-                ip_address,
-                session_id,
+                ip_address, session_id,
             ),
         )
         cur.close()
