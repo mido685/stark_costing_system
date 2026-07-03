@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 import {
   CheckCircle, XCircle, Loader2, RefreshCw, AlertTriangle,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
@@ -1053,10 +1054,16 @@ function POHistoryTab({ branchId, addToast }: {
 
 export default function Governance() {
   const { t }         = useLanguage();
+  const { workingPeriod, workingPeriodLabel } = useWorkingPeriod();
   const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
   const branchId      = Number(localStorage.getItem("branch_id") ?? 0);
   const todayStr      = new Date().toISOString().split("T")[0];
-  const currentMonth  = todayStr.slice(0, 7);
+  const selectedPeriodStart = `${workingPeriod}-01`;
+  const selectedPeriodEnd = useMemo(() => {
+    const [year, month] = workingPeriod.split("-").map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${workingPeriod}-${String(lastDay).padStart(2, "0")}`;
+  }, [workingPeriod]);
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -1185,11 +1192,11 @@ export default function Governance() {
     if (!branchId) { setPeriodLoading(false); return; }
     setPeriodLoading(true); setPeriodError(null);
     try {
-      const data = await apiCall<{ is_closed: boolean }>(`/api/period/is-closed?branch_id=${branchId}&entry_date=${todayStr}`);
+      const data = await apiCall<{ is_closed: boolean }>(`/api/period/is-closed?branch_id=${branchId}&entry_date=${selectedPeriodStart}`);
       setPeriodClosed(data?.is_closed ?? false);
     } catch (err: any) { setPeriodError(err?.message ?? t("gov.error.fetchPeriod")); }
     finally { setPeriodLoading(false); }
-  }, [branchId, todayStr, t]);
+  }, [branchId, selectedPeriodStart, t]);
 
   useEffect(() => { fetchPeriodStatus(); }, [fetchPeriodStatus]);
 
@@ -1197,12 +1204,12 @@ export default function Governance() {
     if (!branchId) return;
     setShowCloseConfirm(false); setClosingPeriod(true);
     try {
-      await apiCall("/api/period/close", { method: "POST", body: JSON.stringify({ branch_id: branchId, closed_to: todayStr, notes: "", user_id: currentUserId }) });
+      await apiCall("/api/period/close", { method: "POST", body: JSON.stringify({ branch_id: branchId, closed_to: selectedPeriodEnd, notes: "", user_id: currentUserId }) });
       await fetchPeriodStatus();
       addToast("success", t("gov.toast.periodClosed"));
     } catch (err: any) { addToast("error", err?.message ?? t("gov.error.closePeriod")); }
     finally { setClosingPeriod(false); }
-  }, [branchId, todayStr, currentUserId, fetchPeriodStatus, addToast, t]);
+  }, [branchId, selectedPeriodEnd, currentUserId, fetchPeriodStatus, addToast, t]);
 
   // ── Derived state ─────────────────────────────────────────────────────────
 
