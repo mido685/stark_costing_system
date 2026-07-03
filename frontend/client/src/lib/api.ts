@@ -1419,7 +1419,6 @@ export interface SystemLogRow {
   ip_address: string | null;
   created_at: string;
 }
-
 export async function getSystemLogs(options: {
   date?: string;
   action?: string;
@@ -1441,23 +1440,29 @@ export async function getSystemLogs(options: {
   params.set("limit",  String(options.limit  ?? 50));
   params.set("offset", String(options.offset ?? 0));
 
-  try {
-    // Bypass normalizeApiResponse — we need both rows AND total
-    const token = localStorage.getItem("token");
-    const response = await fetch(`${API_BASE}/api/system-logs?${params}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-    if (!response.ok) return { rows: [], total: 0 };
-    const body = await response.json();
-    return {
-      rows:  body.rows  ?? [],
-      total: body.total ?? 0,
-    };
-  } catch {
-    return { rows: [], total: 0 };
+  const token = localStorage.getItem("token");
+  const response = await fetch(`${API_BASE}/api/system-logs?${params}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!response.ok) {
+    let errorMessage = response.statusText;
+    try {
+      const body = await response.json();
+      errorMessage = body?.detail ?? body?.error ?? errorMessage;
+    } catch { /* ignore */ }
+    const err: any = new Error(errorMessage);
+    err.status = response.status;
+    throw err;
   }
+
+  const body = await response.json();
+  return {
+    rows:  body.rows  ?? [],
+    total: body.total ?? 0,
+  };
 }

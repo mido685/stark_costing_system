@@ -269,25 +269,33 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
   const [pending, setPending]   = useState<Filters>({ date: today(), action: "", user: "" });
 
   const fetchLogs = useCallback(async (f: Filters, off: number) => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await getSystemLogs({
-      date:      f.date || undefined,
-      action:    f.action && f.action !== "All Actions" ? f.action : undefined,
-      user:      f.user || undefined,
-      branch_id: branchId,
-      limit:     PAGE_SIZE,
-      offset:    off,
+  setLoading(true);
+  setError("");
+  try {
+    const data = await getSystemLogs({
+      date:   f.date || undefined,
+      action: f.action && f.action !== "All Actions" ? f.action : undefined,
+      user:   f.user || undefined,
+      // branch_id: branchId,   ← remove
+      limit:  PAGE_SIZE,
+      offset: off,
     });
     setLogs(data.rows);
     setTotal(data.total);
-    } catch {
-      setError("Failed to load system logs.");
-    } finally {
-      setLoading(false);
+  } catch (e: any) {
+    if (e.status === 401) {
+      setError("Your session has expired. Please log in again.");
+    } else if (e.status === 403) {
+      setError("You don't have permission to view system logs.");
+    } else {
+      setError(e.message ?? "Failed to load system logs.");
     }
-  }, [branchId]);
+    setLogs([]);
+    setTotal(0);
+  } finally {
+    setLoading(false);
+  }
+}, [branchId]);
 
   // Initial + filter-triggered fetch
   useEffect(() => {

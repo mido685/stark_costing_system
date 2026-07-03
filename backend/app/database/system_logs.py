@@ -69,7 +69,7 @@ def list_system_logs(
                 b.name         AS branch_name,
                 sl.user_id,
                 u.display_name AS user_name,
-                u.avatar_url   AS user_avatar,
+                NULL           AS user_avatar,
                 sl.level,
                 sl.category,
                 sl.action,
@@ -98,6 +98,37 @@ def list_system_logs(
 
         return rows, total
 
+    finally:
+        cur.close()
+        conn.close()
+# app/database/system_logs.py — add this
+def log_system_event(
+    company_id: int,
+    action: str,
+    level: str = "info",
+    category: str = "system",
+    user_id: int | None = None,
+    branch_id: int | None = None,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    payload: dict | None = None,
+    ip_address: str | None = None,
+) -> None:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute(
+            """
+            INSERT INTO system_logs
+                (company_id, branch_id, user_id, level, category,
+                 action, entity_type, entity_id, payload, ip_address)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (company_id, branch_id, user_id, level, category,
+             action, entity_type, entity_id,
+             json.dumps(payload) if payload else None, ip_address),
+        )
+        conn.commit()
     finally:
         cur.close()
         conn.close()

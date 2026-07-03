@@ -34,6 +34,7 @@ def log_event(
                 ip_address, session_id,
             ),
         )
+        conn.commit()   # ← added: don't rely on the caller to commit
         cur.close()
     except Exception as e:
         print(f"⚠️ system_log write failed: {e}")
