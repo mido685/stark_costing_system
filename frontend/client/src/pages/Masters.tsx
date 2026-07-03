@@ -67,6 +67,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function localNumber(value: number | null | undefined, fallback: number) {
+  return String(value ?? fallback).padStart(5, "0");
+}
+
 // ─── Supplier Categories ──────────────────────────────────────────────────────
 
 const SUPPLIER_CATEGORIES = [
@@ -377,7 +381,12 @@ function ItemCard({
         </span>
       </div>
       <div className="p-4 flex flex-col gap-3 flex-1">
-        <p className="text-sm font-bold text-foreground leading-snug">{item.name}</p>
+        <div>
+          <p className="text-[11px] font-mono text-primary leading-none mb-1">
+            {isFG ? "FG" : "RM"}-{localNumber(item.display_number, item.id)}
+          </p>
+          <p className="text-sm font-bold text-foreground leading-snug">{item.name}</p>
+        </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           {item.sku && (
             <div className="col-span-2">
@@ -536,7 +545,7 @@ function SupplierCard({ s, selectedPeriodClosed, onShow, onDelete }: {
             {s.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()}
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-mono text-primary leading-none mb-1">SP-{String(s.id).padStart(5, "0")}</p>
+            <p className="text-[11px] font-mono text-primary leading-none mb-1">SP-{localNumber(s.supplier_number, s.id)}</p>
             <p className="text-sm font-bold text-foreground leading-snug truncate">{s.name}</p>
             {s.phone && <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><Phone className="w-3 h-3 shrink-0" />{s.phone}</p>}
             {s.email && <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 truncate"><Mail className="w-3 h-3 shrink-0" />{s.email}</p>}
@@ -605,7 +614,7 @@ function SupplierDetailView({ s, selectedPeriodClosed, onBack, onDelete }: {
             <h2 className="text-2xl font-bold text-foreground">{s.name}</h2>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">Active</span>
           </div>
-          <p className="text-sm text-primary font-mono mt-0.5">SP-{String(s.id).padStart(5, "0")}</p>
+          <p className="text-sm text-primary font-mono mt-0.5">SP-{localNumber(s.supplier_number, s.id)}</p>
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1612,7 +1621,7 @@ export default function Masters() {
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">{b.name}</p>
-                        <p className="text-xs text-muted-foreground">ID #{b.id}</p>
+                        <p className="text-xs text-muted-foreground font-mono">BR-{localNumber(b.branch_number, b.id)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1840,7 +1849,9 @@ export default function Masters() {
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary ml-1">You</span>
                             )}
                           </p>
-                          <p className="text-xs text-muted-foreground">@{u.username}</p>
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-mono">US-{localNumber(u.user_number, u.id)}</span> · @{u.username}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

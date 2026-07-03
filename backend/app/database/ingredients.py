@@ -3,6 +3,7 @@ from .system_logger import log_event
 from typing import Any
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .master_numbers import next_master_number
 from .sku_prefixes import next_sku
 
 
@@ -68,6 +69,7 @@ def add_ingredient(
             cur.execute("""
                 UPDATE ingredients
                 SET is_active     = TRUE,
+                    ingredient_number = COALESCE(ingredient_number, %s),
                     unit          = %s,
                     cost_per_unit = %s,
                     stock_qty     = %s,
@@ -76,16 +78,24 @@ def add_ingredient(
                     sku           = %s
                 WHERE id = %s AND company_id = %s
                 RETURNING *
-            """, (unit, cost_per_unit, stock_qty, reorder_level, supplier_id, auto_sku, existing["id"], company_id))
+            """, (
+                next_master_number(cur, "ingredients", company_id),
+                unit, cost_per_unit, stock_qty, reorder_level, supplier_id,
+                auto_sku, existing["id"], company_id,
+            ))
             ingredient = dict(cur.fetchone())
         else:
             auto_sku = sku or next_sku(company_id, sku_prefix or "RM", "ingredients")
             cur.execute("""
                 INSERT INTO ingredients
-                    (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (company_id, ingredient_number, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, sku)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
-            """, (company_id, name, unit, cost_per_unit, stock_qty, reorder_level, supplier_id, auto_sku))
+            """, (
+                company_id, next_master_number(cur, "ingredients", company_id),
+                name, unit, cost_per_unit, stock_qty, reorder_level,
+                supplier_id, auto_sku,
+            ))
             ingredient = dict(cur.fetchone())
 
         log_audit(conn, company_id=company_id, user_id=user_id,

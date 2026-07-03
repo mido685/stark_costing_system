@@ -61,6 +61,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS app_users (
                 id            SERIAL PRIMARY KEY,
                 company_id    INTEGER NOT NULL REFERENCES companies(id),
+                user_number   INTEGER,
                 username      VARCHAR(80) NOT NULL,
                 display_name  VARCHAR(120) NOT NULL,
                 role_id       INTEGER NOT NULL REFERENCES roles(id),
@@ -87,6 +88,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS branches (
                 id         SERIAL PRIMARY KEY,
                 company_id INTEGER NOT NULL REFERENCES companies(id),
+                branch_number INTEGER,
                 name       VARCHAR(120) NOT NULL,
                 location   VARCHAR(120),
                 manager    VARCHAR(120),
@@ -111,6 +113,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS products (
                 id         SERIAL PRIMARY KEY,
                 company_id INTEGER NOT NULL REFERENCES companies(id),
+                product_number INTEGER,
                 name       VARCHAR(120) NOT NULL,
                 unit       VARCHAR(40),
                 sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -143,6 +146,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS suppliers (
                 id                    SERIAL PRIMARY KEY,
                 company_id            INTEGER NOT NULL REFERENCES companies(id),
+                supplier_number       INTEGER,
                 name                  VARCHAR(120) NOT NULL,
                 contact               VARCHAR(120),
                 phone                 VARCHAR(40),
@@ -164,6 +168,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS ingredients (
                 id            SERIAL PRIMARY KEY,
                 company_id    INTEGER NOT NULL REFERENCES companies(id),
+                ingredient_number INTEGER,
                 name          VARCHAR(120) NOT NULL,
                 unit          VARCHAR(40)  NOT NULL,
                 cost_per_unit NUMERIC(12,4) NOT NULL DEFAULT 0,
@@ -960,6 +965,49 @@ def init_db() -> None:
                 created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """)
+
+        # Company-local display numbers for master data. These are separate from
+        # primary keys, which must stay globally unique for foreign keys.
+        for table_name, column_name in [
+            ("branches", "branch_number"),
+            ("suppliers", "supplier_number"),
+            ("ingredients", "ingredient_number"),
+            ("products", "product_number"),
+            ("app_users", "user_number"),
+        ]:
+            cur.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} INTEGER"
+            )
+            cur.execute(f"""
+                WITH existing AS (
+                    SELECT company_id, COALESCE(MAX({column_name}), 0) AS base_number
+                    FROM {table_name}
+                    GROUP BY company_id
+                ),
+                numbered AS (
+                    SELECT
+                        t.id,
+                        COALESCE(e.base_number, 0) + ROW_NUMBER() OVER (
+                            PARTITION BY t.company_id
+                            ORDER BY t.id
+                        ) AS local_number
+                    FROM {table_name} t
+                    LEFT JOIN existing e ON e.company_id = t.company_id
+                    WHERE t.{column_name} IS NULL
+                )
+                UPDATE {table_name} t
+                   SET {column_name} = numbered.local_number
+                  FROM numbered
+                 WHERE t.id = numbered.id
+                   AND t.{column_name} IS NULL
+            """)
+            cur.execute(
+                f"""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_{table_name}_{column_name}
+                    ON {table_name}(company_id, {column_name})
+                    WHERE {column_name} IS NOT NULL
+                """
+            )
 
         # ─────────────────────────────────────────────────────────────────────
         # INDEXES

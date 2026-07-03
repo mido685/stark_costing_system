@@ -38,6 +38,8 @@ def list_items(
         for p in products_db.list_products(company_id):
             items.append({
                 "id":            p["id"],
+                "display_number": p.get("product_number") or p["id"],
+                "product_number": p.get("product_number"),
                 "name":          p["name"],
                 "sku":           p.get("sku") or f"FG-{p['id']}",
                 "category":      "finished_good",
@@ -52,6 +54,8 @@ def list_items(
         for i in ingredients_db.list_ingredients(company_id):
             items.append({
                 "id":            i["id"],
+                "display_number": i.get("ingredient_number") or i["id"],
+                "ingredient_number": i.get("ingredient_number"),
                 "name":          i["name"],
                 "sku":           i.get("sku") or f"RM-{i['id']}",
                 "category":      "raw_material",

@@ -109,6 +109,7 @@ interface Invoice {
 
 interface FulfillmentRow {
   po_id: number;
+  po_number?: number;
   po_date: string;
   branch_id: number;
   branch_name: string;
@@ -145,6 +146,7 @@ interface PurchaseForm {
 interface EditPurchaseForm { quantity: number; unit_cost: number; notes: string; }
 interface GRNForm {
   purchase_id: number; ingredient_id: number; branch_id: number;
+  po_number?: number;
   entry_date: string; received_qty: number; unit_cost: number; notes: string;
   ingredient_name: string; unit: string; po_qty: number; po_unit_cost: number;
 }
@@ -179,7 +181,7 @@ const currentPeriod = (): string => { const d = new Date(); return `${d.getFullY
 
 const initPurchaseForm    = (): PurchaseForm    => ({ branch_id:0,supplier_id:0,item_id:0,entry_date:todayISO(),quantity:0,unit_cost:0,tax_amount:0,payable_amount:0,notes:"" });
 const initEditPurchaseForm= (): EditPurchaseForm=> ({ quantity:0, unit_cost:0, notes:"" });
-const initGRNForm         = (): GRNForm         => ({ purchase_id:0,ingredient_id:0,branch_id:0,entry_date:todayISO(),received_qty:0,unit_cost:0,notes:"",ingredient_name:"",unit:"",po_qty:0,po_unit_cost:0 });
+const initGRNForm         = (): GRNForm         => ({ purchase_id:0,ingredient_id:0,branch_id:0,po_number:undefined,entry_date:todayISO(),received_qty:0,unit_cost:0,notes:"",ingredient_name:"",unit:"",po_qty:0,po_unit_cost:0 });
 const initReturnForm      = (): ReturnForm      => ({ branch_id:0,supplier_id:0,item_id:0,entry_date:todayISO(),quantity:0,unit_cost:0,refund_amount:0,notes:"" });
 const initCashForm        = (): CashForm        => ({ branch_id:0,supplier_id:0,item_id:0,category_id:0,purchase_mode:"ingredient",purchase_type:"branch_cash",entry_date:todayISO(),quantity:0,unit_cost:0,tax_amount:0,payable_amount:0,petty_cash_used:false,notes:"" });
 const initPettyTopUpForm  = (): PettyTopUpForm  => ({ branch_id:0,amount:0,entry_date:todayISO(),notes:"" });
@@ -210,6 +212,8 @@ function cashFormReducer(s: CashForm, a: CashFormAction): CashForm {
 
 const fmt      = (n: number | string) => formatCurrencyValue(Number(n), { maximumFractionDigits: 2 });
 const fmtBytes = (kb: number) => kb < 1024 ? `${kb} KB` : `${(kb/1024).toFixed(1)} MB`;
+const poRef = (poNumber?: number | null, fallbackId?: number | null) =>
+  `PO-${String(poNumber ?? fallbackId ?? 0).padStart(5, "0")}`;
 
 // ─── PDF bulk export ──────────────────────────────────────────────────────────
 
@@ -277,7 +281,8 @@ function openPoAsHtml(purchase: Purchase, currencyLabel: string): void {
   const payable=Number(purchase.payable_amount??gross+tax);
   const now=new Date().toLocaleDateString();
   const statusColor=purchase.status==="approved"?"#16a34a":purchase.status==="rejected"?"#dc2626":"#d97706";
-  const html=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>PO-${purchase.id} — STARK AI</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',sans-serif;font-size:13px;color:#1e293b;background:#f8fafc}.page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;padding:40px}.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:28px}.brand{font-size:10px;font-weight:800;letter-spacing:4px;color:#1e3a5f;text-transform:uppercase;margin-bottom:6px}.doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}.doc-sub{font-size:12px;color:#64748b}.meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}.status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px;background:${purchase.status==="approved"?"#dcfce7":purchase.status==="rejected"?"#fee2e2":"#fef3c7"};color:${statusColor}}.section{margin-bottom:24px}.section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}.info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}.info-value{font-size:13px;font-weight:600;color:#0f172a}table{width:100%;border-collapse:collapse;margin-bottom:20px}thead tr{background:#1e3a5f}thead th{color:#fff;padding:10px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}thead th.right{text-align:right}tbody tr{border-bottom:1px solid #f1f5f9}tbody tr:nth-child(even){background:#f8fafc}tbody td{padding:12px 14px;font-size:13px;color:#334155}tbody td.right{text-align:right;font-weight:600;color:#0f172a}.totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}.totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}.totals-row:last-child{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}.totals-row:last-child span{color:#93c5fd}.notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}.footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}.footer-note{font-size:10px;color:#94a3b8}.print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}.print-btn:hover{background:#1e40af}@media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}</style></head><body><button class="print-btn" onclick="window.print()">🖨 Save as PDF</button><div class="page"><div class="header"><div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">Purchase Order</div><div class="doc-sub">PO #${String(purchase.id).padStart(6,"0")} · ${purchase.entry_date}</div></div><div class="meta"><div><span class="status-badge">${(purchase.status??"PENDING").toUpperCase()}</span></div><div style="margin-top:8px">Generated: ${now}</div><div>Ref: PO-${purchase.id}</div></div></div><div class="section"><div class="section-title">Order Details</div><div class="info-grid"><div class="info-block"><div class="info-label">Branch</div><div class="info-value">${purchase.branch_name??`Branch #${purchase.branch_id}`}</div></div><div class="info-block"><div class="info-label">Supplier</div><div class="info-value">${purchase.supplier_name??`Supplier #${purchase.supplier_id}`}</div></div></div></div><div class="section"><div class="section-title">Line Items</div><table><thead><tr><th>Ingredient / Item</th><th class="right">Quantity</th><th class="right">Unit Cost (${currencyLabel})</th><th class="right">Gross Amount (${currencyLabel})</th></tr></thead><tbody><tr><td>${purchase.ingredient_name??purchase.item_name??`Item #${purchase.item_id}`}</td><td class="right">${qty.toFixed(3)}</td><td class="right">${fmt(unitCost)}</td><td class="right">${fmt(gross)}</td></tr></tbody></table><div class="totals"><div class="totals-row"><span>Gross Amount</span><span>${fmt(gross)}</span></div><div class="totals-row"><span>Tax</span><span>${fmt(tax)}</span></div><div class="totals-row"><span>Total Payable</span><span>${fmt(payable)}</span></div></div></div>${purchase.notes?`<div class="section"><div class="section-title">Notes</div><div class="notes-box">${purchase.notes}</div></div>`:""}<div class="footer"><div class="footer-brand">STARK AI</div><div class="footer-note">Confidential · ${now} · PO-${purchase.id}</div></div></div></body></html>`;
+  const ref=poRef(purchase.po_number, purchase.id);
+  const html=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${ref} — STARK AI</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',sans-serif;font-size:13px;color:#1e293b;background:#f8fafc}.page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;padding:40px}.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:28px}.brand{font-size:10px;font-weight:800;letter-spacing:4px;color:#1e3a5f;text-transform:uppercase;margin-bottom:6px}.doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}.doc-sub{font-size:12px;color:#64748b}.meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}.status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px;background:${purchase.status==="approved"?"#dcfce7":purchase.status==="rejected"?"#fee2e2":"#fef3c7"};color:${statusColor}}.section{margin-bottom:24px}.section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}.info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}.info-value{font-size:13px;font-weight:600;color:#0f172a}table{width:100%;border-collapse:collapse;margin-bottom:20px}thead tr{background:#1e3a5f}thead th{color:#fff;padding:10px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}thead th.right{text-align:right}tbody tr{border-bottom:1px solid #f1f5f9}tbody tr:nth-child(even){background:#f8fafc}tbody td{padding:12px 14px;font-size:13px;color:#334155}tbody td.right{text-align:right;font-weight:600;color:#0f172a}.totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}.totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}.totals-row:last-child{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}.totals-row:last-child span{color:#93c5fd}.notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}.footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}.footer-note{font-size:10px;color:#94a3b8}.print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}.print-btn:hover{background:#1e40af}@media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}</style></head><body><button class="print-btn" onclick="window.print()">🖨 Save as PDF</button><div class="page"><div class="header"><div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">Purchase Order</div><div class="doc-sub">${ref} · ${purchase.entry_date}</div></div><div class="meta"><div><span class="status-badge">${(purchase.status??"PENDING").toUpperCase()}</span></div><div style="margin-top:8px">Generated: ${now}</div><div>Ref: ${ref}</div></div></div><div class="section"><div class="section-title">Order Details</div><div class="info-grid"><div class="info-block"><div class="info-label">Branch</div><div class="info-value">${purchase.branch_name??`Branch #${purchase.branch_id}`}</div></div><div class="info-block"><div class="info-label">Supplier</div><div class="info-value">${purchase.supplier_name??`Supplier #${purchase.supplier_id}`}</div></div></div></div><div class="section"><div class="section-title">Line Items</div><table><thead><tr><th>Ingredient / Item</th><th class="right">Quantity</th><th class="right">Unit Cost (${currencyLabel})</th><th class="right">Gross Amount (${currencyLabel})</th></tr></thead><tbody><tr><td>${purchase.ingredient_name??purchase.item_name??`Item #${purchase.item_id}`}</td><td class="right">${qty.toFixed(3)}</td><td class="right">${fmt(unitCost)}</td><td class="right">${fmt(gross)}</td></tr></tbody></table><div class="totals"><div class="totals-row"><span>Gross Amount</span><span>${fmt(gross)}</span></div><div class="totals-row"><span>Tax</span><span>${fmt(tax)}</span></div><div class="totals-row"><span>Total Payable</span><span>${fmt(payable)}</span></div></div></div>${purchase.notes?`<div class="section"><div class="section-title">Notes</div><div class="notes-box">${purchase.notes}</div></div>`:""}<div class="footer"><div class="footer-brand">STARK AI</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div></div></body></html>`;
   const blob=new Blob([html],{type:"text/html"});
   const url=URL.createObjectURL(blob);
   window.open(url,"_blank");
@@ -809,10 +814,11 @@ export default function Procurement() {
   }, []);
 
   const handleOpenFulfillmentHtml = useCallback((row: FulfillmentRow) => {
+    const ref = poRef(row.po_number, row.po_id);
     openRecordAsHtml({
       title: "PO Fulfillment",
-      subtitle: `PO-${String(row.po_id).padStart(5, "0")} · ${row.ingredient_name}`,
-      ref: `PO-${String(row.po_id).padStart(5, "0")}`,
+      subtitle: `${ref} · ${row.ingredient_name}`,
+      ref,
       badge: {
         label: row.fulfillment_status === "fully_received" ? "FULLY RECEIVED"
              : row.fulfillment_status === "partially_received" ? "PARTIAL"
@@ -894,6 +900,7 @@ export default function Procurement() {
   function openGRNModal(row: FulfillmentRow) {
     setGrnForm({
       purchase_id:     row.po_id,
+      po_number:       row.po_number,
       ingredient_id:   row.ingredient_id,
       branch_id:       row.branch_id,
       entry_date:      todayISO(),
@@ -1322,7 +1329,7 @@ export default function Procurement() {
                   Modification History
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  PO-{String(historyPurchase.po_number || historyPurchase.id).padStart(5, "0")} ·{" "}
+                  {poRef(historyPurchase.po_number, historyPurchase.id)} ·{" "}
                   {historyPurchase.ingredient_name ?? historyPurchase.item_name} ·{" "}
                   {historyPurchase.branch_name}
                 </p>
@@ -1493,7 +1500,7 @@ export default function Procurement() {
       {/* ══ EDIT PO MODAL (pending only) ══════════════════════════════════════ */}
       {modal === "editPurchase" && editingPurchase && (
         <Modal
-          title={`Edit PO #${String(editingPurchase.id).padStart(5,"0")}`}
+          title={`Edit ${poRef(editingPurchase.po_number, editingPurchase.id)}`}
           subtitle="Only pending POs can be edited. Approved POs must be rejected and re-created."
           onClose={()=>{ setModal(null); setEditingPurchase(null); }}
           onSave={handleSaveEditPurchase}
@@ -1541,7 +1548,7 @@ export default function Procurement() {
       {modal === "grn" && (
         <Modal
           title="Record Goods Receipt (GRN)"
-          subtitle={`PO-${String(grnForm.purchase_id).padStart(5,"0")} · ${grnForm.ingredient_name}`}
+          subtitle={`${poRef(grnForm.po_number, grnForm.purchase_id)} · ${grnForm.ingredient_name}`}
           onClose={()=>setModal(null)}
           onSave={handleSaveGRN}
           saving={saving}
@@ -2222,7 +2229,7 @@ export default function Procurement() {
                     const canGRN = row.fulfillment_status !== "fully_received";
                     return (
                       <tr key={row.po_id} className="hover:bg-muted/30 transition-colors">
-                        <Td className="font-mono text-xs font-semibold text-foreground">PO-{String(row.po_id).padStart(5,"0")}</Td>
+                        <Td className="font-mono text-xs font-semibold text-foreground">{poRef(row.po_number, row.po_id)}</Td>
                         <Td muted>{row.po_date}</Td>
                         <Td muted>{row.branch_name}</Td>
                         <Td muted>{row.supplier_name}</Td>

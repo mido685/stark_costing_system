@@ -961,6 +961,7 @@ def get_po_fulfillment(
             f"""
             SELECT
                 p.id                                            AS po_id,
+                p.po_number,
                 p.entry_date                                    AS po_date,
                 p.branch_id,
                 b.name                                          AS branch_name,
@@ -998,7 +999,7 @@ def get_po_fulfillment(
             LEFT JOIN goods_receipts gr ON gr.purchase_id = p.id
             WHERE {' AND '.join(where)}
             GROUP BY
-                p.id, p.entry_date, p.branch_id, b.name,
+                p.id, p.po_number, p.entry_date, p.branch_id, b.name,
                 p.supplier_id, s.name,
                 p.ingredient_id, i.name, i.unit,
                 p.quantity, p.unit_cost, p.payable_amount

@@ -33,6 +33,7 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 u.display_name AS submitted_by,
 
                 p.quantity,
+                p.po_number,
                 COALESCE(p.unit_cost, sph.price)   AS unit_cost,
                 p.gross_amount                      AS amount,
                 p.tax_amount,
@@ -156,6 +157,7 @@ def approvals_history(
                 u.display_name      AS submitted_by,
                 ab.display_name     AS approved_by_name,
                 p.quantity,
+                p.po_number,
                 p.unit_cost,
                 p.gross_amount      AS amount,
                 p.tax_amount,

@@ -9,6 +9,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .master_numbers import next_master_number
 from .system_logger import log_event
 
 # ── Valid price types ─────────────────────────────────────────────────────────
@@ -76,14 +77,14 @@ def add_supplier(
     try:
         cur.execute("""
             INSERT INTO suppliers (
-                company_id, name, contact, phone,
+                company_id, supplier_number, name, contact, phone,
                 email, address, website, commercial_reg_number,
                 agent_name, agent_phone, category, notes
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
         """, (
-            company_id, name, contact, phone,
+            company_id, next_master_number(cur, "suppliers", company_id), name, contact, phone,
             email, address, website, commercial_reg_number,
             agent_name, agent_phone, category, notes,
         ))

@@ -2,6 +2,7 @@ import psycopg2
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .master_numbers import next_master_number
 from .system_logger import log_event
 
 
@@ -69,10 +70,10 @@ def add_branch(
     cur = dict_cursor(conn)
     try:
         cur.execute("""
-            INSERT INTO branches (company_id, name, location, manager)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO branches (company_id, branch_number, name, location, manager)
+            VALUES (%s, %s, %s, %s, %s)
             RETURNING *
-        """, (company_id, name, location, manager))
+        """, (company_id, next_master_number(cur, "branches", company_id), name, location, manager))
         branch = dict(cur.fetchone())
 
         log_audit(

@@ -1,12 +1,13 @@
 from .connection import get_connection, dict_cursor
 from app.security.auth import hash_password
 from .log_audit import log_audit
+from .master_numbers import next_master_number
 from .system_logger import log_event
 import psycopg2
 from typing import Any
 
 # Columns safe to return — never expose password_hash
-_USER_COLS = "u.id, u.username, u.display_name, u.role_id, r.name AS role, u.is_active, u.created_at"
+_USER_COLS = "u.id, u.user_number, u.username, u.display_name, u.role_id, r.name AS role, u.is_active, u.created_at"
 
 
 def list_users(company_id: int) -> list[dict[str, Any]]:
@@ -58,9 +59,16 @@ def add_user(
         hashed = hash_password(password)
         cur.execute("""
             INSERT INTO app_users
-                (company_id, username, display_name, role_id, password_hash)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (company_id, username, display_name, role_id, hashed))
+                (company_id, user_number, username, display_name, role_id, password_hash)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            company_id,
+            next_master_number(cur, "app_users", company_id),
+            username,
+            display_name,
+            role_id,
+            hashed,
+        ))
         cur.execute(f"""
             SELECT {_USER_COLS}
             FROM app_users u

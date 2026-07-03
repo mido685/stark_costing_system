@@ -1052,8 +1052,6 @@ function POHistoryTab({ branchId, addToast }: {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Governance() {
-  useInjectStyles();
-
   const { t }         = useLanguage();
   const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
   const branchId      = Number(localStorage.getItem("branch_id") ?? 0);
@@ -1075,7 +1073,6 @@ export default function Governance() {
   const [sortDir,          setSortDir]          = useState<SortDir>("desc");
   const [showFilters,      setShowFilters]      = useState(false);
   const [page,             setPage]             = useState(1);
-  const [focusedIdx,       setFocusedIdx]       = useState<number | null>(null);
   const [confirmAction,    setConfirmAction]    = useState<{ id: string; action: "approve" | "reject" } | null>(null);
   const [newPOCount,       setNewPOCount]       = useState(0);
   const [periodClosed,     setPeriodClosed]     = useState(false);
@@ -1085,15 +1082,6 @@ export default function Governance() {
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   // ── Expense categories (for CategorySelector) ─────────────────────────────
-  const [categories, setCategories] = useState<ExpenseCategory[]>([]);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-
-  useEffect(() => {
-    apiCall<ExpenseCategory[]>("/api/expense-categories")
-      .then((data) => setCategories(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, []);
-
   // ── Toast helpers ─────────────────────────────────────────────────────────
 
   const addToast = useCallback((type: ToastMessage["type"], message: string) => {
@@ -1173,7 +1161,7 @@ export default function Governance() {
   // ── Approve / Reject ──────────────────────────────────────────────────────
 
   const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
-    setConfirmAction(null); setFocusedIdx(null);
+    setConfirmAction(null);
     setLoadingIds((prev) => new Set(prev).add(id));
     const newStatus: ApprovalStatus = action === "approve" ? "approved" : "rejected";
     setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
@@ -1190,19 +1178,6 @@ export default function Governance() {
   }, [currentUserId, addToast, t, fetchApprovals]);
 
   // ── Bulk approve ──────────────────────────────────────────────────────────
-
-  const handleBulkApprove = useCallback(async () => {
-    const pendingIds = approvals.filter((a) => a.status === "pending").map((a) => a.id);
-    if (!pendingIds.length) return;
-    setLoadingIds(new Set(pendingIds));
-    setApprovals((prev) => prev.map((a) => (a.status === "pending" ? { ...a, status: "approved" } : a)));
-    try {
-      await Promise.all(pendingIds.map((id) => apiCall(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ approved_by: currentUserId }) })));
-      addToast("success", t("gov.toast.bulkApproved"));
-    } catch (err: any) {
-      await fetchApprovals(); addToast("error", err?.message ?? t("gov.error.action"));
-    } finally { setLoadingIds(new Set()); }
-  }, [approvals, currentUserId, addToast, t, fetchApprovals]);
 
   // ── Period closure ────────────────────────────────────────────────────────
 
@@ -1260,11 +1235,10 @@ export default function Governance() {
     return result;
   }, [approvals, filterStatus, filterType, search, sortField, sortDir, t]);
 
-  useEffect(() => { setPage(1); setFocusedIdx(null); }, [search, filterStatus, filterType, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [search, filterStatus, filterType, sortField, sortDir]);
 
   const totalPages       = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE));
   const currentPageItems = useMemo(() => filteredAndSorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filteredAndSorted, page]);
-  const pendingPageItems = useMemo(() => currentPageItems.filter((a) => a.status === "pending"), [currentPageItems]);
 
   const byType = useMemo(() => {
     const groups: Record<string, { pending: number; approved: number }> = {};
@@ -1287,25 +1261,6 @@ export default function Governance() {
       typeKey: k, pending: byType[k]?.pending ?? 0, approved: byType[k]?.approved ?? 0,
     })), [byType]);
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (activeTab !== "approvals") return;
-    function onKeyDown(e: KeyboardEvent) {
-      if (confirmAction || showCloseConfirm) return;
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      if (!pendingPageItems.length) return;
-      switch (e.key) {
-        case "ArrowDown": e.preventDefault(); setFocusedIdx((p) => p === null ? 0 : Math.min(p + 1, pendingPageItems.length - 1)); break;
-        case "ArrowUp":   e.preventDefault(); setFocusedIdx((p) => p === null ? 0 : Math.max(p - 1, 0)); break;
-        case "a": case "A": if (focusedIdx !== null && pendingPageItems[focusedIdx]) { e.preventDefault(); setConfirmAction({ id: pendingPageItems[focusedIdx].id, action: "approve" }); } break;
-        case "r": case "R": if (focusedIdx !== null && pendingPageItems[focusedIdx]) { e.preventDefault(); setConfirmAction({ id: pendingPageItems[focusedIdx].id, action: "reject"  }); } break;
-        case "Escape": setFocusedIdx(null); break;
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeTab, confirmAction, showCloseConfirm, pendingPageItems, focusedIdx]);
 
   // ── Export CSV ────────────────────────────────────────────────────────────
 
@@ -1518,19 +1473,12 @@ export default function Governance() {
               </Card>
 
               <Card className="p-5">
-                <h2 className="text-sm font-semibold text-foreground mb-3">{t("gov.quickActions.title")}</h2>
+                <h2 className="text-sm font-semibold text-foreground mb-3">Review controls</h2>
                 <div className="space-y-2">
-                  {pendingCount > 0 && (
-                    <Button variant="outline" size="sm" onClick={handleBulkApprove} disabled={loadingIds.size > 0}
-                      className="gov-btn-press gov-ripple w-full justify-start text-xs h-9 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-950/30">
-                      {loadingIds.size > 0 ? <Loader2 className="w-3.5 h-3.5 me-2 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 me-2" />}
-                      {t("gov.quickActions.approveAll").replace("{count}", String(pendingCount))}
-                    </Button>
-                  )}
                   {pendingPOCount > 0 && (
                     <Button variant="outline" size="sm" onClick={() => { setFilterType("gov.approvalType.purchase"); setFilterStatus("pending"); }}
-                      className="gov-btn-press w-full justify-start text-xs h-9 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-950/30">
-                      <ShoppingCart className="w-3.5 h-3.5 me-2" />Review {pendingPOCount} Pending PO{pendingPOCount !== 1 ? "s" : ""}
+                      className="w-full justify-start text-xs h-9">
+                      <ShoppingCart className="w-3.5 h-3.5 me-2" />Purchase orders awaiting review
                     </Button>
                   )}
                   {priceAlertCount > 0 && (
@@ -1541,39 +1489,29 @@ export default function Governance() {
                         setFilterType("gov.approvalType.priceHistory");
                         setFilterStatus("pending");
                       }}
-                      className="gov-btn-press w-full justify-start text-xs h-9 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800 hover:bg-orange-50 dark:hover:bg-orange-950/30"
+                      className="w-full justify-start text-xs h-9"
                     >
                       <TrendingUp className="w-3.5 h-3.5 me-2" />
-                      Review {priceAlertCount} Price Alert{priceAlertCount !== 1 ? "s" : ""}
+                      Price changes awaiting review
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="gov-btn-press w-full justify-start text-xs h-9">
-                    <RefreshCw className={`w-3.5 h-3.5 me-2 ${approvalsLoading ? "animate-spin" : ""}`} />{t("gov.quickActions.refresh")}
+                  <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="w-full justify-start text-xs h-9">
+                    <RefreshCw className={`w-3.5 h-3.5 me-2 ${approvalsLoading ? "animate-spin" : ""}`} />Refresh queue
                   </Button>
-                  <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={approvals.length === 0} className="gov-btn-press w-full justify-start text-xs h-9">
-                    <Download className="w-3.5 h-3.5 me-2" />{t("gov.quickActions.export")}
+                  <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={approvals.length === 0} className="w-full justify-start text-xs h-9">
+                    <Download className="w-3.5 h-3.5 me-2" />Export current view
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setActiveTab("gov-history")} className="gov-btn-press w-full justify-start text-xs h-9 text-muted-foreground">
-                    <History className="w-3.5 h-3.5 me-2" />View Governance History
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("gov-history")} className="w-full justify-start text-xs h-9 text-muted-foreground">
+                    <History className="w-3.5 h-3.5 me-2" />Governance history
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setActiveTab("po-history")} className="gov-btn-press w-full justify-start text-xs h-9 text-muted-foreground">
-                    <Package className="w-3.5 h-3.5 me-2" />View All Purchase Orders
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("po-history")} className="w-full justify-start text-xs h-9 text-muted-foreground">
+                    <Package className="w-3.5 h-3.5 me-2" />Purchase order history
                   </Button>
                 </div>
 
                 {/* ── Expense Category Selector ── */}
-                <div className="mt-4 pt-4 border-t border-border space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Expense Category</p>
-                  <CategorySelector
-                    value={categoryId}
-                    onChange={setCategoryId}
-                    categories={categories}
-                    onCategoryCreated={(cat) => setCategories((prev) => [...prev, cat])}
-                  />
-                </div>
-
                 <div className="mt-5 pt-4 border-t border-border space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">{t("gov.summary.title")}</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Workload summary</p>
                   {[
                     { label: t("gov.summary.total"),    value: approvals.length, color: "text-foreground" },
                     { label: t("gov.summary.pending"),  value: pendingCount,     color: "text-amber-600 dark:text-amber-400" },
@@ -1588,7 +1526,7 @@ export default function Governance() {
                   ))}
                 </div>
 
-                {pendingCount > 0 && (
+                {false && (
                   <div className="mt-4 pt-4 border-t border-border">
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       <span className="font-medium text-foreground">Keyboard: </span>
@@ -1673,9 +1611,6 @@ export default function Governance() {
                       const isLoading       = loadingIds.has(a.id);
                       const formattedAmount = formatCurrency(a.amount, a.currency);
                       const formattedDate   = formatDate(a.date);
-                      const pendingIdx      = pendingPageItems.findIndex((p) => p.id === a.id);
-                      const isFocused       = pendingIdx !== -1 && focusedIdx === pendingIdx;
-
                       if (a.status !== "pending") {
                         return (
                           <div key={a.id} className="gov-fade-in flex items-center gap-2 px-4 py-2.5 bg-muted/30 border border-border rounded-md opacity-60">
@@ -1752,12 +1687,8 @@ export default function Governance() {
                       }
 
                       return (
-                        <div key={a.id} onClick={() => setFocusedIdx(pendingIdx)}
-                          className={`gov-row-hover gov-fade-in flex items-center justify-between px-4 py-3 border rounded-md gap-3 cursor-pointer transition-all ${
-                            isFocused            ? "bg-amber-100 dark:bg-amber-950/50 border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50"
-                            : a.fromProcurement  ? "bg-blue-50/60 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/50"
-                            : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50"
-                          }`}>
+                        <div key={a.id}
+                          className="flex items-center justify-between px-4 py-3 border border-border rounded-md gap-3 bg-card hover:bg-muted/30 transition-colors">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.fromProcurement ? "bg-blue-500 dark:bg-blue-400" : "bg-amber-500 dark:bg-amber-400"}`} />
@@ -1770,7 +1701,6 @@ export default function Governance() {
                               )}
                               {a.priority && <PriorityBadge priority={a.priority} />}
                               {formattedAmount && <span className="text-xs font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">{formattedAmount}</span>}
-                              {isFocused && <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-200/60 dark:bg-amber-900/40 px-1.5 py-0.5 rounded ms-auto">focused · A approve · R reject</span>}
                             </div>
                             {a.typeKey === "gov.approvalType.priceHistory" ? (
                               <div className="flex items-center gap-2 mt-0.5 ms-3.5 flex-wrap">
@@ -1824,7 +1754,7 @@ export default function Governance() {
                     })}
                   </div>
                   <Pagination page={page} totalPages={totalPages} totalItems={filteredAndSorted.length} pageSize={PAGE_SIZE}
-                    onPage={(p) => { setPage(p); setFocusedIdx(null); }} />
+                    onPage={setPage} />
                 </>
               )}
             </Card>

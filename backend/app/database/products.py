@@ -3,6 +3,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
+from .master_numbers import next_master_number
 from .sku_prefixes import next_sku
 from .system_logger import log_event
 
@@ -46,21 +47,28 @@ def add_product(
             cur.execute("""
                 UPDATE products
                 SET is_active  = TRUE,
+                    product_number = COALESCE(product_number, %s),
                     unit       = %s,
                     sale_price = %s,
                     sku        = %s
                 WHERE id = %s AND company_id = %s
                 RETURNING *
-            """, (unit, sale_price, auto_sku, existing["id"], company_id))
+            """, (
+                next_master_number(cur, "products", company_id),
+                unit, sale_price, auto_sku, existing["id"], company_id,
+            ))
             product = dict(cur.fetchone())
             action_label = "reactivated"
         else:
             auto_sku = sku or next_sku(company_id, sku_prefix or "DISH", "products")
             cur.execute("""
-                INSERT INTO products (company_id, name, unit, sale_price, sku)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO products (company_id, product_number, name, unit, sale_price, sku)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING *
-            """, (company_id, name, unit, sale_price, auto_sku))
+            """, (
+                company_id, next_master_number(cur, "products", company_id),
+                name, unit, sale_price, auto_sku,
+            ))
             product = dict(cur.fetchone())
             action_label = "created"
 

@@ -137,6 +137,7 @@ function normalizeApiResponse(body: any) {
 
 export interface Branch {
   id: number;
+  branch_number?: number;
   name: string;
 }
 
@@ -311,6 +312,7 @@ export interface ApprovalRow {
 }
 export interface UserRow {
   id: number;
+  user_number?: number;
   username: string;
   display_name: string;
   role: string;
@@ -318,6 +320,9 @@ export interface UserRow {
 
 export interface ItemRow {
   id: number;
+  display_number?: number;
+  ingredient_number?: number;
+  product_number?: number;
   name: string;
   sku: string;
   category: string;
@@ -333,6 +338,7 @@ export interface ItemRow {
 
 export interface SupplierRow {
   id: number;
+  supplier_number?: number;
   name: string;
   contact?: string;
   phone?: string;

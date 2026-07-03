@@ -2,6 +2,7 @@ import psycopg2
 from typing import Any
 
 from .connection import get_connection, dict_cursor
+from .master_numbers import next_master_number
 from app.security.auth import hash_password, verify_password
 
 
@@ -66,11 +67,12 @@ def register_company(
         # ── 4. Create owner user ──────────────────────────────────────────────
         cur.execute("""
             INSERT INTO app_users
-                (company_id, username, display_name, role_id, password_hash)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, username, display_name, role_id, is_active, created_at
+                (company_id, user_number, username, display_name, role_id, password_hash)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, user_number, username, display_name, role_id, is_active, created_at
         """, (
             company["id"],
+            next_master_number(cur, "app_users", company["id"]),
             owner_username,
             owner_display_name,
             owner_role_id,
