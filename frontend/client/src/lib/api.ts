@@ -139,6 +139,9 @@ export interface Branch {
   id: number;
   branch_number?: number;
   name: string;
+  location?: string | null;
+  manager?: string | null;
+  is_active?: boolean;
 }
 
 export interface StockBalance {

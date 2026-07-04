@@ -6,6 +6,49 @@ from typing import Any
 from .connection import get_connection, dict_cursor
 
 
+def _coerce_int(value: Any) -> int | None:
+    try:
+        if isinstance(value, bool) or value is None:
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _collect_ingredient_ids(value: Any, ids: set[int]) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key == "ingredient_id":
+                ingredient_id = _coerce_int(nested)
+                if ingredient_id is not None:
+                    ids.add(ingredient_id)
+            else:
+                _collect_ingredient_ids(nested, ids)
+    elif isinstance(value, list):
+        for nested in value:
+            _collect_ingredient_ids(nested, ids)
+
+
+def _enrich_ingredient_refs(value: Any, ingredients: dict[int, dict[str, Any]]) -> Any:
+    if isinstance(value, dict):
+        enriched: dict[str, Any] = {}
+        for key, nested in value.items():
+            if key == "ingredient_id":
+                ingredient_id = _coerce_int(nested)
+                ingredient = ingredients.get(ingredient_id) if ingredient_id is not None else None
+                if ingredient:
+                    enriched[key] = ingredient["ingredient_number"] or ingredient_id
+                    enriched.setdefault("ingredient_name", ingredient["name"])
+                else:
+                    enriched[key] = nested
+            else:
+                enriched[key] = _enrich_ingredient_refs(nested, ingredients)
+        return enriched
+    if isinstance(value, list):
+        return [_enrich_ingredient_refs(nested, ingredients) for nested in value]
+    return value
+
+
 def list_system_logs(
     company_id:  int,
     date:        str | None = None,
@@ -95,6 +138,23 @@ def list_system_logs(
                     row["payload"] = json.loads(row["payload"])
                 except Exception:
                     row["payload"] = None
+
+        ingredient_ids: set[int] = set()
+        for row in rows:
+            _collect_ingredient_ids(row.get("payload"), ingredient_ids)
+
+        if ingredient_ids:
+            cur.execute(
+                """
+                SELECT id, ingredient_number, name
+                FROM ingredients
+                WHERE company_id = %s AND id = ANY(%s)
+                """,
+                (company_id, list(ingredient_ids)),
+            )
+            ingredients = {r["id"]: dict(r) for r in cur.fetchall()}
+            for row in rows:
+                row["payload"] = _enrich_ingredient_refs(row.get("payload"), ingredients)
 
         return rows, total
 
