@@ -1338,7 +1338,7 @@ export default function Governance() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-foreground">{t("gov.period.confirmTitle")}</p>
-                <p className="text-xs text-muted-foreground">{currentMonth}</p>
+                <p className="text-xs text-muted-foreground">{workingPeriodLabel}</p>
               </div>
             </div>
             <p className="text-sm text-muted-foreground">{t("gov.period.confirmBody")}</p>
@@ -1772,7 +1772,7 @@ export default function Governance() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    {periodLoading ? "…" : periodClosed ? t("gov.period.closed") : `${t("gov.period.current")}: ${currentMonth}`}
+                    {periodLoading ? "…" : periodClosed ? t("gov.period.closed") : `${t("gov.period.current")}: ${workingPeriodLabel}`}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">{periodClosed ? t("gov.period.closedNote") : t("gov.period.note")}</p>
                   {!branchId && !periodLoading && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{t("gov.period.noBranch")}</p>}
