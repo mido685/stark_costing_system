@@ -17,8 +17,3 @@ def dict_cursor(conn):
     return conn.cursor(
         cursor_factory=psycopg2.extras.RealDictCursor
     )
-import os
-from dotenv import load_dotenv
-from pathlib import Path
-
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
