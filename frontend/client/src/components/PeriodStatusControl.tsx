@@ -5,7 +5,7 @@
  * Panel position is computed from the badge's getBoundingClientRect(),
  * clamped so it never exits the viewport on either side.
  */
-
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
@@ -97,7 +97,7 @@ const STATUS = {
   },
 } satisfies Record<Status, object>;
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 const PANEL_WIDTH  = 300;
 const VIEWPORT_GAP = 8;
 
@@ -135,6 +135,11 @@ const css = `
 `;
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+function buildMonthLabels(locale: string): string[] {
+  return Array.from({ length: 12 }, (_, i) =>
+    new Date(2000, i, 1).toLocaleString(locale, { month: "short" })
+  );
+}
 
 function StatusPill({ status }: { status: Status }) {
   return (
@@ -272,13 +277,13 @@ function AdjustingEntryForm({ period, onClose, onSuccess }: {
   );
 }
 
-function PeriodPicker({ selected, statusMap, todayPeriod, onChange }: {
-  selected: string; statusMap: Record<string, Status>; todayPeriod: string; onChange: (p: string) => void;
+function PeriodPicker({ selected, statusMap, todayPeriod, onChange, locale }: {
+  selected: string; statusMap: Record<string, Status>; todayPeriod: string; onChange: (p: string) => void; locale: string;
 }) {
   const [viewYear, setViewYear] = useState(() => Number(selected.split("-")[0]));
+  const months     = useMemo(() => buildMonthLabels(locale), [locale]);
   const todayYear  = Number(todayPeriod.split("-")[0]);
-  const todayMonth = Number(todayPeriod.split("-")[1]);
-  const isFuture = (m: number) => viewYear > todayYear || (viewYear === todayYear && m > todayMonth);
+  const todayMonth = Number(todayPeriod.split("-")[1]);  const isFuture = (m: number) => viewYear > todayYear || (viewYear === todayYear && m > todayMonth);
   const cell     = (m: number) => `${viewYear}-${String(m).padStart(2, "0")}`;
 
   return (
@@ -295,7 +300,7 @@ function PeriodPicker({ selected, statusMap, todayPeriod, onChange }: {
         </button>
       </div>
       <div className="grid grid-cols-4 gap-1.5">
-        {MONTHS.map((name, idx) => {
+        {months.map((name, idx) => {
           const m = idx + 1; const p = cell(m);
           const future = isFuture(m); const st = statusMap[p] ?? "open";
           const isSelected = p === selected; const isToday = p === todayPeriod;
@@ -350,9 +355,9 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-
 export default function PeriodStatusControl() {
   const { user }                                             = useAuth();
+  const { language }                                         = useLanguage();
   const { workingPeriod, setWorkingPeriod, isCurrentPeriod } = useWorkingPeriod();
   const todayPeriod = useMemo(() => buildCurrentPeriod(), []);
 
@@ -578,6 +583,7 @@ export default function PeriodStatusControl() {
                   statusMap={statusMap}
                   todayPeriod={todayPeriod}
                   onChange={(p) => { setWorkingPeriod(p); setShowAdjForm(false); }}
+                  locale={language}
                 />
               </div>
               {showAdjForm && status === "locked" ? (

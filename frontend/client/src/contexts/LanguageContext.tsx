@@ -18,6 +18,7 @@ interface LanguageContextValue {
   toggleLanguage: () => void;
   isRTL:          boolean;
   t:              (key: string) => string;
+  tf:             (key: string, vars: Record<string, string | number>) => string;
 }
 
 // ─── Translations ─────────────────────────────────────────────────────────────
@@ -858,7 +859,7 @@ const translations = {
     "gov.metric.approvedThisMonth":    "Approved this month",
     "gov.metric.approvedThisMonthSub": "94% approval rate",
     "gov.metric.openPeriods":          "Open periods",
-    "gov.metric.openPeriodsSub":       "Current: April 2026",
+    "gov.metric.openPeriodsSub":       "Current: {period}",
     "gov.ops.title":                   "Governance operations",
     "gov.ops.pendingApprovals":        "Pending approvals",
     "gov.ops.pendingApprovalsDesc":    "Review and approve pending transactions",
@@ -939,7 +940,7 @@ const translations = {
     "gov.role.accountant":             "Accountant",
     "gov.period.note":                 "Period is open. All transactions are being recorded. Close the period when all entries are complete.",
     "gov.period.close":                "Close period",
-    "gov.period.closed":               "Period closed: April 2026",
+    "gov.period.closed":               "Period closed: {period}",
     "gov.period.closedNote":           "This period has been locked. No new entries can be posted.",
     "gov.period.closedBadge":          "Closed",
     "gov.pending.allReviewed":         "All items have been reviewed.",
@@ -1800,7 +1801,7 @@ const translations = {
     "gov.metric.approvedThisMonth":    "تمت الموافقة هذا الشهر",
     "gov.metric.approvedThisMonthSub": "نسبة موافقة 94%",
     "gov.metric.openPeriods":          "الفترات المفتوحة",
-    "gov.metric.openPeriodsSub":       "الحالية: أبريل 2026",
+    "gov.metric.openPeriodsSub":       "الحالية: {period}",
     "gov.ops.title":                   "عمليات الحوكمة",
     "gov.ops.pendingApprovals":        "الموافقات المعلقة",
     "gov.ops.pendingApprovalsDesc":    "مراجعة والموافقة على المعاملات المعلقة",
@@ -1881,7 +1882,7 @@ const translations = {
     "gov.role.accountant":             "محاسب",
     "gov.period.note":                 "الفترة مفتوحة. يتم تسجيل جميع المعاملات. أغلق الفترة عند اكتمال جميع القيود.",
     "gov.period.close":                "إغلاق الفترة",
-    "gov.period.closed":               "الفترة مغلقة: أبريل 2026",
+    "gov.period.closed":               "الفترة مغلقة: {period}",
     "gov.period.closedNote":           "تم قفل هذه الفترة. لا يمكن إضافة قيود جديدة.",
     "gov.period.closedBadge":          "مغلقة",
     "gov.pending.allReviewed":         "تمت مراجعة جميع العناصر.",
@@ -1933,6 +1934,7 @@ const LanguageContext = createContext<LanguageContextValue>({
   toggleLanguage: () => {},
   isRTL:          false,
   t:              (key) => key,
+  tf:             (key) => key,
 });
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -1973,10 +1975,25 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     [language]
   );
 
-  const value = useMemo<LanguageContextValue>(
-    () => ({ language, toggleLanguage, isRTL, t }),
-    [language, toggleLanguage, isRTL, t]
+  // `tf` — same lookup as `t`, but replaces `{placeholder}` tokens with the
+  // provided values. Keeps the raw token in place if a value wasn't supplied,
+  // so a missing var is visible in the UI instead of silently disappearing.
+  const tf = useCallback(
+    (key: string, vars: Record<string, string | number>): string => {
+      const dict = translations[language] as Record<string, string>;
+      const base = translations["en"]    as Record<string, string>;
+      const raw  = dict[key] ?? base[key] ?? key;
+      return raw.replace(/\{(\w+)\}/g, (match, token) =>
+        Object.prototype.hasOwnProperty.call(vars, token) ? String(vars[token]) : match
+      );
+    },
+    [language]
   );
+
+  const value = useMemo<LanguageContextValue>(
+    () => ({ language, toggleLanguage, isRTL, t, tf }),
+    [language, toggleLanguage, isRTL, t, tf]
+  );;
 
   return (
     <LanguageContext.Provider value={value}>

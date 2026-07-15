@@ -22,6 +22,7 @@ type ExpenseCategory = { id: number; name: string; type: CategoryType };
 type ApprovalItem = {
   id:               string;
   purchaseId?:      number;
+  po_number?:       number;
   typeKey:          string;
   desc:             string;
   submitted_by:     string;
@@ -59,6 +60,7 @@ type GovernanceHistoryRow = {
 
 type PurchaseHistoryRow = {
   id:              number;
+  po_number?:      number;
   branch_name:     string;
   supplier_name:   string;
   ingredient_name: string;
@@ -151,6 +153,9 @@ function generateToastId(): string {
   return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function poRef(poNumber?: number | null, fallbackId?: number | null): string {
+  return `PO-${String(poNumber ?? fallbackId ?? 0).padStart(5, "0")}`;
+}
 // ─── HTML Viewer ──────────────────────────────────────────────────────────────
 
 const SHARED_HTML_STYLES = `
@@ -260,8 +265,8 @@ function openPurchaseOrderHtml(row: PurchaseHistoryRow): void {
   const pay   = row.payable_amount ?? gross + tax;
   const bc    = statusBadgeColors(row.status);
   openRecordAsHtml({
-    title: "Purchase Order", subtitle: `PO-${String(row.id).padStart(5,"0")} · ${String(row.entry_date).slice(0,10)}`,
-    ref: `PO-${String(row.id).padStart(5,"0")}`, badge: { label: row.status.toUpperCase(), color: bc.color, bg: bc.bg },
+    title: "Purchase Order", subtitle: `${poRef(row.po_number, row.id)} · ${String(row.entry_date).slice(0,10)}`,
+    ref: poRef(row.po_number, row.id), badge: { label: row.status.toUpperCase(), color: bc.color, bg: bc.bg },
     sections: [{ heading: "Order Details", rows: [
       { label: "Branch", value: row.branch_name ?? "—" }, { label: "Supplier", value: row.supplier_name ?? "—" },
       { label: "Ingredient", value: `${row.ingredient_name ?? "—"}${row.unit ? ` (${row.unit})` : ""}` },
@@ -279,7 +284,7 @@ function openPurchaseOrderHtml(row: PurchaseHistoryRow): void {
 function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
   const bc  = statusBadgeColors(a.status);
   const ref = a.fromProcurement && a.purchaseId
-    ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+    ? poRef(a.po_number, a.purchaseId)
     : `APR-${String(a.id).padStart(5, "0")}`;
 
   const isPriceHistory = a.typeKey === "gov.approvalType.priceHistory";
@@ -497,12 +502,12 @@ function downloadPOPdf(row: PurchaseHistoryRow, addToast: (type: ToastMessage["t
   const gross = row.gross_amount ?? row.quantity * row.unit_cost;
   const tax   = row.tax_amount ?? 0;
   const pay   = row.payable_amount ?? gross + tax;
-  const html  = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>PO-${row.id}</title>
+  const html  = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${poRef(row.po_number, row.id)}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;display:flex;justify-content:center;padding:40px 20px}.card{background:#fff;width:480px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:#1e3a5f;color:#f8fafc;padding:24px 28px}.header h1{font-size:20px;font-weight:700}.header p{font-size:12px;color:#94a3b8;margin-top:4px}.meta{display:flex;justify-content:space-between;margin-top:14px}.meta .id{font-size:13px;font-weight:600;color:#e2e8f0}.meta .status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#16a34a22;color:#16a34a;border:1px solid #16a34a55}.section{padding:20px 28px;border-bottom:1px solid #f1f5f9}.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.item label{font-size:10px;color:#94a3b8;display:block;margin-bottom:2px}.item span{font-size:13px;font-weight:600;color:#1e293b}.line{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#475569;border-bottom:1px solid #f1f5f9}.line.total{font-size:15px;font-weight:700;color:#1e3a5f;padding-top:12px;margin-top:4px;border-top:2px solid #e2e8f0;border-bottom:none}.footer{padding:16px 28px;text-align:center;background:#f8fafc}.footer p{font-size:10px;color:#94a3b8}.print-btn{display:block;margin:0 auto 20px;padding:9px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit}@media print{.print-btn{display:none}body{background:#fff;padding:0}.card{box-shadow:none;width:100%;border-radius:0}@page{margin:0;size:A5}}</style></head><body>
 <button class="print-btn" onclick="window.print()">🖨 Print / Save as PDF</button>
 <div class="card">
   <div class="header"><h1>Purchase Order</h1><p>STARK AI Enterprise Costing System</p>
-    <div class="meta"><span class="id">PO #${row.id}</span><span class="status">${row.status.toUpperCase()}</span></div>
+    <div class="meta"><span class="id">${poRef(row.po_number, row.id)}</span><span class="status">${row.status.toUpperCase()}</span></div>
   </div>
   <div class="section"><div class="section-title">Details</div><div class="grid">
     <div class="item"><label>Branch</label><span>${row.branch_name ?? "—"}</span></div>
@@ -522,10 +527,10 @@ function downloadPOPdf(row: PurchaseHistoryRow, addToast: (type: ToastMessage["t
   const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
   const url  = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = url; link.download = `PO-${row.id}.html`;
+  link.href = url; link.download = `${poRef(row.po_number, row.id)}.html`;
   document.body.appendChild(link); link.click();
   document.body.removeChild(link); URL.revokeObjectURL(url);
-  addToast("success", `PO #${row.id} downloaded.`);
+  addToast("success", `${poRef(row.po_number, row.id)} downloaded.`);
 }
 
 // ─── New Expense Category Modal ───────────────────────────────────────────────
@@ -1007,7 +1012,7 @@ function POHistoryTab({ branchId, addToast }: {
                     const gross = row.gross_amount ?? row.quantity * row.unit_cost;
                     return (
                       <tr key={row.id} className="hover:bg-muted/30 transition-colors group">
-                        <td className="px-3 py-3 text-sm font-mono font-semibold text-foreground">PO-{String(row.id).padStart(5,"0")}</td>
+                        <td className="px-3 py-3 text-sm font-mono font-semibold text-foreground">{poRef(row.po_number, row.id)}</td>
                         <td className="px-3 py-3 text-xs text-muted-foreground">{row.branch_name}</td>
                         <td className="px-3 py-3 text-xs text-muted-foreground">{row.supplier_name}</td>
                         <td className="px-3 py-3 text-sm font-medium text-foreground">{row.ingredient_name}</td>
@@ -1021,7 +1026,7 @@ function POHistoryTab({ branchId, addToast }: {
                         <td className="px-3 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <EyeBtn onClick={() => openPurchaseOrderHtml(row)} />
-                            <button onClick={() => downloadPOPdf(row, addToast)} title={`Download PO-${String(row.id).padStart(5,"0")}`}
+                           <button onClick={() => downloadPOPdf(row, addToast)} title={`Download ${poRef(row.po_number, row.id)}`}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
                               <Download className="w-3.5 h-3.5" />
                             </button>
@@ -1053,7 +1058,7 @@ function POHistoryTab({ branchId, addToast }: {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Governance() {
-  const { t }         = useLanguage();
+  const { t, tf }      = useLanguage();
   const { workingPeriod, workingPeriodLabel } = useWorkingPeriod();
   const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
   const branchId      = Number(localStorage.getItem("branch_id") ?? 0);
@@ -1123,6 +1128,7 @@ export default function Governance() {
         return {
           id:              String(row.id),
           purchaseId:      row.entity_type === "purchase" ? Number(row.entity_id) : undefined,
+          po_number:       row.po_number != null ? Number(row.po_number) : undefined,
           typeKey, desc,
           submitted_by:    String(row.submitted_by ?? row.requested_by_name ?? ""),
           date:            String(row.requested_at  ?? row.entry_date ?? ""),
@@ -1156,7 +1162,7 @@ export default function Governance() {
       const po = (event as CustomEvent).detail;
       if (!po) return;
       setNewPOCount((c) => c + 1);
-      addToast("warning", `New PO #${po.id} added to approval queue.`);
+      addToast("warning", `New ${poRef(po.po_number, po.id)} added to approval queue.`);
       fetchApprovals();
     }
     window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
@@ -1420,8 +1426,7 @@ export default function Governance() {
                 { label: t("gov.metric.approvedThisMonth"), value: approvedCount,   color: "text-green-600 dark:text-green-400",   icon: CheckCircle,  sub: t("gov.metric.approvedThisMonthSub") },
                 { label: t("gov.metric.rejected"),          value: rejectedCount,   color: "text-red-600 dark:text-red-400",       icon: XCircle,      sub: t("gov.metric.rejectedSub")          },
                 { label: "Price Alerts",                    value: priceAlertCount, color: "text-orange-600 dark:text-orange-400", icon: TrendingUp,   sub: "Pending price changes"              },
-                { label: t("gov.metric.openPeriods"),       value: openPeriods,     color: "text-foreground",                      icon: Calendar,     sub: periodClosed ? t("gov.metric.openPeriodsClosed") : t("gov.metric.openPeriodsSub") },
-              ].map((s, i) => (
+                { label: t("gov.metric.openPeriods"),       value: openPeriods,     color: "text-foreground",                      icon: Calendar,     sub: periodClosed ? tf("gov.metric.openPeriodsClosed", { period: workingPeriodLabel }) : tf("gov.metric.openPeriodsSub", { period: workingPeriodLabel })}].map((s, i) => (
                 <Card key={s.label} className="gov-fade-in p-5" style={{ animationDelay: `${i * 60}ms` }}>
                   <div className="flex items-start justify-between">
                     <p className="text-xs font-medium text-muted-foreground">{s.label}</p>
@@ -1629,7 +1634,7 @@ export default function Governance() {
                               <span className="text-xs font-medium text-muted-foreground">{t(a.typeKey)}</span>
                               <span className="text-xs text-muted-foreground font-mono">
                                 {a.fromProcurement && a.purchaseId
-                                  ? `PO-${String(a.purchaseId).padStart(5, "0")}`
+                                  ? poRef(a.po_number, a.purchaseId)
                                   : `#${a.id}`}
                               </span>
 
@@ -1700,7 +1705,7 @@ export default function Governance() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.fromProcurement ? "bg-blue-500 dark:bg-blue-400" : "bg-amber-500 dark:bg-amber-400"}`} />
                               <p className="text-sm font-medium text-foreground">{t(a.typeKey)}</p>
-                              <span className="text-xs text-muted-foreground font-mono">{a.fromProcurement && a.purchaseId ? `PO-${String(a.purchaseId).padStart(5,"0")}` : `#${a.id}`}</span>
+                              <span className="text-xs text-muted-foreground font-mono">{a.fromProcurement && a.purchaseId ? poRef(a.po_number, a.purchaseId) : `#${a.id}`}</span>
                               {a.fromProcurement && (
                                 <span className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                                   <ShoppingCart className="w-2.5 h-2.5" /> Procurement
@@ -1772,9 +1777,9 @@ export default function Governance() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    {periodLoading ? "…" : periodClosed ? t("gov.period.closed") : `${t("gov.period.current")}: ${workingPeriodLabel}`}
+                    {periodLoading ? "…" : periodClosed ? tf("gov.period.closed", { period: workingPeriodLabel }) : `${t("gov.period.current")}: ${workingPeriodLabel}`}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">{periodClosed ? t("gov.period.closedNote") : t("gov.period.note")}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{periodClosed ? tf("gov.period.closedNote", { period: workingPeriodLabel }) : tf("gov.period.note", { period: workingPeriodLabel })}</p>
                   {!branchId && !periodLoading && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{t("gov.period.noBranch")}</p>}
                 </div>
                 {periodClosed ? (
