@@ -1319,7 +1319,6 @@ export default function Governance() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-foreground">{confirmAction.action === "approve" ? t("gov.confirm.approveTitle") : t("gov.confirm.rejectTitle")}</p>
-                <p className="text-xs text-muted-foreground">{t("gov.confirm.subtitle")} #{confirmAction.id}</p>
               </div>
             </div>
             <p className="text-sm text-muted-foreground">{confirmAction.action === "approve" ? t("gov.confirm.approveBody") : t("gov.confirm.rejectBody")}</p>
