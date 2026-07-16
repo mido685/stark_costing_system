@@ -49,10 +49,10 @@ type CategoryTab = "all" | "financial" | "operational" | "audit";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const CLASS_CONFIG = {
-  Star:        { emoji: "⭐", bg: "bg-green-50",  text: "text-green-700",  border: "border-green-200"  },
-  "Plow Horse":{ emoji: "🐴", bg: "bg-yellow-50", text: "text-yellow-700", border: "border-yellow-200" },
-  Puzzle:      { emoji: "🧩", bg: "bg-blue-50",   text: "text-blue-700",   border: "border-blue-200"   },
-  Dog:         { emoji: "🐕", bg: "bg-red-50",    text: "text-red-700",    border: "border-red-200"    },
+  Star:        { emoji: "⭐", bg: "bg-green-50 dark:bg-green-900/20",   text: "text-green-700 dark:text-green-400",   border: "border-green-200 dark:border-green-800"  },
+  "Plow Horse":{ emoji: "🐴", bg: "bg-yellow-50 dark:bg-yellow-900/20", text: "text-yellow-700 dark:text-yellow-400", border: "border-yellow-200 dark:border-yellow-800" },
+  Puzzle:      { emoji: "🧩", bg: "bg-blue-50 dark:bg-blue-900/20",     text: "text-blue-700 dark:text-blue-400",     border: "border-blue-200 dark:border-blue-800"   },
+  Dog:         { emoji: "🐕", bg: "bg-red-50 dark:bg-red-900/20",       text: "text-red-700 dark:text-red-400",       border: "border-red-200 dark:border-red-800"    },
 };
 
 function formatCurrency(n: number) {
@@ -231,7 +231,7 @@ function MenuEngineeringModal({ onClose }: { onClose: () => void }) {
                         <td className="px-4 py-3 text-right">{formatCurrency(Number(item.raw_cost))}</td>
                         <td className="px-4 py-3 text-right">{formatCurrency(Number(item.margin))}</td>
                         <td className="px-4 py-3 text-right">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${item.food_cost_pct <= 30 ? "bg-green-100 text-green-700" : item.food_cost_pct <= 40 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${item.food_cost_pct <= 30 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : item.food_cost_pct <= 40 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400" : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"}`}>
                             {Number(item.food_cost_pct).toFixed(1)}%
                           </span>
                         </td>
@@ -293,17 +293,17 @@ function StockBalancesModal({ onClose }: { onClose: () => void }) {
         {fetched && data.length > 0 && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 rounded-lg border bg-blue-50 border-blue-200 text-center">
-                <p className="text-xs text-blue-600 font-medium">Total Items</p>
-                <p className="text-xl font-bold text-blue-700">{data.length}</p>
+              <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-center">
+                <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">Total Items</p>
+                <p className="text-xl font-bold text-blue-700 dark:text-blue-300">{data.length}</p>
               </div>
-              <div className="p-3 rounded-lg border bg-red-50 border-red-200 text-center">
-                <p className="text-xs text-red-600 font-medium">Negative Stock</p>
-                <p className="text-xl font-bold text-red-700">{data.filter(r => r.negative_alert).length}</p>
+              <div className="p-3 rounded-lg border bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-center">
+                <p className="text-xs text-red-600 dark:text-red-400 font-medium">Negative Stock</p>
+                <p className="text-xl font-bold text-red-700 dark:text-red-300">{data.filter(r => r.negative_alert).length}</p>
               </div>
-              <div className="p-3 rounded-lg border bg-green-50 border-green-200 text-center">
-                <p className="text-xs text-green-600 font-medium">Total Value</p>
-                <p className="text-xl font-bold text-green-700">{formatCurrency(totalValue)}</p>
+              <div className="p-3 rounded-lg border bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-center">
+                <p className="text-xs text-green-600 dark:text-green-400 font-medium">Total Value</p>
+                <p className="text-xl font-bold text-green-700 dark:text-green-300">{formatCurrency(totalValue)}</p>
               </div>
             </div>
             <div className="overflow-x-auto rounded-lg border border-border">
@@ -334,10 +334,10 @@ function StockBalancesModal({ onClose }: { onClose: () => void }) {
                       <td className="px-4 py-3 text-right">{formatCurrency(Number(row.inventory_value ?? 0))}</td>
                       <td className="px-4 py-3 text-center">
                         {row.negative_alert
-                          ? <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">Negative</span>
+                          ? <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-semibold">Negative</span>
                           : row.reorder_alert
-                            ? <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-semibold">Reorder</span>
-                            : <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">OK</span>}
+                            ? <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 font-semibold">Reorder</span>
+                            : <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-semibold">OK</span>}
                       </td>
                     </tr>
                   ))}
@@ -394,16 +394,15 @@ function BranchComparisonModal({ onClose }: { onClose: () => void }) {
                     <td className="px-4 py-3 font-medium text-foreground">{row.branch_name}</td>
                     <td className="px-4 py-3 text-right">{formatCurrency(Number(row.revenue))}</td>
                     <td className="px-4 py-3 text-right">{formatCurrency(Number(row.food_cost))}</td>
-                    <td className="px-4 py-3 text-right text-green-700 font-medium">{formatCurrency(Number(row.gross_profit))}</td>
-                    <td className={`px-4 py-3 text-right font-bold ${Number(row.net_profit) >= 0 ? "text-green-700" : "text-red-600"}`}>
+                    <td className="px-4 py-3 text-right text-green-700 dark:text-green-400 font-medium">{formatCurrency(Number(row.gross_profit))}</td>
+                    <td className={`px-4 py-3 text-right font-bold ${Number(row.net_profit) >= 0 ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
                       {formatCurrency(Number(row.net_profit))}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${Number(row.food_cost_pct) <= 30 ? "bg-green-100 text-green-700" : Number(row.food_cost_pct) <= 40 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${Number(row.food_cost_pct) <= 30 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : Number(row.food_cost_pct) <= 40 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400" : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"}`}>
                         {Number(row.food_cost_pct).toFixed(1)}%
                       </span>
-                    </td>
-                  </tr>
+                    </td>                  </tr>
                 ))}
               </tbody>
             </table>
@@ -448,10 +447,10 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-5">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Revenue",          value: formatCurrency(data.revenue ?? 0),          color: "bg-blue-50 border-blue-200 text-blue-700"   },
-                { label: "COGS",             value: formatCurrency(data.cogs ?? 0),             color: "bg-red-50 border-red-200 text-red-700"      },
-                { label: "Gross Profit",     value: formatCurrency(data.gross_profit ?? 0),     color: "bg-green-50 border-green-200 text-green-700" },
-                { label: "Operating Profit", value: formatCurrency(data.operating_profit ?? 0), color: (data.operating_profit ?? 0) >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
+                { label: "Revenue",          value: formatCurrency(data.revenue ?? 0),          color: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400"   },
+                { label: "COGS",             value: formatCurrency(data.cogs ?? 0),             color: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"      },
+                { label: "Gross Profit",     value: formatCurrency(data.gross_profit ?? 0),     color: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400" },
+                { label: "Operating Profit", value: formatCurrency(data.operating_profit ?? 0), color: (data.operating_profit ?? 0) >= 0 ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400" },
               ].map(card => (
                 <div key={card.label} className={`rounded-lg border p-4 ${card.color}`}>
                   <p className="text-xs font-semibold opacity-70">{card.label}</p>
@@ -465,17 +464,17 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
               </div>
               <div className="divide-y divide-border">
                 {[
-                  { label: "Revenue",              value: data.revenue ?? 0,             color: "text-blue-600",  indent: false, bold: false },
-                  { label: "− Food Cost (COGS)",   value: -(data.cogs ?? 0),             color: "text-red-500",   indent: true,  bold: false },
-                  { label: "− Waste Cost",         value: -(data.waste_cost ?? 0),       color: "text-red-400",   indent: true,  bold: false },
-                  { label: "Gross Profit",         value: data.gross_profit ?? 0,        color: (data.gross_profit ?? 0) >= 0 ? "text-green-600" : "text-red-600", indent: false, bold: true  },
-                  { label: "− Payroll",            value: -(data.total_payroll ?? 0),    color: "text-amber-600", indent: true,  bold: false },
-                  { label: "− Operating Expenses", value: -(data.total_expenses ?? 0),   color: "text-amber-500", indent: true,  bold: false },
-                  { label: "− Depreciation",       value: -(data.total_depreciation ?? 0), color: "text-amber-400", indent: true, bold: false },
-                  { label: "− Accruals",           value: -(data.total_accruals ?? 0),   color: "text-amber-400", indent: true,  bold: false },
-                  { label: "− Prepayments",        value: -(data.total_prepayments ?? 0),color: "text-amber-400", indent: true,  bold: false },
-                  { label: "Operating Profit",     value: data.operating_profit ?? 0,    color: (data.operating_profit ?? 0) >= 0 ? "text-green-600" : "text-red-600", indent: false, bold: true },
-                ].map((row, i) => (
+                  { label: "Revenue",              value: data.revenue ?? 0,             color: "text-blue-600 dark:text-blue-400",  indent: false, bold: false },
+                  { label: "− Food Cost (COGS)",   value: -(data.cogs ?? 0),             color: "text-red-500 dark:text-red-400",   indent: true,  bold: false },
+                  { label: "− Waste Cost",         value: -(data.waste_cost ?? 0),       color: "text-red-400 dark:text-red-300",   indent: true,  bold: false },
+                  { label: "Gross Profit",         value: data.gross_profit ?? 0,        color: (data.gross_profit ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400", indent: false, bold: true  },
+                  { label: "− Payroll",            value: -(data.total_payroll ?? 0),    color: "text-amber-600 dark:text-amber-400", indent: true,  bold: false },
+                  { label: "− Operating Expenses", value: -(data.total_expenses ?? 0),   color: "text-amber-500 dark:text-amber-300", indent: true,  bold: false },
+                  { label: "− Depreciation",       value: -(data.total_depreciation ?? 0), color: "text-amber-400 dark:text-amber-300", indent: true, bold: false },
+                  { label: "− Accruals",           value: -(data.total_accruals ?? 0),   color: "text-amber-400 dark:text-amber-300", indent: true,  bold: false },
+                  { label: "− Prepayments",        value: -(data.total_prepayments ?? 0),color: "text-amber-400 dark:text-amber-300", indent: true,  bold: false },
+                  { label: "Operating Profit",     value: data.operating_profit ?? 0,    color: (data.operating_profit ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400", indent: false, bold: true },
+                ].map((row, i) =>  (
                   <div key={i} className={`flex justify-between items-center px-5 py-3 ${row.bold ? "bg-secondary/50" : ""}`}>
                     <span className={`text-sm ${row.bold ? "font-bold" : "font-medium"} ${row.indent ? "pl-4 text-muted-foreground" : "text-foreground"}`}>
                       {row.label}
@@ -487,10 +486,10 @@ function FinanceReportModal({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
               <div className="px-5 py-3 bg-secondary/30 grid grid-cols-2 gap-4 text-xs border-t border-border">
-                <div><span className="text-muted-foreground">Food Cost %: </span><span className={`font-bold ${(data.food_cost_pct ?? 0) > 35 ? "text-red-600" : "text-green-600"}`}>{Number(data.food_cost_pct ?? 0).toFixed(1)}%</span></div>
-                <div><span className="text-muted-foreground">Labor Cost %: </span><span className={`font-bold ${(data.labor_cost_pct ?? 0) > 30 ? "text-red-600" : "text-green-600"}`}>{Number(data.labor_cost_pct ?? 0).toFixed(1)}%</span></div>
-                <div><span className="text-muted-foreground">Gross Margin %: </span><span className={`font-bold ${(data.gross_margin_pct ?? 0) < 50 ? "text-amber-600" : "text-green-600"}`}>{Number(data.gross_margin_pct ?? 0).toFixed(1)}%</span></div>
-                <div><span className="text-muted-foreground">Net Margin %: </span><span className={`font-bold ${(data.net_margin_pct ?? 0) < 10 ? "text-red-600" : "text-green-600"}`}>{Number(data.net_margin_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Food Cost %: </span><span className={`font-bold ${(data.food_cost_pct ?? 0) > 35 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>{Number(data.food_cost_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Labor Cost %: </span><span className={`font-bold ${(data.labor_cost_pct ?? 0) > 30 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>{Number(data.labor_cost_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Gross Margin %: </span><span className={`font-bold ${(data.gross_margin_pct ?? 0) < 50 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>{Number(data.gross_margin_pct ?? 0).toFixed(1)}%</span></div>
+                <div><span className="text-muted-foreground">Net Margin %: </span><span className={`font-bold ${(data.net_margin_pct ?? 0) < 10 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>{Number(data.net_margin_pct ?? 0).toFixed(1)}%</span></div>
               </div>
             </div>
           </div>
@@ -550,11 +549,11 @@ function BudgetModal({ onClose }: { onClose: () => void }) {
                       <td className="px-4 py-3 font-medium text-foreground capitalize">{String(row.category).replace(/_/g, " ")}</td>
                       <td className="px-4 py-3 text-right font-mono">{formatCurrency(Number(row.budget_amount))}</td>
                       <td className="px-4 py-3 text-right font-mono">{formatCurrency(Number(row.actual_amount))}</td>
-                      <td className={`px-4 py-3 text-right font-bold ${Number(row.variance) >= 0 ? "text-green-600" : "text-red-600"}`}>{formatCurrency(Number(row.variance))}</td>
-                      <td className={`px-4 py-3 text-right font-semibold ${over ? "text-red-600" : Number(row.pct_used) > 80 ? "text-amber-600" : "text-green-600"}`}>{Number(row.pct_used).toFixed(1)}%</td>
+                      <td className={`px-4 py-3 text-right font-bold ${Number(row.variance) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>{formatCurrency(Number(row.variance))}</td>
+                      <td className={`px-4 py-3 text-right font-semibold ${over ? "text-red-600 dark:text-red-400" : Number(row.pct_used) > 80 ? "text-amber-600 dark:text-amber-400" : "text-green-600 dark:text-green-400"}`}>{Number(row.pct_used).toFixed(1)}%</td>
                       <td className="px-4 py-3 min-w-32">
                         <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${over ? "bg-red-500" : Number(row.pct_used) > 80 ? "bg-amber-400" : "bg-green-500"}`} style={{ width: `${pct}%` }} />
+                          <div className={`h-full rounded-full ${over ? "bg-red-500 dark:bg-red-600" : Number(row.pct_used) > 80 ? "bg-amber-400 dark:bg-amber-500" : "bg-green-500 dark:bg-green-600"}`} style={{ width: `${pct}%` }} />
                         </div>
                       </td>
                     </tr>
@@ -618,9 +617,9 @@ function TopLossesModal({ onClose }: { onClose: () => void }) {
         {fetched && data.length === 0 && <EmptyState emoji="✅" text="No waste or damage recorded" />}
         {fetched && data.length > 0 && (
           <div className="space-y-4">
-            <div className="p-4 rounded-lg border bg-red-50 border-red-200">
-              <p className="text-xs text-red-600 font-medium">Total Loss Value</p>
-              <p className="text-2xl font-bold text-red-700">{formatCurrency(totalLoss)}</p>
+            <div className="p-4 rounded-lg border bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium">Total Loss Value</p>
+              <p className="text-2xl font-bold text-red-700 dark:text-red-300">{formatCurrency(totalLoss)}</p>
             </div>
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -641,11 +640,11 @@ function TopLossesModal({ onClose }: { onClose: () => void }) {
                         <td className="px-4 py-3 font-medium text-foreground capitalize">{String(row.reason).replace(/_/g, " ")}</td>
                         <td className="px-4 py-3 text-right">{row.incidents}</td>
                         <td className="px-4 py-3 text-right font-mono">{Number(row.total_qty).toFixed(3)}</td>
-                        <td className="px-4 py-3 text-right font-bold text-red-600">{formatCurrency(Number(row.total_cost))}</td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600 dark:text-red-400">{formatCurrency(Number(row.total_cost))}</td>
                         <td className="px-4 py-3 min-w-32">
                           <div className="flex items-center gap-2">
                             <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
-                              <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
+                              <div className="h-full bg-red-400 dark:bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                             <span className="text-xs text-muted-foreground w-10">{pct.toFixed(1)}%</span>
                           </div>
@@ -897,11 +896,11 @@ function StockAlertsModal({ onClose, type }: { onClose: () => void; type: "negat
         {fetched && data.length > 0 && (
           <div className="space-y-2">
             {data.map((row, i) => (
-              <div key={i} className={`p-4 rounded-lg border ${type === "negative" ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"}`}>
+              <div key={i} className={`p-4 rounded-lg border ${type === "negative" ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800"}`}>
                 <div className="flex items-center justify-between">
                   {/* FIX: field is .name (normalized by getStockBalances) */}
                   <p className="font-medium text-foreground">{row.name}</p>
-                  <span className={`text-sm font-bold font-mono ${type === "negative" ? "text-red-600" : "text-yellow-700"}`}>
+                  <span className={`text-sm font-bold font-mono ${type === "negative" ? "text-red-600 dark:text-red-400" : "text-yellow-700 dark:text-yellow-400"}`}>
                     {Number(row.balance_qty).toFixed(3)} {row.unit}
                   </span>
                 </div>
@@ -1009,10 +1008,10 @@ function DashboardSummaryModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Total Sales",       value: formatCurrency(data.total_sales ?? 0),      color: "bg-blue-50 border-blue-200 text-blue-700"    },
-                { label: "Pending Approvals", value: String(data.pending_approvals ?? 0),        color: "bg-amber-50 border-amber-200 text-amber-700" },
-                { label: "Branch Count",      value: String(data.branch_count ?? 0),             color: "bg-green-50 border-green-200 text-green-700" },
-                { label: "Sales Change",      value: `${data.sales_change ?? 0}%`,               color: Number(data.sales_change ?? 0) >= 0 ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700" },
+                { label: "Total Sales",       value: formatCurrency(data.total_sales ?? 0),      color: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400"    },
+                { label: "Pending Approvals", value: String(data.pending_approvals ?? 0),        color: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400" },
+                { label: "Branch Count",      value: String(data.branch_count ?? 0),             color: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400" },
+                { label: "Sales Change",      value: `${data.sales_change ?? 0}%`,               color: Number(data.sales_change ?? 0) >= 0 ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400" },
               ].map(card => (
                 <div key={card.label} className={`rounded-lg border p-4 ${card.color}`}>
                   <p className="text-xs font-semibold opacity-70">{card.label}</p>
