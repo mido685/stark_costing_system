@@ -38,3 +38,5 @@ htmlcov/
 node_modules
 __pycache__/
 *.pyc
+dist/
+*.tsbuildinfo
