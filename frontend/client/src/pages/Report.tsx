@@ -793,7 +793,9 @@ function PriceHistoryModal({ onClose }: { onClose: () => void }) {
               <tbody>
                 {data.map((row, i) => (
                   <tr key={i} className="border-t border-border hover:bg-secondary/40">
-                    <td className="px-4 py-3 text-foreground">{row.entry_date}</td>
+                    <td className="px-4 py-3 text-foreground">
+                      {row.purchase_date ? formatDate(row.purchase_date) : "—"}
+                    </td>
                     <td className="px-4 py-3 font-medium text-foreground">{row.supplier_name}</td>
                     <td className="px-4 py-3 text-right font-bold text-primary">{formatCurrency(Number(row.price ?? row.unit_cost ?? 0))}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{row.notes || "—"}</td>
