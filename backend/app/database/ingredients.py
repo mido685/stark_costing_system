@@ -282,9 +282,13 @@ def get_low_stock_alerts(company_id: int) -> list[dict[str, Any]]:
     finally:
         cur.close()
         conn.close()
-
-
-def update_image(ingredient_id: int, company_id: int, image_url: str) -> None:
+def update_image(
+    ingredient_id: int,
+    company_id: int,
+    user_id: int,
+    image_url: str,
+    ip_address: str | None = None,
+) -> None:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
@@ -298,20 +302,23 @@ def update_image(ingredient_id: int, company_id: int, image_url: str) -> None:
         log_audit(
             conn,
             company_id=company_id,
-            user_id=None,          # update_image has no user_id param — add it to the signature if needed
+            user_id=user_id,
             action="UPDATE",
             table_name="ingredients",
             record_id=ingredient_id,
             new_data={"image_url": image_url},
+            ip_address=ip_address,
         )
         log_event(
             conn,
             company_id=company_id,
+            user_id=user_id,
             action="image_updated",
             category="data",
             entity_type="ingredients",
             entity_id=ingredient_id,
             payload={"image_url": image_url},
+            ip_address=ip_address,
         )
         conn.commit()
     except Exception:

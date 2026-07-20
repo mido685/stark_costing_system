@@ -118,6 +118,7 @@ def create_item(
 @router.post("/{item_id}/image")
 async def upload_item_image(
     item_id: int,
+    request: Request,
     file: UploadFile = File(...),
     category: str = Query(...),
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
@@ -139,9 +140,21 @@ async def upload_item_image(
         image_url = f"/static/item_images/{filename}"
 
         if category == "raw_material":
-            ingredients_db.update_image(item_id, current_user["company_id"], image_url)
+            ingredients_db.update_image(
+                ingredient_id=item_id,
+                company_id=current_user["company_id"],
+                user_id=current_user["id"],
+                image_url=image_url,
+                ip_address=request.client.host,
+            )
         else:
-            products_db.update_image(item_id, current_user["company_id"], image_url)
+            products_db.update_image(
+                product_id=item_id,
+                company_id=current_user["company_id"],
+                image_url=image_url,
+                user_id=current_user["id"],
+                ip_address=request.client.host,
+            )
 
         return success("Image uploaded", image_url=image_url)
 
