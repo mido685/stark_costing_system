@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/mido685/stark_costing_system/compare/v1.7.0...v1.8.0) (2026-07-20)
+
+
+### Features
+
+* updating the cards in the logs ([034037b](https://github.com/mido685/stark_costing_system/commit/034037b16bf33c933c581c28c3c112e90fe944f1))
+
 # [1.7.0](https://github.com/mido685/stark_costing_system/compare/v1.6.0...v1.7.0) (2026-07-20)
 
 
