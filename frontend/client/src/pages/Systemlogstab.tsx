@@ -1,5 +1,5 @@
 /**
- * SystemLogsTab — Enterprise edition (dark-first)
+ * SystemLogsTab — Enterprise edition (light/dark aware)
  * Drop this into your Finance page's tab list:
  *
  *   { key: "logs", label: t("finance.tab.logs"), icon: <Activity className="w-4 h-4" /> }
@@ -22,26 +22,21 @@ import { formatDateTime, today } from "@/lib/format";
 import { apiCall, getSystemLogs, type SystemLogRow } from "@/lib/api";
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
-// One accent, used everywhere an interactive/primary element needs color:
-// focus rings, the Filter button, active states. Everything else stays a
-// quiet zinc scale so the accent actually reads as intentional.
-// Monospace is reserved for things that are literally system output:
-// timestamps, record ids, action codes, payload keys/values.
 
 const ACCENT = {
   solid:  "bg-sky-500 hover:bg-sky-400 text-white",
   ring:   "focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500",
-  text:   "text-sky-400",
+  text:   "text-sky-600 dark:text-sky-400",
   border: "border-sky-500/40",
 };
 
 const MONO = "font-mono tabular-nums";
 
 const inputClass =
-  "w-full px-2.5 py-1.5 rounded-md border border-zinc-800 " +
-  "bg-zinc-950 text-[13px] text-zinc-100 " +
+  "w-full px-2.5 py-1.5 rounded-md border border-black/10 dark:border-zinc-800 " +
+  "bg-white dark:bg-zinc-950 text-[13px] text-gray-900 dark:text-zinc-100 " +
   `focus:outline-none ${ACCENT.ring} ` +
-  "placeholder:text-zinc-600 transition-colors";
+  "placeholder:text-gray-400 dark:placeholder:text-zinc-600 transition-colors";
 
 const ACTION_OPTIONS = [
   "All Actions",
@@ -52,14 +47,11 @@ const ACTION_OPTIONS = [
   "CREATE", "UPDATE", "DELETE",
 ];
 
-// Severity rail — the signature element. Each row carries a 3px colored
-// edge instead of a loud badge, so a whole page of logs reads at a glance
-// the way a terminal or CI log stream does.
 const LEVEL_CONFIG: Record<string, { icon: ReactNode; rail: string; dot: string; text: string }> = {
-  info:     { icon: <Info className="w-3.5 h-3.5" />,          rail: "bg-sky-400",  dot: "bg-sky-400",  text: "text-sky-300" },
-  warning:  { icon: <AlertTriangle className="w-3.5 h-3.5" />, rail: "bg-amber-400", dot: "bg-amber-400", text: "text-amber-300" },
-  error:    { icon: <AlertCircle className="w-3.5 h-3.5" />,   rail: "bg-rose-500",  dot: "bg-rose-500",  text: "text-rose-300" },
-  critical: { icon: <ShieldAlert className="w-3.5 h-3.5" />,   rail: "bg-red-600",   dot: "bg-red-600",   text: "text-red-400" },
+  info:     { icon: <Info className="w-3.5 h-3.5" />,          rail: "bg-sky-400",  dot: "bg-sky-400",  text: "text-sky-600 dark:text-sky-300" },
+  warning:  { icon: <AlertTriangle className="w-3.5 h-3.5" />, rail: "bg-amber-400", dot: "bg-amber-400", text: "text-amber-600 dark:text-amber-300" },
+  error:    { icon: <AlertCircle className="w-3.5 h-3.5" />,   rail: "bg-rose-500",  dot: "bg-rose-500",  text: "text-rose-600 dark:text-rose-300" },
+  critical: { icon: <ShieldAlert className="w-3.5 h-3.5" />,   rail: "bg-red-600",   dot: "bg-red-600",   text: "text-red-600 dark:text-red-400" },
 };
 
 const LEVEL_ORDER = ["info", "warning", "error", "critical"] as const;
@@ -72,18 +64,12 @@ const ACTION_DOT: Record<string, string> = {
 };
 
 function actionDot(action: string) {
-  return ACTION_DOT[action] ?? "bg-zinc-500";
+  return ACTION_DOT[action] ?? "bg-gray-400 dark:bg-zinc-500";
 }
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
-
-// ─── Severity strip ─────────────────────────────────────────────────────────
-// Replaces a 4-card grid where 3 of 4 cards almost always read "0".
-// Zero-count levels collapse to a muted dot + label; only levels with an
-// actual count get brightness. The strip itself only speaks up ("Needs
-// review") when there's something to review — otherwise it stays quiet.
 
 // ─── Severity cards ─────────────────────────────────────────────────────────
 
@@ -120,8 +106,6 @@ function SeverityCards({ counts }: { counts: Record<string, number> }) {
 }
 
 // ─── Payload diff viewer ────────────────────────────────────────────────────
-// Styled like a code diff: removed values in a red-tinted block, added
-// values in a green-tinted block, monospace throughout.
 
 function PayloadDiff({ payload }: { payload: Record<string, unknown> }) {
   const changes  = payload.changes  as Record<string, unknown> | undefined;
@@ -131,21 +115,21 @@ function PayloadDiff({ payload }: { payload: Record<string, unknown> }) {
     const keys = Array.from(new Set([...Object.keys(changes), ...Object.keys(original)]));
     return (
       <div className="grid grid-cols-2 gap-2.5 mt-2">
-        <div className="rounded-md border border-rose-900/50 bg-rose-950/20 p-3">
-          <p className="text-[10px] font-semibold text-rose-400/80 uppercase tracking-wider mb-1.5">− before</p>
+        <div className="rounded-md border border-rose-300 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 p-3">
+          <p className="text-[10px] font-semibold text-rose-600/90 dark:text-rose-400/80 uppercase tracking-wider mb-1.5">− before</p>
           <ul className="space-y-1">
             {keys.filter(k => k in (original ?? {})).map(k => (
-              <li key={k} className={`text-xs ${MONO} text-rose-300/80`}>
+              <li key={k} className={`text-xs ${MONO} text-rose-700/90 dark:text-rose-300/80`}>
                 <span className="opacity-60">{k}:</span> {String((original ?? {})[k])}
               </li>
             ))}
           </ul>
         </div>
-        <div className="rounded-md border border-emerald-900/50 bg-emerald-950/20 p-3">
-          <p className="text-[10px] font-semibold text-emerald-400/80 uppercase tracking-wider mb-1.5">+ after</p>
+        <div className="rounded-md border border-emerald-300 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3">
+          <p className="text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/80 uppercase tracking-wider mb-1.5">+ after</p>
           <ul className="space-y-1">
             {keys.filter(k => k in changes).map(k => (
-              <li key={k} className={`text-xs ${MONO} text-emerald-300/80`}>
+              <li key={k} className={`text-xs ${MONO} text-emerald-700/90 dark:text-emerald-300/80`}>
                 <span className="opacity-60">{k}:</span> {String(changes[k])}
               </li>
             ))}
@@ -156,13 +140,13 @@ function PayloadDiff({ payload }: { payload: Record<string, unknown> }) {
   }
 
   return (
-    <div className="mt-2 rounded-md border border-zinc-800 bg-zinc-900/60 p-3">
-      <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">payload</p>
+    <div className="mt-2 rounded-md border border-black/8 dark:border-zinc-800 bg-black/[0.02] dark:bg-zinc-900/60 p-3">
+      <p className="text-[10px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider mb-1.5">payload</p>
       <div className="grid grid-cols-2 gap-x-6 gap-y-1">
         {Object.entries(payload).map(([k, v]) => (
           <div key={k} className={`flex items-start gap-1.5 text-xs ${MONO}`}>
-            <span className="text-zinc-500 shrink-0">{k}:</span>
-            <span className="text-zinc-300 break-all">{JSON.stringify(v)}</span>
+            <span className="text-gray-500 dark:text-zinc-500 shrink-0">{k}:</span>
+            <span className="text-gray-700 dark:text-zinc-300 break-all">{JSON.stringify(v)}</span>
           </div>
         ))}
       </div>
@@ -174,7 +158,7 @@ function PayloadDiff({ payload }: { payload: Record<string, unknown> }) {
 
 function UserAvatar({ name, avatar }: { name: string | null; avatar: string | null }) {
   if (avatar) {
-    return <img src={avatar} alt={name ?? "user"} className="w-6 h-6 rounded-full object-cover border border-zinc-800" />;
+    return <img src={avatar} alt={name ?? "user"} className="w-6 h-6 rounded-full object-cover border border-black/10 dark:border-zinc-800" />;
   }
   const initials = (name ?? "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
   const colors = ["bg-sky-600", "bg-violet-600", "bg-teal-600", "bg-indigo-600", "bg-rose-600"];
@@ -204,8 +188,8 @@ function LogRow({ log }: { log: SystemLogRow }) {
   return (
     <>
       <tr
-        className={`group border-b border-zinc-900 transition-colors cursor-pointer ${
-          expanded ? "bg-zinc-900/60" : "hover:bg-zinc-900/30"
+        className={`group border-b border-black/5 dark:border-zinc-900 transition-colors cursor-pointer ${
+          expanded ? "bg-black/[0.03] dark:bg-zinc-900/60" : "hover:bg-black/[0.02] dark:hover:bg-zinc-900/30"
         }`}
         onClick={() => hasPayload && setExpanded(s => !s)}
       >
@@ -216,19 +200,19 @@ function LogRow({ log }: { log: SystemLogRow }) {
           </div>
         </td>
 
-        <td className={`px-2 py-2.5 whitespace-nowrap text-xs text-zinc-600 ${MONO}`}>
+        <td className={`px-2 py-2.5 whitespace-nowrap text-xs text-gray-400 dark:text-zinc-600 ${MONO}`}>
           <span className="inline-flex items-center gap-1">
             <Hash className="w-3 h-3 opacity-50" />{log.id}
           </span>
         </td>
 
         <td className="px-3 py-2.5 whitespace-nowrap">
-          <p className={`text-[13px] text-zinc-300 ${MONO}`}>{timeStr}</p>
-          <p className={`text-[11px] text-zinc-600 ${MONO}`}>{dateStr}</p>
+          <p className={`text-[13px] text-gray-700 dark:text-zinc-300 ${MONO}`}>{timeStr}</p>
+          <p className={`text-[11px] text-gray-400 dark:text-zinc-600 ${MONO}`}>{dateStr}</p>
         </td>
 
         <td className="px-3 py-2.5 whitespace-nowrap">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-300">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 dark:text-zinc-300">
             <span className={`w-1.5 h-1.5 rounded-full ${actionDot(log.action)}`} />
             <span className={MONO}>{log.action}</span>
           </span>
@@ -237,24 +221,21 @@ function LogRow({ log }: { log: SystemLogRow }) {
         <td className="px-3 py-2.5 whitespace-nowrap">
           <div className="flex items-center gap-2">
             <UserAvatar name={log.user_name} avatar={log.user_avatar} />
-            <span className="text-[13px] font-medium text-zinc-300">{log.user_name ?? "System"}</span>
+            <span className="text-[13px] font-medium text-gray-700 dark:text-zinc-300">{log.user_name ?? "System"}</span>
           </div>
         </td>
 
         <td className="px-3 py-2.5">
-          <p className="text-[13px] text-zinc-400">
+          <p className="text-[13px] text-gray-500 dark:text-zinc-400">
             {description}
-            {log.branch_name && <span className="text-zinc-600"> · {log.branch_name}</span>}
+            {log.branch_name && <span className="text-gray-400 dark:text-zinc-600"> · {log.branch_name}</span>}
           </p>
         </td>
 
-        {/* Plain muted chevron — no colored box. This is a minor per-row
-            toggle, not a primary action, so it shouldn't be the brightest
-            thing on the screen. */}
         <td className="px-3 py-2.5 text-right">
           {hasPayload ? (
             <ChevronDown className={`w-4 h-4 ml-auto transition-all ${
-              expanded ? `rotate-180 ${ACCENT.text}` : "text-zinc-600 group-hover:text-zinc-300"
+              expanded ? `rotate-180 ${ACCENT.text}` : "text-gray-400 dark:text-zinc-600 group-hover:text-gray-700 dark:group-hover:text-zinc-300"
             }`} />
           ) : (
             <span className="block w-4 h-4" />
@@ -263,7 +244,7 @@ function LogRow({ log }: { log: SystemLogRow }) {
       </tr>
 
       {expanded && hasPayload && (
-        <tr className="bg-zinc-900/40 border-b border-zinc-900">
+        <tr className="bg-black/[0.02] dark:bg-zinc-900/40 border-b border-black/5 dark:border-zinc-900">
           <td colSpan={7} className="pl-8 pr-4 pb-3">
             <PayloadDiff payload={log.payload!} />
           </td>
@@ -279,19 +260,19 @@ function LogSkeleton() {
   return (
     <>
       {[1, 2, 3, 4, 5, 6].map(i => (
-        <tr key={i} className="border-b border-zinc-900">
-          <td className="pl-0 pr-3 py-2.5"><div className="h-5 w-[3px] rounded-full bg-zinc-800 animate-pulse" /></td>
-          <td className="px-2 py-2.5"><div className="h-3 w-8 rounded bg-zinc-800 animate-pulse" /></td>
-          <td className="px-3 py-2.5"><div className="h-3 w-16 rounded bg-zinc-800 animate-pulse" /></td>
-          <td className="px-3 py-2.5"><div className="h-3 w-20 rounded bg-zinc-800 animate-pulse" /></td>
+        <tr key={i} className="border-b border-black/5 dark:border-zinc-900">
+          <td className="pl-0 pr-3 py-2.5"><div className="h-5 w-[3px] rounded-full bg-black/8 dark:bg-zinc-800 animate-pulse" /></td>
+          <td className="px-2 py-2.5"><div className="h-3 w-8 rounded bg-black/8 dark:bg-zinc-800 animate-pulse" /></td>
+          <td className="px-3 py-2.5"><div className="h-3 w-16 rounded bg-black/8 dark:bg-zinc-800 animate-pulse" /></td>
+          <td className="px-3 py-2.5"><div className="h-3 w-20 rounded bg-black/8 dark:bg-zinc-800 animate-pulse" /></td>
           <td className="px-3 py-2.5">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-zinc-800 animate-pulse" />
-              <div className="h-3 w-20 rounded bg-zinc-800 animate-pulse" />
+              <div className="w-6 h-6 rounded-full bg-black/8 dark:bg-zinc-800 animate-pulse" />
+              <div className="h-3 w-20 rounded bg-black/8 dark:bg-zinc-800 animate-pulse" />
             </div>
           </td>
-          <td className="px-3 py-2.5"><div className="h-3 w-40 rounded bg-zinc-800 animate-pulse" /></td>
-          <td className="px-3 py-2.5 text-right"><div className="w-4 h-4 ml-auto rounded bg-zinc-800 animate-pulse" /></td>
+          <td className="px-3 py-2.5"><div className="h-3 w-40 rounded bg-black/8 dark:bg-zinc-800 animate-pulse" /></td>
+          <td className="px-3 py-2.5 text-right"><div className="w-4 h-4 ml-auto rounded bg-black/8 dark:bg-zinc-800 animate-pulse" /></td>
         </tr>
       ))}
     </>
@@ -365,11 +346,12 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
 
   return (
     <div className="space-y-4 bg-white dark:bg-black p-5 rounded-xl">
+
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-white tracking-tight">System Logs</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h2 className="text-[15px] font-semibold text-gray-900 dark:text-white tracking-tight">System Logs</h2>
+          <p className="text-xs text-gray-500 dark:text-zinc-500 mt-0.5">
             Audit trail of all data actions ·{" "}
             <span className={MONO}>{total.toLocaleString()}</span> records
           </p>
@@ -378,21 +360,21 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
           size="sm" variant="outline"
           onClick={() => fetchLogs(filters, offset)}
           disabled={loading}
-          className="gap-1.5 h-8 border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900 hover:text-white"
+          className="gap-1.5 h-8 border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-gray-700 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-zinc-900 hover:text-gray-900 dark:hover:text-white"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
       </div>
 
-      {/* ── Severity strip ── */}
+      {/* ── Severity cards ── */}
       {logs.length > 0 && <SeverityCards counts={counts} />}
 
       {/* ── Filter toolbar ── */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+      <div className="rounded-lg border border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
         <div className="flex flex-wrap items-end gap-2.5">
           <div className="w-[150px]">
-            <label className="block text-[11px] font-medium text-zinc-500 mb-1">Date</label>
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-zinc-500 mb-1">Date</label>
             <input
               type="date"
               className={inputClass}
@@ -402,7 +384,7 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
           </div>
 
           <div className="flex-1 min-w-[160px]">
-            <label className="block text-[11px] font-medium text-zinc-500 mb-1">Action</label>
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-zinc-500 mb-1">Action</label>
             <div className="relative">
               <select
                 className={`${inputClass} appearance-none pr-8`}
@@ -411,12 +393,12 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
               >
                 {ACTION_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600 pointer-events-none" />
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-zinc-600 pointer-events-none" />
             </div>
           </div>
 
           <div className="flex-1 min-w-[160px]">
-            <label className="block text-[11px] font-medium text-zinc-500 mb-1">User</label>
+            <label className="block text-[11px] font-medium text-gray-500 dark:text-zinc-500 mb-1">User</label>
             <div className="relative">
               <input
                 type="text"
@@ -426,12 +408,10 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
                 onChange={e => setPending(p => ({ ...p, user: e.target.value }))}
                 onKeyDown={e => e.key === "Enter" && applyFilters()}
               />
-              <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600 pointer-events-none" />
+              <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-zinc-600 pointer-events-none" />
             </div>
           </div>
 
-          {/* Single accent — same sky tone as the focus rings, not a
-              different color from the rest of the toolbar. */}
           <Button
             onClick={applyFilters}
             disabled={loading}
@@ -442,7 +422,7 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
           </Button>
 
           {hasCustomFilters && (
-            <Button variant="ghost" size="sm" onClick={resetFilters} className="h-[34px] gap-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900">
+            <Button variant="ghost" size="sm" onClick={resetFilters} className="h-[34px] gap-1.5 text-gray-500 dark:text-zinc-500 hover:text-gray-800 dark:hover:text-zinc-300 hover:bg-black/5 dark:hover:bg-zinc-900">
               <XCircle className="w-3.5 h-3.5" /> Clear
             </Button>
           )}
@@ -451,26 +431,26 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
 
       {/* ── Error ── */}
       {error && (
-        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-md border border-rose-900/50 bg-rose-950/30">
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-          <p className="text-[13px] text-rose-300">{error}</p>
+        <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-md border border-rose-300 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/30">
+          <AlertCircle className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
+          <p className="text-[13px] text-rose-700 dark:text-rose-300">{error}</p>
         </div>
       )}
 
       {/* ── Table ── */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden">
+      <div className="rounded-lg border border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="sticky top-0 z-10">
-              <tr className="border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
+              <tr className="border-b border-black/10 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur">
                 <th className="pl-0 pr-3 py-2.5 w-8"></th>
-                <th className="px-2 py-2.5 text-left text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">ID</th>
-                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">
+                <th className="px-2 py-2.5 text-left text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-wider">ID</th>
+                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-wider">
                   <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" />Time</span>
                 </th>
-                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">Action</th>
-                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">User</th>
-                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-zinc-600 uppercase tracking-wider">Description</th>
+                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-wider">Action</th>
+                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-wider">User</th>
+                <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-wider">Description</th>
                 <th className="px-3 py-2.5 w-8"></th>
               </tr>
             </thead>
@@ -480,9 +460,9 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
               ) : logs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-14 text-center">
-                    <Activity className="w-8 h-8 text-zinc-800 mx-auto mb-2.5" />
-                    <p className="text-[13px] font-medium text-zinc-500">No log entries found</p>
-                    <p className="text-xs text-zinc-600 mt-0.5">Try adjusting your filters or date range</p>
+                    <Activity className="w-8 h-8 text-gray-300 dark:text-zinc-800 mx-auto mb-2.5" />
+                    <p className="text-[13px] font-medium text-gray-500 dark:text-zinc-500">No log entries found</p>
+                    <p className="text-xs text-gray-400 dark:text-zinc-600 mt-0.5">Try adjusting your filters or date range</p>
                   </td>
                 </tr>
               ) : (
@@ -493,8 +473,8 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
         </div>
 
         {total > PAGE_SIZE && (
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-zinc-800 bg-zinc-900/40">
-            <p className="text-xs text-zinc-500">
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-black/10 dark:border-zinc-800 bg-black/[0.02] dark:bg-zinc-900/40">
+            <p className="text-xs text-gray-500 dark:text-zinc-500">
               Showing <span className={MONO}>{offset + 1}–{Math.min(offset + PAGE_SIZE, total)}</span> of{" "}
               <span className={MONO}>{total.toLocaleString()}</span>
             </p>
@@ -503,18 +483,18 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
                 variant="outline" size="sm"
                 onClick={() => goPage(-1)}
                 disabled={offset === 0 || loading}
-                className="h-7 gap-1 border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900"
+                className="h-7 gap-1 border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-gray-700 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-zinc-900"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Prev
               </Button>
-              <span className={`text-xs font-medium text-zinc-400 px-1 ${MONO}`}>
+              <span className={`text-xs font-medium text-gray-500 dark:text-zinc-400 px-1 ${MONO}`}>
                 {currentPage} / {totalPages}
               </span>
               <Button
                 variant="outline" size="sm"
                 onClick={() => goPage(1)}
                 disabled={offset + PAGE_SIZE >= total || loading}
-                className="h-7 gap-1 border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900"
+                className="h-7 gap-1 border-black/10 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-gray-700 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-zinc-900"
               >
                 Next <ChevronDown className="w-3.5 h-3.5 -rotate-90" />
               </Button>
