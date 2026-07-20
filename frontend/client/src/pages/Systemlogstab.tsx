@@ -85,34 +85,36 @@ function capitalize(s: string) {
 // actual count get brightness. The strip itself only speaks up ("Needs
 // review") when there's something to review — otherwise it stays quiet.
 
-function SeverityStrip({ counts }: { counts: Record<string, number> }) {
-  const issues = (counts.warning ?? 0) + (counts.error ?? 0) + (counts.critical ?? 0);
+// ─── Severity cards ─────────────────────────────────────────────────────────
 
+const SEVERITY_META: Record<string, { label: string; dot: string; }> = {
+  info:     { label: "Info",     dot: "bg-sky-400"   },
+  warning:  { label: "Warning",  dot: "bg-amber-400" },
+  error:    { label: "Error",    dot: "bg-rose-500"  },
+  critical: { label: "Critical", dot: "bg-red-600"   },
+};
+
+function SeverityCards({ counts }: { counts: Record<string, number> }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-2.5">
-      <div className="flex items-center gap-5">
-        {LEVEL_ORDER.map(lvl => {
-          const count = counts[lvl] ?? 0;
-          const cfg = LEVEL_CONFIG[lvl];
-          const active = count > 0;
-          return (
-            <div key={lvl} className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${active ? cfg.dot : "bg-zinc-700"}`} />
-              <span className={`text-xs font-medium ${active ? cfg.text : "text-zinc-600"}`}>
-                {capitalize(lvl)}
-              </span>
-              <span className={`text-xs ${MONO} ${active ? "text-zinc-100 font-semibold" : "text-zinc-600"}`}>
-                {count}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {issues > 0 ? (
-        <span className="text-[11px] font-medium text-amber-400">Needs review</span>
-      ) : (
-        <span className="text-[11px] text-zinc-600">All clear</span>
-      )}
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {LEVEL_ORDER.map(lvl => {
+        const meta = SEVERITY_META[lvl];
+        const count = counts[lvl] ?? 0;
+        return (
+          <div
+            key={lvl}
+            className="bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 rounded-2xl px-4 py-4 flex flex-col items-center text-center"
+          >
+            <span className={`w-2 h-2 rounded-full mb-2 ${meta.dot}`} />
+            <span className="text-[11px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">
+              {meta.label}
+            </span>
+            <span className="text-2xl font-bold mt-1 text-gray-900 dark:text-white">
+              {count}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -362,8 +364,7 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
   const hasCustomFilters = Boolean(filters.action || filters.user);
 
   return (
-    <div className="space-y-4 bg-black p-5 rounded-xl">
-
+    <div className="space-y-4 bg-white dark:bg-black p-5 rounded-xl">
       {/* ── Header ── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -385,7 +386,7 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
       </div>
 
       {/* ── Severity strip ── */}
-      {logs.length > 0 && <SeverityStrip counts={counts} />}
+      {logs.length > 0 && <SeverityCards counts={counts} />}
 
       {/* ── Filter toolbar ── */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
