@@ -32,10 +32,10 @@ interface RoleMeta {
 }
 
 const ROLES: RoleMeta[] = [
-  { value: "owner",   label: "Owner",   icon: <Crown  className="w-3 h-3" />, pill: "border-purple-500/60 text-purple-300", avatar: "bg-purple-500/20 text-purple-300" },
-  { value: "admin",   label: "Admin",   icon: <Crown  className="w-3 h-3" />, pill: "border-amber-500/60  text-amber-300",  avatar: "bg-amber-500/20  text-amber-300"  },
-  { value: "manager", label: "Manager", icon: <Wrench className="w-3 h-3" />, pill: "border-sky-500/60    text-sky-300",    avatar: "bg-sky-500/20    text-sky-300"    },
-  { value: "clerk",   label: "Clerk",   icon: <User   className="w-3 h-3" />, pill: "border-slate-500/60  text-slate-300",  avatar: "bg-slate-500/20  text-slate-300"  },
+  { value: "owner",   label: "Owner",   icon: <Crown  className="w-3 h-3" />, pill: "border-purple-500/60 text-purple-600 dark:text-purple-300", avatar: "bg-purple-500/15 text-purple-600 dark:bg-purple-500/20 dark:text-purple-300" },
+  { value: "admin",   label: "Admin",   icon: <Crown  className="w-3 h-3" />, pill: "border-amber-500/60  text-amber-600  dark:text-amber-300",  avatar: "bg-amber-500/15  text-amber-600  dark:bg-amber-500/20  dark:text-amber-300"  },
+  { value: "manager", label: "Manager", icon: <Wrench className="w-3 h-3" />, pill: "border-sky-500/60    text-sky-600    dark:text-sky-300",    avatar: "bg-sky-500/15    text-sky-600    dark:bg-sky-500/20    dark:text-sky-300"    },
+  { value: "clerk",   label: "Clerk",   icon: <User   className="w-3 h-3" />, pill: "border-slate-400/60  text-slate-600  dark:text-slate-300",  avatar: "bg-slate-500/10  text-slate-600  dark:bg-slate-500/20  dark:text-slate-300"  },
 ];
 
 function getRoleMeta(role: string): RoleMeta {
@@ -48,11 +48,11 @@ function StatCard({ label, value, numCls, dotCls }: {
   label: string; value: number; numCls: string; dotCls: string;
 }) {
   return (
-    <div className="bg-[#1c1c1e] border border-white/8 rounded-2xl px-5 py-4">
+    <div className="bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 rounded-2xl px-5 py-4">
       <p className={`text-3xl font-semibold tabular-nums ${numCls}`}>{value}</p>
       <div className="flex items-center gap-1.5 mt-2">
         <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
-        <span className="text-[13px] text-[#888]">{label}</span>
+        <span className="text-[13px] text-gray-500 dark:text-[#888]">{label}</span>
       </div>
     </div>
   );
@@ -101,8 +101,8 @@ function AddUserForm({ currentUserId, currentRole, onCreated }: {
   }
 
   return (
-    <div className="px-5 pt-4 pb-4 border-b border-white/6 bg-[#141414]">
-      <p className="text-[11px] font-medium text-[#555] uppercase tracking-wider mb-3">Add User</p>
+    <div className="px-5 pt-4 pb-4 border-b border-black/6 dark:border-white/6 bg-gray-50 dark:bg-[#141414]">
+      <p className="text-[11px] font-medium text-gray-400 dark:text-[#555] uppercase tracking-wider mb-3">Add User</p>
       <div className="grid grid-cols-1 md:grid-cols-[1.2fr_1fr_1fr_0.8fr_auto] gap-2">
         {[
           { ph: "Display name", key: "display_name", type: "text"     },
@@ -120,13 +120,13 @@ function AddUserForm({ currentUserId, currentRole, onCreated }: {
                 [key]: key === "username" ? e.target.value.toLowerCase().trim() : e.target.value,
               }))
             }
-            className="h-9 rounded-xl border border-white/8 bg-white/5 px-3 text-[13px] text-white placeholder:text-[#444] outline-none focus:border-white/20 transition-colors"
+            className="h-9 rounded-xl border border-black/8 dark:border-white/8 bg-black/[0.03] dark:bg-white/5 px-3 text-[13px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#444] outline-none focus:border-black/20 dark:focus:border-white/20 transition-colors"
           />
         ))}
         <select
           value={form.role}
           onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
-          className="h-9 rounded-xl border border-white/8 bg-white/5 px-3 text-[13px] text-white outline-none focus:border-white/20 transition-colors cursor-pointer"
+          className="h-9 rounded-xl border border-black/8 dark:border-white/8 bg-black/[0.03] dark:bg-white/5 px-3 text-[13px] text-gray-900 dark:text-white outline-none focus:border-black/20 dark:focus:border-white/20 transition-colors cursor-pointer"
         >
           {availableRoles.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
@@ -135,7 +135,7 @@ function AddUserForm({ currentUserId, currentRole, onCreated }: {
         <button
           onClick={handleSubmit}
           disabled={saving}
-          className="h-9 px-4 flex items-center gap-2 rounded-xl bg-white text-black text-[13px] font-medium hover:bg-white/90 transition-colors disabled:opacity-40 shrink-0"
+          className="h-9 px-4 flex items-center gap-2 rounded-xl bg-black text-white dark:bg-white dark:text-black text-[13px] font-medium hover:opacity-90 transition-colors disabled:opacity-40 shrink-0"
         >
           {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
           Add
@@ -163,24 +163,24 @@ function UserTableRow({ u, currentUserId, currentRole, onRoleChange, onToggleAct
     : "—";
 
   return (
-    <tr className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
+    <tr className="border-t border-black/5 dark:border-white/5 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors">
       {/* User */}
       <td className="px-5 py-3.5">
         <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 ${u.is_active ? meta.avatar : "bg-white/6 text-[#555]"}`}>
+          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold shrink-0 ${u.is_active ? meta.avatar : "bg-black/6 dark:bg-white/6 text-gray-400 dark:text-[#555]"}`}>
             {initials}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-[13px] font-medium text-white truncate">{u.display_name || u.username}</span>
+              <span className="text-[13px] font-medium text-gray-900 dark:text-white truncate">{u.display_name || u.username}</span>
               {isSelf && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">you</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30">you</span>
               )}
               {!u.is_active && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/6 text-[#666] border border-white/8">suspended</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/6 dark:bg-white/6 text-gray-500 dark:text-[#666] border border-black/8 dark:border-white/8">suspended</span>
               )}
             </div>
-            <p className="text-[11px] text-[#666]">@{u.username}</p>
+            <p className="text-[11px] text-gray-500 dark:text-[#666]">@{u.username}</p>
           </div>
         </div>
       </td>
@@ -191,15 +191,15 @@ function UserTableRow({ u, currentUserId, currentRole, onRoleChange, onToggleAct
       {/* Status */}
       <td className="px-5 py-3.5">
         <div className="flex items-center gap-2">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${u.is_active ? "bg-green-400" : "bg-[#555]"}`} />
-          <span className={`text-[12px] ${u.is_active ? "text-green-400" : "text-[#555]"}`}>
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${u.is_active ? "bg-green-400" : "bg-gray-300 dark:bg-[#555]"}`} />
+          <span className={`text-[12px] ${u.is_active ? "text-green-600 dark:text-green-400" : "text-gray-400 dark:text-[#555]"}`}>
             {u.is_active ? "Active" : "Suspended"}
           </span>
         </div>
       </td>
 
       {/* Joined */}
-      <td className="px-5 py-3.5 text-[12px] text-[#666]">{joined}</td>
+      <td className="px-5 py-3.5 text-[12px] text-gray-500 dark:text-[#666]">{joined}</td>
 
       {/* Actions */}
       <td className="px-5 py-3.5">
@@ -215,8 +215,8 @@ function UserTableRow({ u, currentUserId, currentRole, onRoleChange, onToggleAct
             }}
             className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-colors
               ${disabled
-                ? "opacity-30 cursor-not-allowed border-white/8 text-[#555]"
-                : "border-white/8 text-[#666] hover:border-white/20 hover:text-white hover:bg-white/8"}`}
+                ? "opacity-30 cursor-not-allowed border-black/8 dark:border-white/8 text-gray-400 dark:text-[#555]"
+                : "border-black/8 dark:border-white/8 text-gray-500 dark:text-[#666] hover:border-black/20 dark:hover:border-white/20 hover:text-gray-900 dark:hover:text-white hover:bg-black/8 dark:hover:bg-white/8"}`}
           >
             <PenLine className="w-3 h-3" />
           </button>
@@ -228,10 +228,10 @@ function UserTableRow({ u, currentUserId, currentRole, onRoleChange, onToggleAct
             onClick={() => onToggleActive(u.id, !u.is_active)}
             className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-colors
               ${disabled
-                ? "opacity-30 cursor-not-allowed border-white/8 text-[#555]"
+                ? "opacity-30 cursor-not-allowed border-black/8 dark:border-white/8 text-gray-400 dark:text-[#555]"
                 : u.is_active
-                  ? "border-white/8 text-[#666] hover:border-orange-500/40 hover:text-orange-400 hover:bg-orange-500/8"
-                  : "border-white/8 text-[#666] hover:border-green-500/40  hover:text-green-400  hover:bg-green-500/8"
+                  ? "border-black/8 dark:border-white/8 text-gray-500 dark:text-[#666] hover:border-orange-500/40 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-orange-500/8"
+                  : "border-black/8 dark:border-white/8 text-gray-500 dark:text-[#666] hover:border-green-500/40  hover:text-green-600 dark:hover:text-green-400  hover:bg-green-500/8"
               }`}
           >
             {u.is_active ? <ShieldOff className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
@@ -305,9 +305,9 @@ export default function UserManagement() {
   // ── Access guard ──────────────────────────────────────────────────────────
   if (currentRole !== "admin" && currentRole !== "owner") {
     return (
-      <div className="flex flex-col items-center justify-center py-32 gap-3 text-[#666]">
+      <div className="flex flex-col items-center justify-center py-32 gap-3 text-gray-400 dark:text-[#666]">
         <Shield className="w-10 h-10" />
-        <p className="text-sm font-medium text-white">Admin access only</p>
+        <p className="text-sm font-medium text-gray-900 dark:text-white">Admin access only</p>
         <p className="text-xs">You don't have permission to manage users.</p>
       </div>
     );
@@ -319,13 +319,13 @@ export default function UserManagement() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-[22px] font-semibold text-white">User Management</h1>
-          <p className="text-[13px] text-[#888] mt-0.5">Manage roles, permissions, and access for your organization</p>
+          <h1 className="text-[22px] font-semibold text-gray-900 dark:text-white">User Management</h1>
+          <p className="text-[13px] text-gray-500 dark:text-[#888] mt-0.5">Manage roles, permissions, and access for your organization</p>
         </div>
         <button
           onClick={refetch}
           disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 text-[13px] text-white hover:bg-white/8 transition-colors disabled:opacity-40 shrink-0"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-black/15 dark:border-white/15 text-[13px] text-gray-900 dark:text-white hover:bg-black/8 dark:hover:bg-white/8 transition-colors disabled:opacity-40 shrink-0"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
@@ -334,28 +334,28 @@ export default function UserManagement() {
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3">
-        <StatCard label="Total users"      value={users.length}              numCls="text-white"      dotCls="bg-[#666]"     />
-        <StatCard label="Active"           value={activeCount}               numCls="text-green-400"  dotCls="bg-green-400"  />
-        <StatCard label="Suspended"        value={users.length - activeCount} numCls="text-red-400"   dotCls="bg-red-400"    />
-        <StatCard label="Admins & owners"  value={adminCount}                numCls="text-purple-400" dotCls="bg-purple-400" />
+        <StatCard label="Total users"      value={users.length}              numCls="text-gray-900 dark:text-white" dotCls="bg-gray-400 dark:bg-[#666]" />
+        <StatCard label="Active"           value={activeCount}               numCls="text-green-600 dark:text-green-400"  dotCls="bg-green-400"  />
+        <StatCard label="Suspended"        value={users.length - activeCount} numCls="text-red-600 dark:text-red-400"   dotCls="bg-red-400"    />
+        <StatCard label="Admins & owners"  value={adminCount}                numCls="text-purple-600 dark:text-purple-400" dotCls="bg-purple-400" />
       </div>
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
         <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555] pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-[#555] pointer-events-none" />
           <input
             type="text"
             placeholder="Search users…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-10 pl-9 pr-4 rounded-xl bg-[#1c1c1e] border border-white/8 text-[13px] text-white placeholder:text-[#555] outline-none focus:border-white/20 transition-colors"
+            className="w-full h-10 pl-9 pr-4 rounded-xl bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 text-[13px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-[#555] outline-none focus:border-black/20 dark:focus:border-white/20 transition-colors"
           />
         </div>
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="h-10 px-3 rounded-xl bg-[#1c1c1e] border border-white/8 text-[13px] text-white outline-none focus:border-white/20 transition-colors min-w-36 cursor-pointer"
+          className="h-10 px-3 rounded-xl bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 text-[13px] text-gray-900 dark:text-white outline-none focus:border-black/20 dark:focus:border-white/20 transition-colors min-w-36 cursor-pointer"
         >
           <option value="all">All roles</option>
           {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
@@ -363,7 +363,7 @@ export default function UserManagement() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 px-3 rounded-xl bg-[#1c1c1e] border border-white/8 text-[13px] text-white outline-none focus:border-white/20 transition-colors min-w-36 cursor-pointer"
+          className="h-10 px-3 rounded-xl bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 text-[13px] text-gray-900 dark:text-white outline-none focus:border-black/20 dark:focus:border-white/20 transition-colors min-w-36 cursor-pointer"
         >
           <option value="all">All statuses</option>
           <option value="active">Active</option>
@@ -372,7 +372,7 @@ export default function UserManagement() {
       </div>
 
       {/* Add user form + table */}
-      <div className="rounded-2xl border border-white/8 overflow-hidden">
+      <div className="rounded-2xl border border-black/8 dark:border-white/8 overflow-hidden">
 
         {/* Inline add user */}
         <AddUserForm
@@ -384,29 +384,29 @@ export default function UserManagement() {
         {/* Table */}
         <table className="w-full border-collapse">
           <thead>
-            <tr className="bg-[#1a1a1a]">
+            <tr className="bg-gray-50 dark:bg-[#1a1a1a]">
               {["USER", "ROLE", "STATUS", "JOINED", "ACTIONS"].map((h, i) => (
                 <th
                   key={h}
-                  className={`px-5 py-3 text-[10px] font-medium tracking-wider text-[#444] ${i === 4 ? "text-right" : "text-left"}`}
+                  className={`px-5 py-3 text-[10px] font-medium tracking-wider text-gray-400 dark:text-[#444] ${i === 4 ? "text-right" : "text-left"}`}
                 >
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="bg-[#111]">
+          <tbody className="bg-white dark:bg-[#111]">
             {loading ? (
               [1, 2, 3].map((i) => (
-                <tr key={i} className="border-t border-white/5">
+                <tr key={i} className="border-t border-black/5 dark:border-white/5">
                   <td colSpan={5} className="px-5 py-3.5">
-                    <div className="h-9 bg-white/5 rounded-xl animate-pulse" />
+                    <div className="h-9 bg-black/5 dark:bg-white/5 rounded-xl animate-pulse" />
                   </td>
                 </tr>
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-12 text-center text-[13px] text-[#555]">
+                <td colSpan={5} className="px-5 py-12 text-center text-[13px] text-gray-400 dark:text-[#555]">
                   {users.length === 0 ? "No users found" : "No users match your filters"}
                 </td>
               </tr>
@@ -427,8 +427,8 @@ export default function UserManagement() {
         </table>
 
         {!loading && filtered.length > 0 && (
-          <div className="px-5 py-3 border-t border-white/5 bg-[#111]">
-            <p className="text-[12px] text-[#555]">
+          <div className="px-5 py-3 border-t border-black/5 dark:border-white/5 bg-white dark:bg-[#111]">
+            <p className="text-[12px] text-gray-400 dark:text-[#555]">
               Showing {filtered.length} of {users.length} user{users.length !== 1 ? "s" : ""}
             </p>
           </div>
@@ -437,15 +437,15 @@ export default function UserManagement() {
 
       {/* Delete confirmation */}
       <AlertDialog open={deleteTarget !== null} onOpenChange={() => setDeleteTarget(null)}>
-        <AlertDialogContent className="bg-[#1c1c1e] border-white/10 text-white">
+        <AlertDialogContent className="bg-white dark:bg-[#1c1c1e] border-black/10 dark:border-white/10 text-gray-900 dark:text-white">
           <AlertDialogHeader>
-          <AlertDialogTitle className="text-white">Deactivate user?</AlertDialogTitle>
-          <AlertDialogDescription className="text-[#888]">
+          <AlertDialogTitle className="text-gray-900 dark:text-white">Deactivate user?</AlertDialogTitle>
+          <AlertDialogDescription className="text-gray-500 dark:text-[#888]">
             This will suspend the user's access. Their historical records will be preserved. You can restore them anytime.
           </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-transparent border-white/10 text-[#aaa] hover:bg-white/8 hover:text-white">
+            <AlertDialogCancel className="bg-transparent border-black/10 dark:border-white/10 text-gray-500 dark:text-[#aaa] hover:bg-black/8 dark:hover:bg-white/8 hover:text-gray-900 dark:hover:text-white">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
