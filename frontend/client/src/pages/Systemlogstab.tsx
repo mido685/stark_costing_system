@@ -73,11 +73,11 @@ function capitalize(s: string) {
 
 // ─── Severity cards ─────────────────────────────────────────────────────────
 
-const SEVERITY_META: Record<string, { label: string; dot: string; }> = {
-  info:     { label: "Info",     dot: "bg-sky-400"   },
-  warning:  { label: "Warning",  dot: "bg-amber-400" },
-  error:    { label: "Error",    dot: "bg-rose-500"  },
-  critical: { label: "Critical", dot: "bg-red-600"   },
+const SEVERITY_META: Record<string, { label: string; dot: string; ring: string }> = {
+  info:     { label: "Info",     dot: "bg-sky-500",  ring: "ring-sky-500/10"   },
+  warning:  { label: "Warning",  dot: "bg-amber-500", ring: "ring-amber-500/10" },
+  error:    { label: "Error",    dot: "bg-rose-500",  ring: "ring-rose-500/10"  },
+  critical: { label: "Critical", dot: "bg-red-600",   ring: "ring-red-600/10"   },
 };
 
 function SeverityCards({ counts }: { counts: Record<string, number> }) {
@@ -89,22 +89,23 @@ function SeverityCards({ counts }: { counts: Record<string, number> }) {
         return (
           <div
             key={lvl}
-            className="bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 rounded-2xl px-4 py-4 flex flex-col items-center text-center"
+            className="bg-white dark:bg-[#1c1c1e] border border-black/8 dark:border-white/8 rounded-2xl px-5 py-4"
           >
-            <span className={`w-2 h-2 rounded-full mb-2 ${meta.dot}`} />
-            <span className="text-[11px] font-semibold text-gray-500 dark:text-zinc-500 uppercase tracking-wider">
-              {meta.label}
-            </span>
-            <span className="text-2xl font-bold mt-1 text-gray-900 dark:text-white">
+            <div className="flex items-center gap-2 mb-3">
+              <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+              <span className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">
+                {meta.label}
+              </span>
+            </div>
+            <p className="text-3xl font-bold tabular-nums leading-none text-gray-900 dark:text-white">
               {count}
-            </span>
+            </p>
           </div>
         );
       })}
     </div>
   );
 }
-
 // ─── Payload diff viewer ────────────────────────────────────────────────────
 
 function PayloadDiff({ payload }: { payload: Record<string, unknown> }) {
