@@ -12,7 +12,7 @@ An enterprise-style local web app for:
 - waste and damaged goods tracking
 - branch expenses, utilities split, payroll burden, depreciation
 - accruals and prepayments
-- accounts receivable and payable visibility
+- accounts receivable and payable visibility sadflkjjajljfa ajljlkadjda jkaljaljd 
 - period closing
 - role-based approval flow
 - audit trail
