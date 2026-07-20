@@ -297,17 +297,20 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
       </div>
 
       {/* Summary strip */}
+      {/* Summary strip */}
       {logs.length > 0 && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {(["info", "warning", "error", "critical"] as const).map(lvl => {
             const cfg = LEVEL_CONFIG[lvl];
             return (
-              <Card key={lvl} className="p-3 flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
-                <div>
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{lvl}</p>
-                  <p className="text-lg font-bold text-foreground">{counts[lvl] ?? 0}</p>
+              <Card key={lvl} className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                  <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{lvl}</p>
                 </div>
+                <p className="text-3xl font-bold tabular-nums leading-none text-foreground">
+                  {counts[lvl] ?? 0}
+                </p>
               </Card>
             );
           })}
