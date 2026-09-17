@@ -1,7 +1,6 @@
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import schema as db
 from app.config import APP_NAME, APP_VERSION
 from dotenv import load_dotenv
 from pathlib import Path
@@ -40,7 +39,6 @@ def create_app() -> FastAPI:
     os.makedirs("app/static/logos", exist_ok=True)
     application.mount("/static", StaticFiles(directory="app/static"), name="static")
 
-    db.init_db()
 
     from app.routes import (
         approvals as approvals_router,

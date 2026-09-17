@@ -1,5 +1,5 @@
 from .connection import get_connection, dict_cursor
-
+DB_INIT_LOCK_ID = 918273645
 
 def init_db() -> None:
     conn = None
@@ -7,7 +7,7 @@ def init_db() -> None:
     try:
         conn = get_connection()
         cur = dict_cursor(conn)
-
+        cur.execute("SELECT pg_advisory_lock(%s)", (DB_INIT_LOCK_ID,))
         # ── 1. Companies ──────────────────────────────────────────────────────
         cur.execute("""
             CREATE TABLE IF NOT EXISTS companies (
@@ -1072,6 +1072,10 @@ def init_db() -> None:
 
     finally:
         if cur:
+            try:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (DB_INIT_LOCK_ID,))
+            except Exception:
+                pass  # connection may already be broken; don't mask the original error
             cur.close()
         if conn:
             conn.close()
