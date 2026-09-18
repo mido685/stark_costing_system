@@ -369,7 +369,113 @@ function IngredientSelect({ balances, value, onChange, placeholder }: {
     </select>
   );
 }
+function CountPreviewAlert({ balance, countedQty, t }: { 
+  balance?: StockBalance; 
+  countedQty: number; 
+  t: (k: string) => string 
+}) {
+  if (!balance) return null;
 
+  const systemBalance = balance.balance_qty;
+  const delta = countedQty - systemBalance;
+  const deltaPercent = systemBalance !== 0 ? (delta / systemBalance) * 100 : 0;
+  const absDeltaPct = Math.abs(deltaPercent);
+
+  // Risk Level
+  let riskLevel: "ok" | "warning" | "critical" = "ok";
+  let riskColor = "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800";
+  let riskBg = "bg-green-100 dark:bg-green-900/40";
+  let riskText = "text-green-700 dark:text-green-300";
+  let riskIcon = <CheckCircle className="w-4 h-4" />;
+  let riskLabel = "Balanced";
+
+  if (absDeltaPct > 20 || Math.abs(delta) > 50) {
+    riskLevel = "critical";
+    riskColor = "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800";
+    riskBg = "bg-red-100 dark:bg-red-900/40";
+    riskText = "text-red-700 dark:text-red-300";
+    riskIcon = <AlertTriangle className="w-4 h-4" />;
+    riskLabel = "Critical Variance";
+  } else if (absDeltaPct > 5 || Math.abs(delta) > 10) {
+    riskLevel = "warning";
+    riskColor = "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800";
+    riskBg = "bg-amber-100 dark:bg-amber-900/40";
+    riskText = "text-amber-700 dark:text-amber-300";
+    riskIcon = <AlertCircle className="w-4 h-4" />;
+    riskLabel = "Warning: Variance Detected";
+  }
+
+  return (
+    <div className={`border rounded-lg p-4 ${riskColor}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className={`${riskBg} ${riskText} p-1.5 rounded-lg`}>
+          {riskIcon}
+        </div>
+        <span className={`font-semibold text-sm ${riskText}`}>{riskLabel}</span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+        {/* System Balance */}
+        <div className="bg-background rounded-lg px-3 py-2 border border-border">
+          <p className="text-muted-foreground font-medium mb-0.5">System Balance</p>
+          <p className="font-bold text-foreground text-sm">{systemBalance.toFixed(3)}</p>
+          <p className="text-muted-foreground text-[10px] mt-0.5">{balance.unit}</p>
+        </div>
+
+        {/* Counted Qty */}
+        <div className="bg-background rounded-lg px-3 py-2 border border-border">
+          <p className="text-muted-foreground font-medium mb-0.5">Physical Count</p>
+          <p className="font-bold text-foreground text-sm">{countedQty.toFixed(3)}</p>
+          <p className="text-muted-foreground text-[10px] mt-0.5">{balance.unit}</p>
+        </div>
+
+        {/* Variance */}
+        <div className={`rounded-lg px-3 py-2 border ${
+          delta === 0 ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800" :
+          delta > 0 ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800" :
+          "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+        }`}>
+          <p className="text-muted-foreground font-medium mb-0.5">Variance</p>
+          <p className={`font-bold text-sm ${
+            delta === 0 ? "text-green-600" :
+            delta > 0 ? "text-blue-600" : "text-red-600"
+          }`}>
+            {delta >= 0 ? "+" : ""}{delta.toFixed(3)}
+          </p>
+          <p className="text-[10px] mt-0.5 font-semibold">{fmtPct(deltaPercent)}</p>
+        </div>
+      </div>
+
+      {/* Impact Analysis */}
+      <div className={`text-xs px-3 py-2 rounded-lg ${riskBg} border ${riskColor}`}>
+        {delta === 0 ? (
+          <p className={riskText}>✓ Physical count matches system. No adjustment needed.</p>
+        ) : delta > 0 ? (
+          <p className={riskText}>
+            📈 Surplus found: You have <strong>{Math.abs(delta).toFixed(3)} {balance.unit}</strong> more than recorded.
+            {riskLevel === "critical" && " ⚠️ This is unusual—verify before confirming."}
+          </p>
+        ) : (
+          <p className={riskText}>
+            📉 Shortage detected: You have <strong>{Math.abs(delta).toFixed(3)} {balance.unit}</strong> less than recorded.
+            {riskLevel === "critical" && " 🚨 This requires investigation!"}
+          </p>
+        )}
+      </div>
+
+      {riskLevel === "critical" && (
+        <div className="mt-3 p-2 bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 rounded-lg">
+          <p className="text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>
+              Large variance detected. Please <strong>double-check your count</strong> before confirming. If correct, add notes explaining the difference.
+            </span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status, t }: { status: "pending" | "approved" | "rejected"; t: (k: string) => string }) {
@@ -410,6 +516,7 @@ function DeltaBadge({ value, unit, showPct, pct }: { value: number; unit?: strin
     </div>
   );
 }
+
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
@@ -1860,23 +1967,70 @@ export default function InventoryControls() {
     <div className="space-y-6">
       {/* ── Modals ── */}
       {modal === "count" && (
-        <Modal
-          title={t("inv.modal.count.title")} subtitle={t("inv.modal.count.sub")}
-          onClose={() => setModal(null)} onSave={handleSaveCount} saving={saving}
-          cancelLabel={t("inv.modal.cancel")} saveLabel={t("inv.modal.save")}
-        >
-          {formError && <p className="text-xs text-red-600 flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2"><AlertCircle className="w-3 h-3 flex-shrink-0" />{formError}</p>}
-          <Field label={t("inv.modal.count.field.ingredient")}>
-            <IngredientSelect balances={safeBalances} value={countForm.ingredient_id} onChange={id => setCountForm({ ...countForm, ingredient_id: id })} placeholder={t("inv.modal.selectIngredient")} />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("inv.modal.count.field.date")}><input type="date" className={inputClass} value={countForm.entry_date} onChange={e => setCountForm({ ...countForm, entry_date: e.target.value })} /></Field>
-            <Field label={t("inv.modal.count.field.qty")}><input type="number" min={0} step={0.001} className={inputClass} placeholder="0.000" value={countForm.counted_quantity || ""} onChange={e => setCountForm({ ...countForm, counted_quantity: Number(e.target.value) })} /></Field>
-          </div>
-          <Field label={t("inv.modal.count.field.notes")}><textarea className={inputClass} rows={2} placeholder={t("inv.modal.notesPlaceholder")} value={countForm.notes} onChange={e => setCountForm({ ...countForm, notes: e.target.value })} /></Field>
-          <p className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2">{t("inv.modal.count.hint")}</p>
-        </Modal>
-      )}
+  <Modal
+    title={t("inv.modal.count.title")} 
+    subtitle={t("inv.modal.count.sub")}
+    onClose={() => setModal(null)} 
+    onSave={handleSaveCount} 
+    saving={saving}
+    cancelLabel={t("inv.modal.cancel")} 
+    saveLabel={t("inv.modal.save")}
+  >
+    {formError && <p className="text-xs text-red-600 flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2"><AlertCircle className="w-3 h-3 flex-shrink-0" />{formError}</p>}
+    
+    <Field label={t("inv.modal.count.field.ingredient")}>
+      <IngredientSelect 
+        balances={safeBalances} 
+        value={countForm.ingredient_id} 
+        onChange={id => setCountForm({ ...countForm, ingredient_id: id })} 
+        placeholder={t("inv.modal.selectIngredient")} 
+      />
+    </Field>
+
+    <div className="grid grid-cols-2 gap-3">
+      <Field label={t("inv.modal.count.field.date")}>
+        <input 
+          type="date" 
+          className={inputClass} 
+          value={countForm.entry_date} 
+          onChange={e => setCountForm({ ...countForm, entry_date: e.target.value })} 
+        />
+      </Field>
+      <Field label={t("inv.modal.count.field.qty")}>
+        <input 
+          type="number" 
+          min={0} 
+          step={0.001} 
+          className={inputClass} 
+          placeholder="0.000" 
+          value={countForm.counted_quantity || ""} 
+          onChange={e => setCountForm({ ...countForm, counted_quantity: Number(e.target.value) })} 
+        />
+      </Field>
+    </div>
+
+    <Field label={t("inv.modal.count.field.notes")}>
+      <textarea 
+        className={inputClass} 
+        rows={2} 
+        placeholder={t("inv.modal.notesPlaceholder")} 
+        value={countForm.notes} 
+        onChange={e => setCountForm({ ...countForm, notes: e.target.value })} 
+      />
+    </Field>
+
+    {/* ──────── PREVIEW SECTION (NEW) ────────── */}
+    {countForm.ingredient_id > 0 && countForm.counted_quantity >= 0 && (
+      <CountPreviewAlert 
+        balance={safeBalances.find(b => b.ingredient_id === countForm.ingredient_id)} 
+        countedQty={countForm.counted_quantity} 
+        t={t} 
+      />
+    )}
+
+    <p className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2">{t("inv.modal.count.hint")}</p>
+  </Modal>
+)}
 
       {modal === "adjustment" && (
         <Modal
