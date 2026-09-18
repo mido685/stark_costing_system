@@ -303,12 +303,15 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
   // current SKU in Masters rather than a value cached in the approvals list.
   if (a.fromProcurement && a.purchaseId) {
     try {
-      const purchase = await apiCall<{ sku?: string | null; ingredient_id?: number }>(
-        `/api/purchases/${a.purchaseId}`,
-      );
-      const masterSku = String(purchase?.sku ?? "").trim()
-        || (purchase?.ingredient_id ? `RM-${purchase.ingredient_id}` : "");
-      if (masterSku) a = { ...a, itemSku: masterSku };
+      const [purchase, masterItems] = await Promise.all([
+        apiCall<{ sku?: string | null; ingredient_id?: number }>(`/api/purchases/${a.purchaseId}`),
+        apiCall<Array<{ id: number; sku?: string | null }>>("/api/products?category=raw_material"),
+      ]);
+      const masterSku = (Array.isArray(masterItems)
+        ? masterItems.find(item => Number(item.id) === Number(purchase?.ingredient_id))?.sku
+        : undefined) ?? purchase?.sku;
+      const normalizedSku = String(masterSku ?? "").trim();
+      if (normalizedSku) a = { ...a, itemSku: normalizedSku };
     } catch {
       // Keep the existing approval data available if the master lookup fails.
     }
