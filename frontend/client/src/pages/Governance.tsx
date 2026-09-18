@@ -305,7 +305,10 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
     try {
       const [purchase, masterItems] = await Promise.all([
         apiCall<{ sku?: string | null; ingredient_id?: number }>(`/api/purchases/${a.purchaseId}`),
-        apiCall<Array<{ id: number; sku?: string | null }>>("/api/products?category=raw_material"),
+        // Raw materials are exposed by the unified Items Master endpoint.  The
+        // /products endpoint contains finished goods only, so it cannot resolve
+        // the SKU for a purchase-order ingredient.
+        apiCall<Array<{ id: number; sku?: string | null }>>("/api/products/items?category=raw_material"),
       ]);
       const masterSku = (Array.isArray(masterItems)
         ? masterItems.find(item => Number(item.id) === Number(purchase?.ingredient_id))?.sku
