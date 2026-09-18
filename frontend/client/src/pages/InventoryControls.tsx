@@ -1543,8 +1543,7 @@ function StockTableCard({
                     {t("inv.table.col.value")}<SortIcon field="inventory_value" />
                   </button>
                 </th>
-                <th colSpan={2} className="px-4 py-1.5 text-center text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50/80 dark:bg-blue-950/40 border-l border-blue-200 dark:border-blue-800 uppercase tracking-wider">{t("inv.table.legend.count")}</th>
-                <th colSpan={1} className="px-4 py-1.5 text-center text-[10px] font-bold text-violet-700 dark:text-violet-300 bg-violet-50/80 dark:bg-violet-950/40 border-l border-violet-200 dark:border-violet-800 uppercase tracking-wider">{t("inv.table.legend.purchases")}</th>
+                <th colSpan={3} className="px-4 py-1.5 text-center text-[10px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50/80 dark:bg-blue-950/40 border-l border-blue-200 dark:border-blue-800 uppercase tracking-wider">{t("inv.table.legend.count")}</th>                <th colSpan={1} className="px-4 py-1.5 text-center text-[10px] font-bold text-violet-700 dark:text-violet-300 bg-violet-50/80 dark:bg-violet-950/40 border-l border-violet-200 dark:border-violet-800 uppercase tracking-wider">{t("inv.table.legend.purchases")}</th>
                 <th colSpan={2} className="px-4 py-1.5 text-center text-[10px] font-bold text-green-700 dark:text-green-300 bg-green-50/80 dark:bg-green-950/40 border-l border-green-200 dark:border-green-800 uppercase tracking-wider">{t("inv.table.legend.transfers")}</th>
                 <th colSpan={1} className="px-4 py-1.5 text-center text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/40 border-l border-amber-200 dark:border-amber-800 uppercase tracking-wider">{t("inv.table.legend.opening")}</th>
                 <th colSpan={1} className="px-4 py-1.5 text-center text-[10px] font-bold text-red-700 dark:text-red-300 bg-red-50/80 dark:bg-red-950/40 border-l border-red-200 dark:border-red-800 uppercase tracking-wider">{t("inv.table.legend.waste")}</th>
@@ -1554,9 +1553,10 @@ function StockTableCard({
               <tr className="bg-secondary/50 border-b border-border">
                 <th className="px-4 py-2 text-right text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/60 dark:bg-blue-950/30 border-l border-blue-200 dark:border-blue-800">{t("inv.table.col.lastCount")}</th>
                 <th className="px-4 py-2 text-right text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/60 dark:bg-blue-950/30">{t("inv.table.col.diff")}</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/60 dark:bg-blue-950/30">vs Balance</th>
                 <th className="px-4 py-2 text-right text-xs font-semibold text-violet-700 dark:text-violet-300 bg-violet-50/60 dark:bg-violet-950/30 border-l border-violet-200 dark:border-violet-800">{t("inv.table.col.totalRcvd")}</th>
                 <th className="px-4 py-2 text-right text-xs font-semibold text-green-700 dark:text-green-300 bg-green-50/60 dark:bg-green-950/30 border-l border-green-200 dark:border-green-800">{t("inv.table.col.in")}</th>
-                <th className="px-4 py-2 text-right text-xs font-semibold text-green-700 dark:text-green-300 bg-green-50/60 dark:bg-green-950/30">{t("inv.table.col.out")}</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold text-green-700 dark:text-green-300 bg-green-50/60 dark:bg-green-950/30 border-l border-green-200 dark:border-green-800">{t("inv.table.col.out")}</th>
                 <th className="px-4 py-2 text-right text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-50/60 dark:bg-amber-950/30 border-l border-amber-200 dark:border-amber-800">{t("inv.table.col.openingQty")}</th>
                 <th className="px-4 py-2 text-right text-xs font-semibold text-red-700 dark:text-red-300 bg-red-50/60 dark:bg-red-950/30 border-l border-red-200 dark:border-red-800">{t("inv.table.col.netAdj")}</th>
                 <th className="px-4 py-2 text-right text-xs font-semibold text-sky-700 dark:text-sky-300 bg-sky-50/60 dark:bg-sky-950/30 border-l border-sky-200 dark:border-sky-800">{t("inv.table.col.varPct")}</th>
@@ -1570,7 +1570,9 @@ function StockTableCard({
                 const countData = countMap[row.ingredient_id];
                 const countedQty = countData ? Number(countData.counted_qty ?? 0) : null;
                 const countDiff = countData ? Number(countData.delta ?? 0) : null;
-                const driftVsBalance = countedQty !== null ? row.balance_qty - countedQty : null;
+                const driftVsBalance = countedQty !== null
+                ? Number((row.balance_qty - countedQty).toFixed(3))
+                : null;
                 const purchaseData = purchaseMap[row.ingredient_id];
                 const totalPurchased = purchaseData?.totalQty ?? null;
                 const transferData = transferMap[row.ingredient_id];
@@ -1622,6 +1624,11 @@ function StockTableCard({
                       </td>
                       <td className="px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-950/20">
                         {countDiff !== null ? <DeltaBadge value={countDiff} unit={row.unit} /> : <span className="text-muted-foreground text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right bg-blue-50/30 dark:bg-blue-950/20">
+                        {driftVsBalance !== null
+                          ? <DeltaBadge value={driftVsBalance} unit={row.unit} />
+                          : <span className="text-muted-foreground text-xs">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right border-l border-violet-100 dark:border-violet-900 bg-violet-50/30 dark:bg-violet-950/20">
                         {totalPurchased !== null ? (
