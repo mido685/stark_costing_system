@@ -248,7 +248,7 @@ interface HtmlViewerParams {
   notes?: string;
 }
 
-function openRecordAsHtml(params: HtmlViewerParams): void {
+function recordAsHtml(params: HtmlViewerParams): string {
   const { title, subtitle, ref, badge, sections, lineItems, totals, notes } = params;
   const now       = new Date().toLocaleDateString();
   const badgeHtml = badge ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>` : "";
@@ -285,7 +285,11 @@ function openRecordAsHtml(params: HtmlViewerParams): void {
   ${sectionsHtml}${lineItemsHtml}${totalsHtml}${notesHtml}
   <div class="footer"><div class="footer-brand">STARK AI · ${title}</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div>
 </div></body></html>`;
-  const blob = new Blob([html], { type: "text/html" });
+  return html;
+}
+
+function openRecordAsHtml(params: HtmlViewerParams): void {
+  const blob = new Blob([recordAsHtml(params)], { type: "text/html" });
   const url  = URL.createObjectURL(blob);
   window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 15000);
@@ -298,7 +302,7 @@ function statusBadgeColors(status: string) {
   return { color: "#d97706", bg: "#fef3c7" };
 }
 
-function openPurchaseOrderHtml(po: PurchaseOrderDocument): void {
+function purchaseOrderHtmlParams(po: PurchaseOrderDocument): HtmlViewerParams {
   const quantity = po.quantity ?? 0;
   const unitCost = po.unitCost ?? 0;
   const gross    = po.grossAmount ?? quantity * unitCost;
@@ -307,7 +311,7 @@ function openPurchaseOrderHtml(po: PurchaseOrderDocument): void {
   const bc       = statusBadgeColors(po.status);
   const ref      = poRef(po.poNumber, po.id);
 
-  openRecordAsHtml({
+  return {
     title: "Purchase order", subtitle: `${ref} · ${formatDateShort(po.date)}`,
     ref, badge: { label: po.status.toUpperCase(), color: bc.color, bg: bc.bg },
     sections: [{ heading: "Purchase Order Details", rows: [
@@ -331,7 +335,11 @@ function openPurchaseOrderHtml(po: PurchaseOrderDocument): void {
       { label: "Total Payable", value: formatCurrency(pay, po.currency) ?? formatNumber(pay, 2), highlight: true },
     ],
     notes: po.notes,
-  });
+  };
+}
+
+function openPurchaseOrderHtml(po: PurchaseOrderDocument): void {
+  openRecordAsHtml(purchaseOrderHtmlParams(po));
 }
 
 async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Promise<void> {
@@ -588,31 +596,14 @@ function Pagination({ page, totalPages, totalItems, pageSize, onPage }: {
 // ─── PO PDF download ──────────────────────────────────────────────────────────
 
 function downloadPOPdf(row: PurchaseHistoryRow, addToast: (type: ToastMessage["type"], message: string) => void) {
-  const gross = row.gross_amount ?? row.quantity * row.unit_cost;
-  const tax   = row.tax_amount ?? 0;
-  const pay   = row.payable_amount ?? gross + tax;
-  const html  = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${poRef(row.po_number, row.id)}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f1f5f9;display:flex;justify-content:center;padding:40px 20px}.card{background:#fff;width:480px;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:#1e3a5f;color:#f8fafc;padding:24px 28px}.header h1{font-size:20px;font-weight:700}.header p{font-size:12px;color:#94a3b8;margin-top:4px}.meta{display:flex;justify-content:space-between;margin-top:14px}.meta .id{font-size:13px;font-weight:600;color:#e2e8f0}.meta .status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;background:#16a34a22;color:#16a34a;border:1px solid #16a34a55}.section{padding:20px 28px;border-bottom:1px solid #f1f5f9}.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.item label{font-size:10px;color:#94a3b8;display:block;margin-bottom:2px}.item span{font-size:13px;font-weight:600;color:#1e293b}.line{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#475569;border-bottom:1px solid #f1f5f9}.line.total{font-size:15px;font-weight:700;color:#1e3a5f;padding-top:12px;margin-top:4px;border-top:2px solid #e2e8f0;border-bottom:none}.footer{padding:16px 28px;text-align:center;background:#f8fafc}.footer p{font-size:10px;color:#94a3b8}.print-btn{display:block;margin:0 auto 20px;padding:9px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit}@media print{.print-btn{display:none}body{background:#fff;padding:0}.card{box-shadow:none;width:100%;border-radius:0}@page{margin:0;size:A5}}</style></head><body>
-<button class="print-btn" onclick="window.print()">🖨 Print / Save as PDF</button>
-<div class="card">
-  <div class="header"><h1>Purchase Order</h1><p>STARK AI Enterprise Costing System</p>
-    <div class="meta"><span class="id">${poRef(row.po_number, row.id)}</span><span class="status">${row.status.toUpperCase()}</span></div>
-  </div>
-  <div class="section"><div class="section-title">Details</div><div class="grid">
-    <div class="item"><label>Branch</label><span>${row.branch_name ?? "—"}</span></div>
-    <div class="item"><label>Supplier</label><span>${row.supplier_name ?? "—"}</span></div>
-    <div class="item"><label>Item</label><span>${row.ingredient_name ?? "—"}</span></div>
-    <div class="item"><label>Date</label><span>${String(row.entry_date).slice(0,10)}</span></div>
-    <div class="item"><label>Quantity</label><span>${Number(row.quantity).toFixed(3)} ${row.unit ?? ""}</span></div>
-    <div class="item"><label>Unit Cost</label><span>${Number(row.unit_cost).toFixed(2)}</span></div>
-  </div></div>
-  <div class="section"><div class="section-title">Amounts</div>
-    <div class="line"><span>Gross Amount</span><span>${gross.toFixed(2)}</span></div>
-    <div class="line"><span>Tax</span><span>${tax.toFixed(2)}</span></div>
-    <div class="line total"><span>Total Payable</span><span>${pay.toFixed(2)}</span></div>
-  </div>
-  <div class="footer"><p>Generated ${new Date().toLocaleString()} · STARK AI</p></div>
-</div></body></html>`;
+  const po: PurchaseOrderDocument = {
+    id: row.id, poNumber: row.po_number, status: row.status, date: row.entry_date,
+    branchName: row.branch_name, supplierName: row.supplier_name,
+    itemName: row.ingredient_name, itemSku: row.item_sku, unit: row.unit,
+    quantity: row.quantity, unitCost: row.unit_cost, grossAmount: row.gross_amount,
+    taxAmount: row.tax_amount, payableAmount: row.payable_amount, notes: row.notes,
+  };
+  const html = recordAsHtml(purchaseOrderHtmlParams(po));
   const blob = new Blob([html], { type: "text/html;charset=utf-8;" });
   const url  = URL.createObjectURL(blob);
   const link = document.createElement("a");
