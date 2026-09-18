@@ -69,6 +69,7 @@ type GovernanceHistoryRow = {
 
 type PurchaseHistoryRow = {
   id:              number;
+  ingredient_id?:  number;
   po_number?:      number;
   branch_name:     string;
   supplier_name:   string;
@@ -970,8 +971,21 @@ function POHistoryTab({ branchId, addToast }: {
     try {
       const params = new URLSearchParams({ limit: "200" });
       if (branchId) params.set("branch_id", String(branchId));
-      const data = await apiCall<PurchaseHistoryRow[]>(`/api/purchases?${params.toString()}`);
-      setRows(Array.isArray(data) ? data : []); setPage(1);
+      const [data, masterItems] = await Promise.all([
+        apiCall<PurchaseHistoryRow[]>(`/api/purchases?${params.toString()}`),
+        getItems("raw_material"),
+      ]);
+      const purchaseOrders = (Array.isArray(data) ? data : []).map((row) => {
+        const masterSku = row.ingredient_id == null
+          ? undefined
+          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
+        // Use the current SKU from Items Master even when an older PO response
+        // does not include item_sku yet.
+        const itemSku = String(masterSku ?? row.item_sku ?? "").trim()
+          || (row.ingredient_id != null ? `RM-${row.ingredient_id}` : undefined);
+        return { ...row, item_sku: itemSku };
+      });
+      setRows(purchaseOrders); setPage(1);
     } catch (err: any) {
       const msg = err?.message ?? "Failed to load purchase orders";
       setError(msg); addToast("error", msg);
