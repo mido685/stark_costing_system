@@ -323,7 +323,7 @@ function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
         { label: "Type",          value: t(a.typeKey)                          },
         { label: "Submitted By",  value: a.submitted_by    || "—"              },
         { label: "Date",          value: formatDate(a.date)                    },
-        { label: "Priority",      value: (a.priority ?? "medium").toUpperCase()},
+        ...(a.fromProcurement ? [] : [{ label: "Priority", value: (a.priority ?? "medium").toUpperCase() }]),
         { label: "Source",        value: a.fromProcurement ? "Procurement" : "System" },
       ];
 
@@ -1751,7 +1751,7 @@ export default function Governance() {
                                   <ShoppingCart className="w-2.5 h-2.5" /> Procurement
                                 </span>
                               )}
-                              {a.priority && <PriorityBadge priority={a.priority} />}
+                              {!a.fromProcurement && a.priority && <PriorityBadge priority={a.priority} />}
                               {formattedAmount && <span className="text-xs font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded">{formattedAmount}</span>}
                             </div>
                             {a.typeKey === "gov.approvalType.priceHistory" ? (
