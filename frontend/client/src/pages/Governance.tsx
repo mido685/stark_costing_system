@@ -1781,6 +1781,24 @@ export default function Governance() {
                                   <PriceChangePill pct={a.priceChangePct} />
                                 )}
                                 </div>
+                            ) : a.fromProcurement ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-5 gap-y-1.5 mt-2 ms-3.5 text-xs">
+                                <div className="min-w-0">
+                                  <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Supplier</span>
+                                  <span className="block font-medium text-foreground truncate">{a.supplierName ?? "—"}</span>
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Item</span>
+                                  <span className="block font-medium text-foreground truncate">{a.ingredientName ?? "—"}</span>
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Order details</span>
+                                  <span className="block font-medium text-foreground tabular-nums">
+                                    {a.quantity != null ? formatNumber(a.quantity, 3) : "—"} {a.unit ?? ""}
+                                    {a.unitCost != null && <> <span className="text-muted-foreground font-normal">×</span> {formatCurrency(a.unitCost, a.currency)}</>}
+                                  </span>
+                                </div>
+                              </div>
                             ) : (
                               a.desc && <p className="text-xs text-muted-foreground mt-0.5 ms-3.5 line-clamp-1">{a.desc}</p>
                             )}
