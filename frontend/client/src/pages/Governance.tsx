@@ -37,6 +37,12 @@ type ApprovalItem = {
   priceType?:      string;
   previousCost?: number;
   priceChangePct?: number;
+  unit?:           string;
+  quantity?:       number;
+  unitCost?:       number;
+  grossAmount?:    number;
+  taxAmount?:      number;
+  notes?:          string;
 };
 
 type GovernanceHistoryRow = {
@@ -180,6 +186,11 @@ const SHARED_HTML_STYLES = `
   .info-value.up{color:#dc2626}
   .info-value.down{color:#16a34a}
   .info-value.neutral{color:#64748b}
+  .line-items{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+  .line-items th{background:#1e3a5f;color:#fff;padding:10px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .line-items th.right,.line-items td.right{text-align:right}
+  .line-items td{padding:12px;border-top:1px solid #e2e8f0;font-size:13px;color:#334155}
+  .line-items td.item{font-weight:600;color:#0f172a}
   .totals{margin-left:auto;width:100%;max-width:320px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:20px}
   .totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}
   .totals-row.highlight{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}
@@ -208,12 +219,13 @@ interface HtmlViewerParams {
   title: string; subtitle: string; ref: string;
   badge?: { label: string; color: string; bg: string };
   sections: { heading: string; rows: { label: string; value: string }[] }[];
+  lineItems?: { heading: string; columns: string[]; rows: string[][] };
   totals?: { label: string; value: string; highlight?: boolean }[];
   notes?: string;
 }
 
 function openRecordAsHtml(params: HtmlViewerParams): void {
-  const { title, subtitle, ref, badge, sections, totals, notes } = params;
+  const { title, subtitle, ref, badge, sections, lineItems, totals, notes } = params;
   const now       = new Date().toLocaleDateString();
   const badgeHtml = badge ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>` : "";
   const sectionsHtml = sections.map(sec => `
@@ -225,6 +237,9 @@ function openRecordAsHtml(params: HtmlViewerParams): void {
       return `<div class="info-block${fullClass}"><div class="info-label">${r.label}</div><div class="info-value${colorClass}">${val}</div></div>`;
     }).join("")}
     </div></div>`).join("");
+  const lineItemsHtml = lineItems ? `<div class="section"><div class="section-title">${lineItems.heading}</div>
+    <table class="line-items"><thead><tr>${lineItems.columns.map((column, index) => `<th class="${index > 1 ? "right" : ""}">${column}</th>`).join("")}</tr></thead>
+    <tbody>${lineItems.rows.map(row => `<tr>${row.map((value, index) => `<td class="${index === 0 ? "item" : ""}${index > 1 ? " right" : ""}">${value}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "";
   const totalsHtml = totals?.length ? `<div class="totals">${totals.map(t => `<div class="totals-row${t.highlight ? " highlight" : ""}"><span>${t.label}</span><span>${t.value}</span></div>`).join("")}</div>` : "";
   const notesHtml = notes
   ? `<div class="section">
@@ -243,7 +258,7 @@ function openRecordAsHtml(params: HtmlViewerParams): void {
     <div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">${title}</div><div class="doc-sub">${subtitle}</div></div>
     <div class="meta">${badgeHtml ? `<div>${badgeHtml}</div>` : ""}<div style="margin-top:8px">Generated: ${now}</div><div>Ref: ${ref}</div></div>
   </div>
-  ${sectionsHtml}${totalsHtml}${notesHtml}
+  ${sectionsHtml}${lineItemsHtml}${totalsHtml}${notesHtml}
   <div class="footer"><div class="footer-brand">STARK AI · ${title}</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div>
 </div></body></html>`;
   const blob = new Blob([html], { type: "text/html" });
@@ -288,6 +303,7 @@ function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
     : `APR-${String(a.id).padStart(5, "0")}`;
 
   const isPriceHistory = a.typeKey === "gov.approvalType.priceHistory";
+  const isPurchaseOrder = a.fromProcurement === true;
 
   const detailRows = isPriceHistory
     ? [
@@ -324,7 +340,26 @@ function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
     : "Approval Details",
   rows: detailRows,
 }],
-  totals: a.amount != null
+  lineItems: isPurchaseOrder && a.quantity != null && a.unitCost != null
+    ? {
+        heading: "Ordered Items",
+        columns: ["Item", "Unit", "Quantity", "Unit Cost", "Line Total"],
+        rows: [[
+          a.ingredientName ?? "—",
+          a.unit ?? "—",
+          formatNumber(a.quantity, 3),
+          formatCurrency(a.unitCost, a.currency) ?? formatNumber(a.unitCost, 2),
+          formatCurrency(a.grossAmount ?? a.quantity * a.unitCost, a.currency) ?? formatNumber(a.grossAmount ?? a.quantity * a.unitCost, 2),
+        ]],
+      }
+    : undefined,
+  totals: isPurchaseOrder && a.amount != null
+    ? [
+        { label: "Gross Amount", value: formatCurrency(a.grossAmount ?? (a.quantity ?? 0) * (a.unitCost ?? 0), a.currency) ?? "—" },
+        { label: "Tax", value: formatCurrency(a.taxAmount ?? 0, a.currency) ?? "—" },
+        { label: "Total Payable", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true },
+      ]
+    : a.amount != null
   ? isPriceHistory
     ? [
         { label: "Previous Price", value: formatCurrency(a.previousCost, a.currency) ?? "—"  },
@@ -332,7 +367,7 @@ function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
       ]
     : [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }]
     : undefined,
-    notes: isPriceHistory ? undefined : a.desc,
+    notes: isPriceHistory ? undefined : isPurchaseOrder ? a.notes : a.desc,
   });
 }
 function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
@@ -1148,6 +1183,12 @@ export default function Governance() {
           priceChangePct: row.previous_price != null && row.unit_cost != null && Number(row.previous_price) > 0
             ? ((Number(row.unit_cost) - Number(row.previous_price)) / Number(row.previous_price)) * 100
             : undefined,
+          unit:           row.unit ?? undefined,
+          quantity:       row.quantity != null ? Number(row.quantity) : undefined,
+          unitCost:       row.unit_cost != null ? Number(row.unit_cost) : undefined,
+          grossAmount:    row.amount != null ? Number(row.amount) : undefined,
+          taxAmount:      row.tax_amount != null ? Number(row.tax_amount) : undefined,
+          notes:          row.notes ?? undefined,
         };
       });
       setApprovals(serverItems); setPage(1);
