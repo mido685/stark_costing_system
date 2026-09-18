@@ -500,7 +500,7 @@ function StatusBadge({ status, t }: { status: "pending" | "approved" | "rejected
 // ─── Delta Badge ──────────────────────────────────────────────────────────────
 
 function DeltaBadge({ value, unit, showPct, pct }: { value: number; unit?: string; showPct?: boolean; pct?: number }) {
-  if (value === 0) return <span className="text-muted-foreground font-mono text-xs">—</span>;
+  if (value === 0) return <span className="text-green-600 font-mono text-xs">✓ 0.000</span>;
   const isPos = value > 0;
   return (
     <div className="flex flex-col items-end gap-0.5">
@@ -1287,7 +1287,24 @@ function StockTableCard({
 
   const countMap = useMemo(() => {
     const map: Record<number, any> = {};
-    stockCounts.forEach(c => { const id = Number(c.ingredient_id); if (!map[id] || c.entry_date > map[id].entry_date) map[id] = c; });
+    stockCounts.forEach(c => {
+      const id = Number(c.ingredient_id);
+      const counted = Number(c.counted_qty ?? c.counted_quantity ?? c.quantity ?? 0);
+      const rawSys = c.system_qty ?? c.system_quantity ?? c.expected_qty;
+      const delta = Number(
+        c.delta ?? c.quantity_delta ?? c.variance ??
+        (rawSys != null ? counted - Number(rawSys) : 0)
+      );
+      const systemQty = rawSys != null ? Number(rawSys) : counted - delta;
+
+      const norm = { ...c, counted_qty: counted, delta, system_qty: systemQty };
+      const prev = map[id];
+      const newer =
+        !prev ||
+        (c.entry_date ?? "") > (prev.entry_date ?? "") ||
+        ((c.entry_date ?? "") === (prev.entry_date ?? "") && Number(c.id ?? 0) >= Number(prev.id ?? 0));
+      if (newer) map[id] = norm;
+    });
     return map;
   }, [stockCounts]);
 
@@ -1325,13 +1342,15 @@ function StockTableCard({
 
   const adjustmentMap = useMemo(() => {
     const map: Record<number, { total: number; waste: number }> = {};
-    adjustments.forEach(a => {
-      const id = Number(a.ingredient_id);
-      if (!map[id]) map[id] = { total: 0, waste: 0 };
-      const qty = Number(a.quantity_delta ?? a.counted_quantity ?? 0);
-      map[id].total += qty;
-      map[id].waste += qty;
-    });
+    adjustments
+      .filter(a => a.status === "approved")   // ignore pending and rejected
+      .forEach(a => {
+        const id = Number(a.ingredient_id);
+        if (!map[id]) map[id] = { total: 0, waste: 0 };
+        const qty = Number(a.quantity_delta ?? 0);
+        map[id].total += qty;
+        map[id].waste += qty;
+      });
     return map;
   }, [adjustments]);
     const productionMap = useMemo(() => {
@@ -1551,6 +1570,7 @@ function StockTableCard({
                 const countData = countMap[row.ingredient_id];
                 const countedQty = countData ? Number(countData.counted_qty ?? 0) : null;
                 const countDiff = countData ? Number(countData.delta ?? 0) : null;
+                const driftVsBalance = countedQty !== null ? row.balance_qty - countedQty : null;
                 const purchaseData = purchaseMap[row.ingredient_id];
                 const totalPurchased = purchaseData?.totalQty ?? null;
                 const transferData = transferMap[row.ingredient_id];
@@ -1558,10 +1578,12 @@ function StockTableCard({
                 const adjustmentData = adjustmentMap[row.ingredient_id];
                 const netAdj = adjustmentData?.waste ?? null;
                 const isExpanded = expandedRows.has(row.ingredient_id);
-                const expectedFromCount = countedQty !== null ? countedQty : null;
-                const varDiff = expectedFromCount !== null ? row.balance_qty - expectedFromCount : null;
-                const varPct = expectedFromCount !== null && expectedFromCount > 0 ? ((varDiff ?? 0) / expectedFromCount) * 100 : null;
-
+                const sysBefore = countData ? Math.abs(countData.system_qty) : null;
+                const varPct =
+                  countDiff === null ? null
+                  : sysBefore && sysBefore > 0 ? (countDiff / sysBefore) * 100
+                  : countDiff === 0 ? 0
+                  : Math.sign(countDiff) * 100;
                 return (
                   <React.Fragment key={row.ingredient_id ?? i}>
                     <tr className={`border-b border-border hover:bg-secondary/30 transition-colors ${isExpanded ? "bg-secondary/20" : ""}`}>
@@ -1860,10 +1882,34 @@ export default function InventoryControls() {
     if (!countForm.ingredient_id) { setFormError(t("inv.err.selectIngredient")); return; }
     if (countForm.counted_quantity < 0) { setFormError(t("inv.err.negativeQty")); return; }
     setSaving(true); setFormError("");
-    const ok = await addStockCount({ branch_id: branchId, ingredient_id: countForm.ingredient_id, entry_date: countForm.entry_date, counted_quantity: countForm.counted_quantity, notes: countForm.notes, user_id: currentUserId });
+
+    // The server recalculates system_qty itself; we still send it because the schema likely requires it.
+    const sysBefore = safeBalances.find(b => b.ingredient_id === countForm.ingredient_id)?.balance_qty ?? 0;
+
+    let ok = false;
+    try {
+      await apiCall("/api/stock-counts", {
+        method: "POST",
+        body: JSON.stringify({
+          branch_id: branchId,
+          ingredient_id: countForm.ingredient_id,
+          entry_date: countForm.entry_date,
+          system_qty: sysBefore,
+          counted_qty: countForm.counted_quantity,
+          notes: countForm.notes,
+        }),
+      });
+      ok = true;
+    } catch (e) {
+      console.error("[stock-count] save failed", e);
+    }
+
     setSaving(false);
-    if (ok) { setModal(null); setCountForm({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" }); refetchAll(); }
-    else setFormError(t("inv.err.saveFailed"));
+    if (ok) {
+      setModal(null);
+      setCountForm({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" });
+      refetchAll();
+    } else setFormError(t("inv.err.saveFailed"));
   }
 
   async function handleSaveAdjustment() {

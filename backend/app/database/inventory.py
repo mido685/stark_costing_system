@@ -461,8 +461,13 @@ def add_stock_count(
     cur = dict_cursor(conn)
     try:
         _verify_branch(cur, branch_id, company_id)
+        cur.execute(
+            "SELECT COALESCE(SUM(quantity_delta), 0) AS bal FROM inventory_movements "
+            "WHERE ingredient_id = %s AND branch_id = %s",
+            (ingredient_id, branch_id),
+        )
+        system_qty = float(cur.fetchone()["bal"])
         delta = counted_qty - system_qty
-
         cur.execute(
             """
             INSERT INTO stock_counts
@@ -1012,3 +1017,85 @@ def get_po_fulfillment(
     finally:
         cur.close()
         conn.close()
+def list_stock_counts_with_purchases(company_id: int, branch_id: int | None = None, limit: int = 200):
+    conn = get_connection(); cur = dict_cursor(conn)
+    try:
+        where = ["b.company_id = %s"]; params: list[Any] = [company_id]
+        if branch_id:
+            where.append("sc.branch_id = %s"); params.append(branch_id)
+        cur.execute(f"""
+            SELECT sc.*, b.name AS branch_name, i.name AS ingredient_name, i.unit,
+                   u.display_name AS counted_by,
+                   COALESCE((SELECT SUM(p.quantity) FROM purchases p
+                             WHERE p.branch_id = sc.branch_id
+                               AND p.ingredient_id = sc.ingredient_id
+                               AND p.status = 'approved'
+                               AND p.entry_date >= sc.entry_date), 0) AS purchased_since
+            FROM stock_counts sc
+            JOIN branches b ON b.id = sc.branch_id
+            JOIN ingredients i ON i.id = sc.ingredient_id
+            LEFT JOIN app_users u ON u.id = sc.created_by
+            WHERE {' AND '.join(where)}
+            ORDER BY sc.entry_date DESC, sc.id DESC
+            LIMIT %s
+        """, params + [limit])
+        return [_row(dict(r)) for r in cur.fetchall()]
+    finally:
+        cur.close(); conn.close()
+
+
+def list_adjustments_by_branch(company_id: int, branch_id: int | None = None, limit: int = 200):
+    conn = get_connection(); cur = dict_cursor(conn)
+    try:
+        where = ["b.company_id = %s"]; params: list[Any] = [company_id]
+        if branch_id:
+            where.append("a.branch_id = %s"); params.append(branch_id)
+        cur.execute(f"""
+            SELECT a.id, a.branch_id, a.ingredient_id, i.name AS ingredient_name, i.unit,
+                   a.quantity_delta, a.entry_date, a.notes, a.status, a.approved_by,
+                   cu.display_name AS user_name, u.display_name AS approver_name
+            FROM stock_adjustments a
+            JOIN branches b ON b.id = a.branch_id
+            JOIN ingredients i ON i.id = a.ingredient_id
+            LEFT JOIN app_users cu ON cu.id = a.created_by
+            LEFT JOIN app_users u  ON u.id  = a.approved_by
+            WHERE {' AND '.join(where)}
+            ORDER BY a.entry_date DESC, a.id DESC
+            LIMIT %s
+        """, params + [limit])
+        return [_row(dict(r)) for r in cur.fetchall()]
+    finally:
+        cur.close(); conn.close()
+
+
+def list_opening_stock_by_branch(company_id: int, branch_id: int | None = None, limit: int = 200):
+    return list_opening_stock(company_id, branch_id, limit)
+
+
+def list_transfers_by_branch(company_id: int, branch_id: int | None = None, limit: int = 200):
+    conn = get_connection(); cur = dict_cursor(conn)
+    try:
+        where = ["bf.company_id = %s", "bt.company_id = %s", "t.status = 'approved'"]
+        params: list[Any] = [company_id, company_id]
+        if branch_id:
+            where.append("(t.from_branch_id = %s OR t.to_branch_id = %s)")
+            params += [branch_id, branch_id]
+        cur.execute(f"""
+            SELECT t.*, bf.name AS from_branch_name, bt.name AS to_branch_name,
+                   i.name AS ingredient_name, i.unit
+            FROM transfers t
+            JOIN branches bf ON bf.id = t.from_branch_id
+            JOIN branches bt ON bt.id = t.to_branch_id
+            JOIN ingredients i ON i.id = t.ingredient_id
+            WHERE {' AND '.join(where)}
+            ORDER BY t.entry_date DESC, t.id DESC
+            LIMIT %s
+        """, params + [limit])
+        return [_row(dict(r)) for r in cur.fetchall()]
+    finally:
+        cur.close(); conn.close()
+
+
+def list_inventory_movements_by_branch(company_id: int, branch_id: int | None = None,
+                                       movement_type: str | None = None, limit: int = 200):
+    return list_inventory_movements(company_id, branch_id, movement_type, limit)
