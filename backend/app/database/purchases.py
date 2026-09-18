@@ -69,7 +69,7 @@ def get_purchase(purchase_id: int, company_id: int) -> dict[str, Any] | None:
     try:
         cur.execute("""
             SELECT p.*, b.name AS branch_name,
-                   i.name AS ingredient_name, i.unit,
+                   i.name AS ingredient_name, i.unit, i.sku,
                    s.name AS supplier_name, s.phone AS supplier_phone
             FROM purchases p
             JOIN branches b ON b.id = p.branch_id
