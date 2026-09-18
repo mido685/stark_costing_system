@@ -445,16 +445,45 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
     notes: isPriceHistory ? undefined : a.desc,
   });
 }
-function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
+async function openGovernanceHistoryHtml(row: GovernanceHistoryRow): Promise<void> {
   if (row.from_procurement) {
+    let purchase: {
+      ingredient_id?: number; sku?: string | null; po_number?: number;
+      entry_date?: string; branch_name?: string; supplier_name?: string;
+      ingredient_name?: string; unit?: string; quantity?: number;
+      unit_cost?: number; gross_amount?: number; tax_amount?: number;
+      payable_amount?: number; notes?: string;
+    } | undefined;
+    let itemSku = row.item_sku;
+
+    try {
+      // Governance History rows from older servers do not always include the
+      // ingredient ID. Load the PO itself so its SKU can be resolved from the
+      // current Raw Materials master before rendering the document.
+      purchase = await apiCall<typeof purchase>(`/api/purchases/${row.item_id}`);
+      const masterItems = await getItems("raw_material");
+      const masterSku = purchase?.ingredient_id == null
+        ? undefined
+        : masterItems.find((item) => Number(item.id) === Number(purchase?.ingredient_id))?.sku;
+      itemSku = String(masterSku ?? purchase?.sku ?? itemSku ?? "").trim()
+        || (purchase?.ingredient_id != null ? `RM-${purchase.ingredient_id}` : undefined);
+    } catch {
+      // Keep the history record view available if the PO is no longer present.
+    }
+
     openPurchaseOrderHtml({
-      id: Number(row.item_id), poNumber: row.po_number,
+      id: Number(row.item_id), poNumber: purchase?.po_number ?? row.po_number,
       status: row.action === "approve" ? "approved" : "rejected",
-      date: row.po_date ?? row.action_date, branchName: row.branch_name,
-      supplierName: row.supplier_name, itemName: row.ingredient_name,
-      itemSku: row.item_sku, unit: row.unit, quantity: row.quantity,
-      unitCost: row.unit_cost, grossAmount: row.po_amount, taxAmount: row.tax_amount,
-      payableAmount: row.payable_amount, notes: row.notes,
+      date: purchase?.entry_date ?? row.po_date ?? row.action_date,
+      branchName: purchase?.branch_name ?? row.branch_name,
+      supplierName: purchase?.supplier_name ?? row.supplier_name,
+      itemName: purchase?.ingredient_name ?? row.ingredient_name,
+      itemSku, unit: purchase?.unit ?? row.unit, quantity: purchase?.quantity ?? row.quantity,
+      unitCost: purchase?.unit_cost ?? row.unit_cost,
+      grossAmount: purchase?.gross_amount ?? row.po_amount,
+      taxAmount: purchase?.tax_amount ?? row.tax_amount,
+      payableAmount: purchase?.payable_amount ?? row.payable_amount,
+      notes: purchase?.notes ?? row.notes,
       submittedBy: row.submitter_name,
     });
     return;
