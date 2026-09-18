@@ -72,6 +72,7 @@ const UNWRAP_KEYS = new Set([
   "prepayments",
   "product",
   "products",
+  "prices",
   "production",
   "purchase",
   "purchase_return",

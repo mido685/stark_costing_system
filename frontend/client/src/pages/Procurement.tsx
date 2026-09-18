@@ -133,7 +133,8 @@ interface FulfillmentRow {
 
 interface Branch          { id: number; name: string; }
 interface Supplier        { id: number; name: string; phone?: string; }
-interface Ingredient      { id: number; name: string; unit: string; }
+interface Ingredient      { id: number; name: string; unit: string; cost_per_unit?: number; }
+interface SupplierPrice   { supplier_id: number; price: number; status: PurchaseStatus; }
 interface ExpenseCategory { id: number; name: string; type: string; }
 
 // ─── Form state types ─────────────────────────────────────────────────────────
@@ -1088,6 +1089,39 @@ export default function Procurement() {
     if (type==="petty_topup")    setPettyForm(initPettyTopUpForm());
     if (type==="invoice_upload") setInvoiceForm(initInvoiceForm());
   }
+
+  // Use the supplier's latest approved quote for the selected ingredient.  If
+  // that supplier has no approved quote, fall back to the item master cost.
+  // The cost input remains editable so an actual invoice price can be used.
+  useEffect(() => {
+    if (modal !== "purchase" || !purchaseForm.item_id) return;
+
+    let cancelled = false;
+    const ingredient = ingredients.find(i => i.id === purchaseForm.item_id);
+    const fallbackCost = Number(ingredient?.cost_per_unit ?? 0);
+
+    async function fillUnitCost() {
+      let unitCost = fallbackCost;
+      if (purchaseForm.supplier_id) {
+        try {
+          const prices = await apiCall<SupplierPrice[]>(
+            `/api/suppliers/price-history/${purchaseForm.item_id}`,
+          );
+          const latestApproved = (Array.isArray(prices) ? prices : []).find(
+            price => Number(price.supplier_id) === purchaseForm.supplier_id && price.status === "approved",
+          );
+          if (latestApproved) unitCost = Number(latestApproved.price);
+        } catch {
+          // A master-cost fallback still lets the user create the PO if the
+          // quote history cannot be loaded.
+        }
+      }
+      if (!cancelled) dispatchPurchase({ type: "SET", field: "unit_cost", value: unitCost });
+    }
+
+    void fillUnitCost();
+    return () => { cancelled = true; };
+  }, [modal, purchaseForm.item_id, purchaseForm.supplier_id, ingredients]);
 
   useEffect(() => { if (formError) errorRef.current?.scrollIntoView({ behavior:"smooth", block:"nearest" }); }, [formError]);
 
