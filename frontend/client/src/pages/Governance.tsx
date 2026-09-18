@@ -10,7 +10,7 @@ import {
   TrendingUp, ShoppingCart, History, Package, BadgeCheck,
   Ban, Eye, User, DollarSign,
 } from "lucide-react";
-import { apiCall } from "@/lib/api";
+import { apiCall, getItems } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1168,8 +1168,17 @@ export default function Governance() {
   const fetchApprovals = useCallback(async () => {
     setApprovalsLoading(true); setApprovalsError(null);
     try {
-      const data = await apiCall<any[]>("/api/approvals/pending");
+      const [data, masterItems] = await Promise.all([
+        apiCall<any[]>("/api/approvals/pending"),
+        getItems("raw_material"),
+      ]);
       const serverItems: ApprovalItem[] = (Array.isArray(data) ? data : []).map((row) => {
+        // Resolve each purchase against the current Items Master before it is
+        // displayed or printed. This keeps the PO item code current and also
+        // covers older approval records that did not store an item_sku.
+        const masterSku = row.ingredient_id == null
+          ? undefined
+          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
         const typeKey = toTypeKey(row);
         const desc    = row.entity_type === "purchase"
           ? [row.ingredient_name, row.supplier_name, row.branch_name,
@@ -1199,7 +1208,7 @@ export default function Governance() {
           priority:        toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
           ingredientName:  row.ingredient_name ?? undefined,
-          itemSku:         row.item_sku ?? undefined,
+          itemSku:         String(masterSku ?? row.item_sku ?? "").trim() || undefined,
           supplierName:    row.supplier_name   ?? undefined,
           priceType:       row.price_type
             ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
