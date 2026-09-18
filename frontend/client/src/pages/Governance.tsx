@@ -38,6 +38,7 @@ type ApprovalItem = {
   priceType?:      string;
   previousCost?: number;
   priceChangePct?: number;
+  ingredientId?:   number;
   unit?:           string;
   quantity?:       number;
   unitCost?:       number;
@@ -1146,9 +1147,22 @@ export default function Governance() {
   const fetchApprovals = useCallback(async () => {
     setApprovalsLoading(true); setApprovalsError(null);
     try {
-      const data = await apiCall<any[]>("/api/approvals/pending");
+      // Read SKU values directly from Items Master.  This keeps the approval
+      // view in sync with the master code, including older POs.
+      const [data, masterItems] = await Promise.all([
+        apiCall<any[]>("/api/approvals/pending"),
+        apiCall<any[]>("/api/products?category=raw_material").catch(() => []),
+      ]);
+      const skuByIngredientId = new Map(
+        (Array.isArray(masterItems) ? masterItems : []).map(item => [Number(item.id), String(item.sku ?? "")]),
+      );
+      const skuByIngredientName = new Map(
+        (Array.isArray(masterItems) ? masterItems : []).map(item => [String(item.name ?? "").trim().toLowerCase(), String(item.sku ?? "")]),
+      );
       const serverItems: ApprovalItem[] = (Array.isArray(data) ? data : []).map((row) => {
         const typeKey = toTypeKey(row);
+        const masterSku = skuByIngredientId.get(Number(row.ingredient_id))
+          || skuByIngredientName.get(String(row.ingredient_name ?? "").trim().toLowerCase());
         const desc    = row.entity_type === "purchase"
           ? [row.ingredient_name, row.supplier_name, row.branch_name,
               row.quantity  != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null,
@@ -1177,7 +1191,7 @@ export default function Governance() {
           priority:        toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
           ingredientName:  row.ingredient_name ?? undefined,
-          itemSku:         row.item_sku ?? undefined,
+          itemSku:         masterSku || row.item_sku || undefined,
           supplierName:    row.supplier_name   ?? undefined,
           priceType:       row.price_type
             ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
@@ -1186,6 +1200,7 @@ export default function Governance() {
           priceChangePct: row.previous_price != null && row.unit_cost != null && Number(row.previous_price) > 0
             ? ((Number(row.unit_cost) - Number(row.previous_price)) / Number(row.previous_price)) * 100
             : undefined,
+          ingredientId:   row.ingredient_id != null ? Number(row.ingredient_id) : undefined,
           unit:           row.unit ?? undefined,
           quantity:       row.quantity != null ? Number(row.quantity) : undefined,
           unitCost:       row.unit_cost != null ? Number(row.unit_cost) : undefined,

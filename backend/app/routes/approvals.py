@@ -34,6 +34,7 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
 
                 p.quantity,
                 p.po_number,
+                p.ingredient_id,
                 COALESCE(p.unit_cost, sph.price)   AS unit_cost,
                 p.gross_amount                      AS amount,
                 p.tax_amount,
