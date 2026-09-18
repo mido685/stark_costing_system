@@ -34,6 +34,7 @@ type ApprovalItem = {
   fromProcurement?: boolean;
   ingredientName?: string;
   itemSku?:        string;
+  branchName?:      string;
   supplierName?:   string;
   priceType?:      string;
   previousCost?: number;
@@ -72,6 +73,7 @@ type PurchaseHistoryRow = {
   branch_name:     string;
   supplier_name:   string;
   ingredient_name: string;
+  item_sku?:       string;
   unit:            string;
   entry_date:      string;
   quantity:        number;
@@ -81,6 +83,26 @@ type PurchaseHistoryRow = {
   payable_amount?: number;
   status:          string;
   notes?:          string;
+};
+
+type PurchaseOrderDocument = {
+  id:             number;
+  poNumber?:      number;
+  status:         string;
+  date:           string;
+  branchName?:    string;
+  supplierName?:  string;
+  itemName?:      string;
+  itemSku?:       string;
+  unit?:          string;
+  quantity?:      number;
+  unitCost?:      number;
+  grossAmount?:   number;
+  taxAmount?:     number;
+  payableAmount?: number;
+  notes?:         string;
+  submittedBy?:   string;
+  currency?:      string;
 };
 
 type ActiveTab = "approvals" | "gov-history" | "po-history";
@@ -276,25 +298,39 @@ function statusBadgeColors(status: string) {
   return { color: "#d97706", bg: "#fef3c7" };
 }
 
-function openPurchaseOrderHtml(row: PurchaseHistoryRow): void {
-  const gross = row.gross_amount ?? row.quantity * row.unit_cost;
-  const tax   = row.tax_amount ?? 0;
-  const pay   = row.payable_amount ?? gross + tax;
-  const bc    = statusBadgeColors(row.status);
+function openPurchaseOrderHtml(po: PurchaseOrderDocument): void {
+  const quantity = po.quantity ?? 0;
+  const unitCost = po.unitCost ?? 0;
+  const gross    = po.grossAmount ?? quantity * unitCost;
+  const tax      = po.taxAmount ?? 0;
+  const pay      = po.payableAmount ?? gross + tax;
+  const bc       = statusBadgeColors(po.status);
+  const ref      = poRef(po.poNumber, po.id);
+
   openRecordAsHtml({
-    title: "Purchase Order", subtitle: `${poRef(row.po_number, row.id)} · ${String(row.entry_date).slice(0,10)}`,
-    ref: poRef(row.po_number, row.id), badge: { label: row.status.toUpperCase(), color: bc.color, bg: bc.bg },
-    sections: [{ heading: "Order Details", rows: [
-      { label: "Branch", value: row.branch_name ?? "—" }, { label: "Supplier", value: row.supplier_name ?? "—" },
-      { label: "Ingredient", value: `${row.ingredient_name ?? "—"}${row.unit ? ` (${row.unit})` : ""}` },
-      { label: "Date", value: String(row.entry_date).slice(0,10) },
-      { label: "Quantity", value: Number(row.quantity).toFixed(3) }, { label: "Unit Cost", value: formatNumber(row.unit_cost, 2) },
+    title: "Purchase order", subtitle: `${ref} · ${formatDateShort(po.date)}`,
+    ref, badge: { label: po.status.toUpperCase(), color: bc.color, bg: bc.bg },
+    sections: [{ heading: "Purchase Order Details", rows: [
+      { label: "Type", value: "Purchase order" }, { label: "Submitted By", value: po.submittedBy || "—" },
+      { label: "Date", value: formatDate(po.date) }, { label: "Source", value: "Procurement" },
+      { label: "Branch", value: po.branchName ?? "—" }, { label: "Supplier", value: po.supplierName ?? "—" },
     ]}],
+    lineItems: {
+      heading: "Ordered Items",
+      columns: ["Item Code", "Item", "Unit", "Quantity", "Unit Cost", "Line Total"],
+      rows: [[
+        po.itemSku ?? "—", po.itemName ?? "—", po.unit ?? "—",
+        formatNumber(quantity, 3),
+        formatCurrency(unitCost, po.currency) ?? formatNumber(unitCost, 2),
+        formatCurrency(gross, po.currency) ?? formatNumber(gross, 2),
+      ]],
+    },
     totals: [
-      { label: "Gross Amount", value: formatNumber(gross, 2) }, { label: "Tax", value: formatNumber(tax, 2) },
-      { label: "Total Payable", value: formatNumber(pay, 2), highlight: true },
+      { label: "Gross Amount", value: formatCurrency(gross, po.currency) ?? formatNumber(gross, 2) },
+      { label: "Tax", value: formatCurrency(tax, po.currency) ?? formatNumber(tax, 2) },
+      { label: "Total Payable", value: formatCurrency(pay, po.currency) ?? formatNumber(pay, 2), highlight: true },
     ],
-    notes: row.notes,
+    notes: po.notes,
   });
 }
 
@@ -327,6 +363,20 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
 
   const isPriceHistory = a.typeKey === "gov.approvalType.priceHistory";
   const isPurchaseOrder = a.fromProcurement === true;
+
+  // All purchase orders use one document structure, whether they are pending
+  // approval or are being viewed later from PO History.
+  if (isPurchaseOrder && a.purchaseId) {
+    openPurchaseOrderHtml({
+      id: a.purchaseId, poNumber: a.po_number, status: a.status, date: a.date,
+      branchName: a.branchName, supplierName: a.supplierName,
+      itemName: a.ingredientName, itemSku: a.itemSku,
+      unit: a.unit, quantity: a.quantity, unitCost: a.unitCost,
+      grossAmount: a.grossAmount, taxAmount: a.taxAmount, payableAmount: a.amount,
+      notes: a.notes, submittedBy: a.submitted_by, currency: a.currency,
+    });
+    return;
+  }
 
   const detailRows = isPriceHistory
     ? [
@@ -363,27 +413,7 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
     : "Approval Details",
   rows: detailRows,
 }],
-  lineItems: isPurchaseOrder && a.quantity != null && a.unitCost != null
-    ? {
-        heading: "Ordered Items",
-        columns: ["Item Code", "Item", "Unit", "Quantity", "Unit Cost", "Line Total"],
-        rows: [[
-          a.itemSku ?? "—",
-          a.ingredientName ?? "—",
-          a.unit ?? "—",
-          formatNumber(a.quantity, 3),
-          formatCurrency(a.unitCost, a.currency) ?? formatNumber(a.unitCost, 2),
-          formatCurrency(a.grossAmount ?? a.quantity * a.unitCost, a.currency) ?? formatNumber(a.grossAmount ?? a.quantity * a.unitCost, 2),
-        ]],
-      }
-    : undefined,
-  totals: isPurchaseOrder && a.amount != null
-    ? [
-        { label: "Gross Amount", value: formatCurrency(a.grossAmount ?? (a.quantity ?? 0) * (a.unitCost ?? 0), a.currency) ?? "—" },
-        { label: "Tax", value: formatCurrency(a.taxAmount ?? 0, a.currency) ?? "—" },
-        { label: "Total Payable", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true },
-      ]
-    : a.amount != null
+  totals: a.amount != null
   ? isPriceHistory
     ? [
         { label: "Previous Price", value: formatCurrency(a.previousCost, a.currency) ?? "—"  },
@@ -391,7 +421,7 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
       ]
     : [{ label: "Amount", value: formatCurrency(a.amount, a.currency) ?? "—", highlight: true }]
     : undefined,
-    notes: isPriceHistory ? undefined : isPurchaseOrder ? a.notes : a.desc,
+    notes: isPriceHistory ? undefined : a.desc,
   });
 }
 function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
@@ -1084,7 +1114,14 @@ function POHistoryTab({ branchId, addToast }: {
                         <td className="px-3 py-3 text-center"><StatusBadge status={row.status} /></td>
                         <td className="px-3 py-3 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <EyeBtn onClick={() => openPurchaseOrderHtml(row)} />
+                            <EyeBtn onClick={() => openPurchaseOrderHtml({
+                              id: row.id, poNumber: row.po_number, status: row.status, date: row.entry_date,
+                              branchName: row.branch_name, supplierName: row.supplier_name,
+                              itemName: row.ingredient_name, itemSku: row.item_sku, unit: row.unit,
+                              quantity: row.quantity, unitCost: row.unit_cost,
+                              grossAmount: row.gross_amount, taxAmount: row.tax_amount,
+                              payableAmount: row.payable_amount, notes: row.notes,
+                            })} />
                            <button onClick={() => downloadPOPdf(row, addToast)} title={`Download ${poRef(row.po_number, row.id)}`}
                               className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
                               <Download className="w-3.5 h-3.5" />
@@ -1209,6 +1246,7 @@ export default function Governance() {
           fromProcurement: typeKey === "gov.approvalType.purchase",
           ingredientName:  row.ingredient_name ?? undefined,
           itemSku:         String(masterSku ?? row.item_sku ?? "").trim() || undefined,
+          branchName:      row.branch_name ?? undefined,
           supplierName:    row.supplier_name   ?? undefined,
           priceType:       row.price_type
             ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())

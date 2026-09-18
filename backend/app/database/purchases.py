@@ -48,6 +48,7 @@ def list_purchases(
         cur.execute(f"""
             SELECT p.*, b.name AS branch_name,
                    i.name AS ingredient_name, i.unit,
+                   COALESCE(NULLIF(i.sku, ''), 'RM-' || i.id::text) AS item_sku,
                    s.name AS supplier_name
             FROM purchases p
             JOIN branches b ON b.id = p.branch_id
