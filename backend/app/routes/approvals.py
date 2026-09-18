@@ -45,7 +45,13 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 s.phone                         AS supplier_phone,
                 COALESCE(i.name,   sph_i.name) AS ingredient_name,
                 COALESCE(i.unit,   sph_i.unit) AS unit,
-                COALESCE(i.sku,    sph_i.sku)  AS item_sku,
+                -- Match the Items Master: use the saved SKU, or its RM-id
+                -- fallback for legacy ingredients that do not have one yet.
+                COALESCE(
+                    NULLIF(i.sku, ''),
+                    CASE WHEN i.id IS NOT NULL THEN 'RM-' || i.id::text END,
+                    NULLIF(sph_i.sku, '')
+                ) AS item_sku,
 
                 sph.price_type,
                 (
