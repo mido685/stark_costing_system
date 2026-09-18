@@ -65,6 +65,18 @@ type GovernanceHistoryRow = {
   branch_id?:       number;
   supplier_name?:   string;
   ingredient_name?: string;
+  ingredient_id?:   number;
+  item_sku?:        string;
+  po_number?:       number;
+  quantity?:        number;
+  unit_cost?:       number;
+  po_amount?:       number;
+  tax_amount?:      number;
+  payable_amount?:  number;
+  po_date?:         string;
+  unit?:            string;
+  notes?:           string;
+  submitter_name?:  string;
 };
 
 type PurchaseHistoryRow = {
@@ -434,6 +446,19 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
   });
 }
 function openGovernanceHistoryHtml(row: GovernanceHistoryRow): void {
+  if (row.from_procurement) {
+    openPurchaseOrderHtml({
+      id: Number(row.item_id), poNumber: row.po_number,
+      status: row.action === "approve" ? "approved" : "rejected",
+      date: row.po_date ?? row.action_date, branchName: row.branch_name,
+      supplierName: row.supplier_name, itemName: row.ingredient_name,
+      itemSku: row.item_sku, unit: row.unit, quantity: row.quantity,
+      unitCost: row.unit_cost, grossAmount: row.po_amount, taxAmount: row.tax_amount,
+      payableAmount: row.payable_amount, notes: row.notes,
+      submittedBy: row.submitter_name,
+    });
+    return;
+  }
   const bc = statusBadgeColors(row.action === "approve" ? "approved" : "rejected");
   openRecordAsHtml({
     title: "Governance Action", subtitle: `${row.item_id} · ${formatDateShort(row.action_date)}`,
@@ -798,8 +823,19 @@ function GovernanceHistoryTab({ branchId, addToast }: {
       const params = new URLSearchParams();
       if (branchId)               params.set("branch_id", String(branchId));
       if (filterAction !== "all") params.set("action", filterAction);
-      const data = await apiCall<GovernanceHistoryRow[]>(`/api/governance/history?${params.toString()}`);
-      setRows(Array.isArray(data) ? data : []); setPage(1);
+      const [data, masterItems] = await Promise.all([
+        apiCall<GovernanceHistoryRow[]>(`/api/governance/history?${params.toString()}`),
+        getItems("raw_material"),
+      ]);
+      const historyRows = (Array.isArray(data) ? data : []).map((row) => {
+        const masterSku = row.ingredient_id == null
+          ? undefined
+          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
+        const itemSku = String(masterSku ?? row.item_sku ?? "").trim()
+          || (row.ingredient_id != null ? `RM-${row.ingredient_id}` : undefined);
+        return { ...row, item_sku: itemSku };
+      });
+      setRows(historyRows); setPage(1);
     } catch (err: any) {
       const msg = err?.message ?? "Failed to load governance history";
       setError(msg); addToast("error", msg);
@@ -833,8 +869,8 @@ function GovernanceHistoryTab({ branchId, addToast }: {
   const procurementCount = useMemo(() => rows.filter((r) => r.from_procurement).length,     [rows]);
 
   const handleExportCSV = useCallback(() => {
-    const headers = ["ID","Item ID","Entity Type","Action","Actor","Submitted By","Supplier","Item","Date","Amount","Source"];
-    const csvRows = filtered.map((r) => [r.id,r.item_id,r.entity_type,r.action,r.actor_name??"",r.submitted_by??"",r.supplier_name??"",r.ingredient_name??"",r.action_date,r.amount??"",r.from_procurement?"Procurement":"System"]);
+    const headers = ["ID","Item ID","Entity Type","Action","Actor","Submitted By","Supplier","Item","Item Code","Date","Amount","Source"];
+    const csvRows = filtered.map((r) => [r.id,r.item_id,r.entity_type,r.action,r.actor_name??"",r.submitted_by??"",r.supplier_name??"",r.ingredient_name??"",r.item_sku??"",r.action_date,r.amount??"",r.from_procurement?"Procurement":"System"]);
     const csv     = [headers,...csvRows].map((row) => row.join(",")).join("\n");
     const blob    = new Blob([csv], { type: "text/csv" });
     const url     = URL.createObjectURL(blob);
@@ -911,7 +947,7 @@ function GovernanceHistoryTab({ branchId, addToast }: {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {["#","Item","Entity","Action","Actor","Submitted By","Supplier","Item/Ingredient","Date","Amount","Source","View"].map((h) => (
+                    {["#","Item","Entity","Action","Actor","Submitted By","Supplier","Item/Ingredient","Item Code","Date","Amount","Source","View"].map((h) => (
                       <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground pb-2 px-2 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -932,6 +968,7 @@ function GovernanceHistoryTab({ branchId, addToast }: {
                       <td className="py-2.5 px-2 text-muted-foreground truncate max-w-[100px]">{row.submitted_by || "—"}</td>
                       <td className="py-2.5 px-2 text-muted-foreground truncate max-w-[100px]">{row.supplier_name || "—"}</td>
                       <td className="py-2.5 px-2 text-muted-foreground truncate max-w-[100px]">{row.ingredient_name || "—"}</td>
+                      <td className="py-2.5 px-2 font-mono text-muted-foreground whitespace-nowrap">{row.item_sku || "—"}</td>
                       <td className="py-2.5 px-2 text-muted-foreground whitespace-nowrap">{formatDate(row.action_date)}</td>
                       <td className="py-2.5 px-2 text-right font-medium">{row.amount != null ? formatCurrency(row.amount, row.currency ?? undefined) : "—"}</td>
                       <td className="py-2.5 px-2">

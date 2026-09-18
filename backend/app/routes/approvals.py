@@ -245,6 +245,8 @@ def governance_history(
                 b.name              AS branch_name,
                 u.display_name      AS actor_name,
                 p.quantity,
+                p.po_number,
+                p.ingredient_id,
                 p.unit_cost,
                 p.gross_amount      AS po_amount,
                 p.tax_amount,
@@ -253,6 +255,7 @@ def governance_history(
                 s.name              AS supplier_name,
                 i.name              AS ingredient_name,
                 i.unit,
+                COALESCE(NULLIF(i.sku, ''), 'RM-' || i.id::text) AS item_sku,
                 sub.display_name    AS submitter_name
             FROM governance_action_log gal
             LEFT JOIN branches          b   ON b.id   = gal.branch_id
