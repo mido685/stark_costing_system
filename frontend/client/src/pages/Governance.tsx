@@ -33,6 +33,7 @@ type ApprovalItem = {
   priority?:        "high" | "medium" | "low";
   fromProcurement?: boolean;
   ingredientName?: string;
+  itemSku?:        string;
   supplierName?:   string;
   priceType?:      string;
   previousCost?: number;
@@ -238,8 +239,8 @@ function openRecordAsHtml(params: HtmlViewerParams): void {
     }).join("")}
     </div></div>`).join("");
   const lineItemsHtml = lineItems ? `<div class="section"><div class="section-title">${lineItems.heading}</div>
-    <table class="line-items"><thead><tr>${lineItems.columns.map((column, index) => `<th class="${index > 1 ? "right" : ""}">${column}</th>`).join("")}</tr></thead>
-    <tbody>${lineItems.rows.map(row => `<tr>${row.map((value, index) => `<td class="${index === 0 ? "item" : ""}${index > 1 ? " right" : ""}">${value}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "";
+    <table class="line-items"><thead><tr>${lineItems.columns.map((column, index) => `<th class="${index > 2 ? "right" : ""}">${column}</th>`).join("")}</tr></thead>
+    <tbody>${lineItems.rows.map(row => `<tr>${row.map((value, index) => `<td class="${index === 1 ? "item" : ""}${index > 2 ? " right" : ""}">${value}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "";
   const totalsHtml = totals?.length ? `<div class="totals">${totals.map(t => `<div class="totals-row${t.highlight ? " highlight" : ""}"><span>${t.label}</span><span>${t.value}</span></div>`).join("")}</div>` : "";
   const notesHtml = notes
   ? `<div class="section">
@@ -343,8 +344,9 @@ function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): void {
   lineItems: isPurchaseOrder && a.quantity != null && a.unitCost != null
     ? {
         heading: "Ordered Items",
-        columns: ["Item", "Unit", "Quantity", "Unit Cost", "Line Total"],
+        columns: ["Item Code", "Item", "Unit", "Quantity", "Unit Cost", "Line Total"],
         rows: [[
+          a.itemSku ?? "—",
           a.ingredientName ?? "—",
           a.unit ?? "—",
           formatNumber(a.quantity, 3),
@@ -1175,6 +1177,7 @@ export default function Governance() {
           priority:        toPriority(row),
           fromProcurement: typeKey === "gov.approvalType.purchase",
           ingredientName:  row.ingredient_name ?? undefined,
+          itemSku:         row.item_sku ?? undefined,
           supplierName:    row.supplier_name   ?? undefined,
           priceType:       row.price_type
             ? row.price_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
