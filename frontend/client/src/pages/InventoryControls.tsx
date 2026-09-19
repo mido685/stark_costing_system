@@ -7,11 +7,11 @@
     Printer, Download, ClipboardList, History, TrendingDown, TrendingUp,
     CheckCircle, Clock, XCircle, ShoppingCart, Lock, BarChart2,
     Calendar, ChevronRight, Eye, Percent, Shield, Zap, FileText,
-    ArrowDownToLine, ArrowUpFromLine, BookOpen, Check,
+    ArrowDownToLine, ArrowUpFromLine, BookOpen, Check, Plus,
   } from "lucide-react";
   import { useApi } from "@/hooks/useApi";
   import {
-    getBranches, getStockBalances, getFinishedGoodsBalances,
+    getBranches, getStockBalances, getFinishedGoodsBalances, getSuppliers,
     addStockAdjustment, addStockCount, addTransfer, addOpeningStock, addPurchase, apiCall,
     isPeriodClosed, getPeriodStatus, setPeriodStatus,
   } from "@/lib/api";
@@ -1184,311 +1184,249 @@
   }
 
   function POGeneratorModal({
-    balances,
-    onClose,
-    t,
-    branchId,
-    onPurchasesCreated,
-  }: {
-    balances: StockBalance[];
-    onClose: () => void;
-    t: (k: string) => string;
-    branchId: number;
-    onPurchasesCreated?: () => void;
-  }) {
-    const [suppliers, setSuppliers] = useState<any[]>([]);
-    const [loadingSuppliers, setLoadingSuppliers] = useState(false);
-    const reorderItems = balances.filter((b: StockBalance) => b.negative_alert || b.reorder_alert);
-    const [selectedItems, setSelectedItems] = useState<Set<number>>(
-      new Set(reorderItems.map((b: StockBalance) => b.ingredient_id))
-    );
-    const [quantities, setQuantities] = useState<Record<number, number>>(
-      Object.fromEntries(reorderItems.map((b: StockBalance) => [b.ingredient_id, Math.max(0, (b.reorder_level ?? 0) * 1.5 - b.balance_qty)]))
-    );
-    const [selectedSuppliers, setSelectedSuppliers] = useState<Record<number, number>>({});
-    const [creating, setCreating] = useState(false);
-    const [createError, setCreateError] = useState("");
+  balances, branches, onClose, t, branchId, onPurchasesCreated,
+}: {
+  balances: StockBalance[];
+  branches: Branch[];
+  onClose: () => void;
+  t: (k: string) => string;
+  branchId: number;
+  onPurchasesCreated?: () => void;
+}) {
+  const alertItems = useMemo(
+    () => balances
+      .filter(b => b.negative_alert || b.reorder_alert)
+      .sort((a, b) => Number(b.negative_alert) - Number(a.negative_alert)),
+    [balances]
+  );
 
-    useEffect(() => {
-      async function loadSuppliers() {
-        setLoadingSuppliers(true);
-        try {
-          const data = await apiCall<any[]>("/api/suppliers");
-          setSuppliers(data ?? []);
-        } catch {
-          setSuppliers([]);
-        } finally {
-          setLoadingSuppliers(false);
-        }
+  const suggestQty = (b: StockBalance) =>
+    Number(Math.max(0, (b.reorder_level ?? 0) * 1.5 - b.balance_qty).toFixed(3));
+  const noteFor = (b?: StockBalance) =>
+    b ? `Auto-generated from low stock alert - Reorder level: ${(b.reorder_level ?? 0).toFixed(3)} ${b.unit}` : "";
+
+  const first = alertItems[0];
+  const [form, setForm] = useState({
+    branch_id: branchId,
+    supplier_id: 0,
+    item_id: first?.ingredient_id ?? 0,
+    entry_date: today(),
+    quantity: first ? suggestQty(first) : 0,
+    unit_cost: 0,
+    tax_amount: 0,
+    notes: noteFor(first),
+  });
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [masterItems, setMasterItems] = useState<any[]>([]);
+  const [costHint, setCostHint] = useState<"" | "quote" | "master" | "none">("");
+  const [ordered, setOrdered] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [info, setInfo] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try { setSuppliers(((await getSuppliers()) as any[]) ?? []); } catch { setSuppliers([]); }
+      try { setMasterItems((await apiCall<any[]>("/api/ingredients")) ?? []); } catch { setMasterItems([]); }
+    })();
+  }, []);
+
+  // Same pricing rule as Procurement: supplier's latest approved quote,
+  // otherwise the item's master cost. The field stays editable.
+  useEffect(() => {
+    if (!form.item_id) return;
+    let cancelled = false;
+    (async () => {
+      const master = Number(masterItems.find(i => Number(i.id) === form.item_id)?.cost_per_unit ?? 0);
+      let cost = 0;
+      let hint: "" | "quote" | "master" | "none" = form.supplier_id ? "none" : "";
+      if (form.supplier_id) {
+        const quote = await resolveUnitCost(form.item_id, form.supplier_id);
+        if (quote) { cost = quote; hint = "quote"; }
       }
-      loadSuppliers();
-    }, []);
+      if (!cost && master > 0) { cost = master; hint = "master"; }
+      if (!cancelled) { setForm(f => ({ ...f, unit_cost: cost })); setCostHint(hint); }
+    })();
+    return () => { cancelled = true; };
+  }, [form.item_id, form.supplier_id, masterItems]);
 
-    function toggle(id: number) {
-      setSelectedItems((s: Set<number>) => {
-        const n = new Set(s);
-        n.has(id) ? n.delete(id) : n.add(id);
-        return n;
-      });
-    }
-
-    async function createPurchases() {
-      const items = reorderItems.filter((b: StockBalance) => selectedItems.has(b.ingredient_id));
-
-      for (const item of items) {
-        if (!selectedSuppliers[item.ingredient_id]) {
-          setCreateError(`Please select a supplier for ${item.name}`);
-          return;
-        }
-      }
-
-      setCreating(true);
-      setCreateError("");
-
-      const created = new Set<number>();
-      const noPrice: string[] = [];
-      const failed: string[] = [];
-
-      for (const item of items) {
-        try {
-          const qty = quantities[item.ingredient_id] ?? 0;
-          if (qty <= 0) continue;
-
-          const supplierId = selectedSuppliers[item.ingredient_id];
-          const unitCost = await resolveUnitCost(item.ingredient_id, supplierId);
-          if (!unitCost) { noPrice.push(item.name); continue; }
-
-          await addPurchase({
-            branch_id: branchId,
-            supplier_id: supplierId,
-            item_id: item.ingredient_id,
-            entry_date: today(),
-            quantity: qty,
-            unit_cost: unitCost,
-            tax_amount: 0,
-            payable_amount: qty * unitCost,
-            notes: `Auto-generated from low stock alert - Reorder level: ${(item.reorder_level ?? 0).toFixed(3)} ${item.unit}`,
-            user_id: Number(localStorage.getItem("user_id") ?? 1),
-          });
-          created.add(item.ingredient_id);
-        } catch (err) {
-          console.error(`Failed to create PO for ${item.name}:`, err);
-          failed.push(item.name);
-        }
-      }
-
-      setCreating(false);
-
-      if (created.size > 0) {
-        window.dispatchEvent(
-          new CustomEvent(PROCUREMENT_PO_EVENT, { detail: { count: created.size, branchId } })
-        );
-        onPurchasesCreated?.();
-      }
-
-      // Everything went through: confirm and close.
-      if (noPrice.length === 0 && failed.length === 0) {
-        alert(`✓ ${created.size} PO${created.size !== 1 ? "s" : ""} created successfully`);
-        onClose();
-        return;
-      }
-
-      // Partial or total failure: keep the modal open and say exactly what happened.
-      // Uncheck the ones already created so a retry can't duplicate them.
-      if (created.size > 0) {
-        setSelectedItems((s: Set<number>) => {
-          const n = new Set(s);
-          created.forEach(id => n.delete(id));
-          return n;
-        });
-      }
-
-      const parts: string[] = [];
-      if (created.size > 0) parts.push(`${created.size} PO${created.size !== 1 ? "s" : ""} created.`);
-      if (noPrice.length > 0) parts.push(`No approved supplier price for: ${noPrice.join(", ")}. Add a quote in Suppliers, or pick a different supplier.`);
-      if (failed.length > 0) parts.push(`Failed: ${failed.join(", ")}.`);
-      setCreateError(parts.join(" "));
-    }
-
-    function exportAsHtml() {
-      const items = reorderItems.filter((b: StockBalance) => selectedItems.has(b.ingredient_id));
-      const now = formatDateTime(new Date());
-      const rows = items
-        .map(
-          (b: StockBalance) => `
-        <tr>
-          <td>${esc(b.name)}</td><td>${esc(b.unit)}</td>
-          <td style="color:#dc2626;font-weight:700">${esc(b.balance_qty.toFixed(3))}</td>
-          <td>${esc((b.reorder_level ?? 0).toFixed(3))}</td>
-          <td style="font-weight:700;color:#1d4ed8">${esc((quantities[b.ingredient_id] ?? 0).toFixed(3))}</td>
-        </tr>`
-        )
-        .join("");
-
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Purchase Order Draft</title>
-      <style>body{font-family:'Segoe UI',sans-serif;padding:32px;font-size:12px;color:#1e293b}
-      h1{font-size:22px;font-weight:800;margin-bottom:4px}.sub{color:#64748b;margin-bottom:24px}
-      table{width:100%;border-collapse:collapse;margin-top:16px}
-      th{background:#1e293b;color:white;padding:8px;text-align:left;font-size:11px}
-      td{padding:8px;border-bottom:1px solid #e2e8f0}
-      .footer{margin-top:24px;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:12px}
-      @media print{@page{margin:15mm}}</style></head><body>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #e2e8f0;padding-bottom:16px;margin-bottom:20px">
-        <div><h1>Purchase Order — Draft</h1><div class="sub">Auto-generated from low/negative stock alerts · ${now}</div></div>
-        <div style="text-align:right;font-size:10px;color:#94a3b8"><div>PO-DRAFT-${Date.now()}</div><div>Status: PENDING APPROVAL</div></div>
-      </div>
-      <table><thead><tr><th>Ingredient</th><th>Unit</th><th>Current Stock</th><th>Reorder Level</th><th>Order Qty</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-      <div class="footer">STARK AI Costing System · Draft Purchase Order · Requires Manager Approval · ${now}</div>
-      <script>window.onload = () => window.print();</script></body></html>`;
-
-      const blob = new Blob([html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    }
-
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-        <div className="bg-background rounded-2xl shadow-2xl w-full max-w-2xl border border-border overflow-hidden">
-          <div className="px-6 py-4 border-b border-border bg-secondary/30 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4 text-violet-600" />
-                {t("inv.po.title")}
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{t("inv.po.sub").replace("{n}", String(reorderItems.length))}</p>
-            </div>
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="max-h-[60vh] overflow-y-auto px-6 py-4 space-y-3">
-            {createError && (
-              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                {createError}
-              </div>
-            )}
-
-            {reorderItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t("inv.po.empty")}</p>
-            ) : (
-              reorderItems.map((b: StockBalance) => (
-                <div
-                  key={b.ingredient_id}
-                  className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                    selectedItems.has(b.ingredient_id) ? "border-primary/40 bg-primary/5" : "border-border bg-secondary/20"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedItems.has(b.ingredient_id)}
-                    onChange={() => toggle(b.ingredient_id)}
-                    className="w-4 h-4 rounded accent-primary flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-foreground">{b.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("inv.po.current")}{" "}
-                      <span className={b.negative_alert ? "text-red-600 font-bold" : "text-amber-600 font-semibold"}>
-                        {b.balance_qty.toFixed(3)}
-                      </span>
-                      {" "}{b.unit} · {t("inv.po.reorderAt")} {(b.reorder_level ?? 0).toFixed(3)} {b.unit}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {selectedItems.has(b.ingredient_id) && (
-                      <select
-                        value={selectedSuppliers[b.ingredient_id] || ""}
-                        onChange={(e) =>
-                          setSelectedSuppliers((prev) => ({
-                            ...prev,
-                            [b.ingredient_id]: Number(e.target.value),
-                          }))
-                        }
-                        className="px-2 py-1 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                        disabled={loadingSuppliers || creating}
-                      >
-                        <option value="">Select supplier...</option>
-                        {suppliers.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{t("inv.po.orderQty")}</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.001}
-                        value={quantities[b.ingredient_id] ?? 0}
-                        onChange={(e) =>
-                          setQuantities((q) => ({
-                            ...q,
-                            [b.ingredient_id]: Number(e.target.value),
-                          }))
-                        }
-                        disabled={!selectedItems.has(b.ingredient_id) || creating}
-                        className="w-24 px-2 py-1 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring font-mono disabled:opacity-50"
-                      />
-                      <span className="text-xs text-muted-foreground w-8">{b.unit}</span>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="px-6 py-4 border-t border-border bg-secondary/20 flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">
-              {t("inv.po.selected").replace("{n}", String(selectedItems.size))}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onClose} disabled={creating}>
-                {t("inv.modal.cancel")}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={exportAsHtml}
-                disabled={selectedItems.size === 0 || creating}
-                className="gap-1.5"
-              >
-                <Printer className="w-4 h-4" />
-                {t("inv.po.print")}
-              </Button>
-              <Button
-                onClick={createPurchases}
-                disabled={selectedItems.size === 0 || creating}
-                className="bg-violet-600 hover:bg-violet-700 text-white gap-1.5"
-              >
-                {creating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Create {selectedItems.size} PO{selectedItems.size !== 1 ? "s" : ""}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+  function pickItem(id: number) {
+    const b = balances.find(x => x.ingredient_id === id);
+    const isAlert = !!b && (b.negative_alert || b.reorder_alert);
+    setInfo("");
+    setForm(f => ({
+      ...f,
+      item_id: id,
+      quantity: isAlert ? suggestQty(b!) : f.quantity,
+      notes: isAlert ? noteFor(b) : f.notes,
+    }));
   }
 
+  const gross = form.quantity * form.unit_cost;
+  const payable = gross + form.tax_amount;
+  const nameOf = (id: number) => balances.find(b => b.ingredient_id === id)?.name ?? `Item #${id}`;
+
+  async function handleSave() {
+    if (!form.branch_id)    { setFormError(t("inv.err.selectBranch")); return; }
+    if (!form.supplier_id)  { setFormError("Please select a supplier."); return; }
+    if (!form.item_id)      { setFormError(t("inv.err.selectIngredient")); return; }
+    if (form.quantity <= 0) { setFormError(t("inv.err.qtyPositive")); return; }
+    if (form.unit_cost <= 0){ setFormError("Unit cost is required."); return; }
+
+    setSaving(true); setFormError(""); setInfo("");
+    try {
+      const saved = await addPurchase({
+        branch_id: form.branch_id,
+        supplier_id: form.supplier_id,
+        item_id: form.item_id,
+        entry_date: form.entry_date,
+        quantity: form.quantity,
+        unit_cost: form.unit_cost,
+        tax_amount: form.tax_amount,
+        payable_amount: payable,
+        notes: form.notes,
+        user_id: Number(localStorage.getItem("user_id") ?? 1),
+      });
+      if (!saved) throw new Error("Purchase was not saved");
+
+      window.dispatchEvent(new CustomEvent(PROCUREMENT_PO_EVENT, { detail: { count: 1, branchId: form.branch_id } }));
+      onPurchasesCreated?.();
+
+      const nowOrdered = new Set(ordered).add(form.item_id);
+      setOrdered(nowOrdered);
+      const next = alertItems.find(b => !nowOrdered.has(b.ingredient_id));
+      if (next) {
+        setInfo(`PO created for ${nameOf(form.item_id)}. Next low-stock item loaded. Cancel to finish.`);
+        setForm(f => ({
+          ...f, item_id: next.ingredient_id, quantity: suggestQty(next),
+          unit_cost: 0, tax_amount: 0, notes: noteFor(next),
+        }));
+      } else {
+        onClose();
+      }
+    } catch (e) {
+      console.error("Failed to create PO:", e);
+      setFormError("Could not save the purchase order. Check that the period is open, then see the POST /api/purchases response.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={t("inv.po.title")}
+      subtitle={t("inv.po.sub").replace("{n}", String(alertItems.length))}
+      onClose={onClose}
+      onSave={handleSave}
+      saving={saving}
+      cancelLabel={t("inv.modal.cancel")}
+      saveLabel={t("inv.modal.save")}
+    >
+      {formError && (
+        <p className="text-xs text-red-600 flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+          <AlertCircle className="w-3 h-3 flex-shrink-0" />{formError}
+        </p>
+      )}
+      {info && (
+        <p className="text-xs text-green-700 dark:text-green-300 flex items-center gap-1.5 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2">
+          <CheckCircle className="w-3 h-3 flex-shrink-0" />{info}
+        </p>
+      )}
+
+      {alertItems.length > 0 && (
+        <div>
+          <p className={labelClass}>Low stock items</p>
+          <div className="flex flex-wrap gap-1.5">
+            {alertItems.map(b => {
+              const done = ordered.has(b.ingredient_id);
+              const active = form.item_id === b.ingredient_id;
+              return (
+                <button key={b.ingredient_id} type="button" onClick={() => pickItem(b.ingredient_id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
+                    active ? "bg-primary text-primary-foreground border-primary"
+                    : done ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800"
+                    : b.negative_alert ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800"
+                    : "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"}`}>
+                  {done && <Check className="w-3 h-3" />}{b.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Branch *">
+          <select className={inputClass} value={form.branch_id || ""}
+            onChange={e => setForm(f => ({ ...f, branch_id: Number(e.target.value) }))}>
+            <option value="">Select branch...</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Supplier *">
+          <select className={inputClass} value={form.supplier_id || ""}
+            onChange={e => setForm(f => ({ ...f, supplier_id: Number(e.target.value) }))}>
+            <option value="">Select supplier...</option>
+            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Ingredient *">
+        <select className={inputClass} value={form.item_id || ""} onChange={e => pickItem(Number(e.target.value))}>
+          <option value="">Select ingredient...</option>
+          {balances.map(b => <option key={b.ingredient_id} value={b.ingredient_id}>{b.name} ({b.unit})</option>)}
+        </select>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Date *">
+          <input type="date" className={inputClass} value={form.entry_date}
+            onChange={e => setForm(f => ({ ...f, entry_date: e.target.value }))} />
+        </Field>
+        <Field label="Quantity *">
+          <input type="number" min={0} step={0.001} className={inputClass} placeholder="0.000"
+            value={form.quantity || ""} onChange={e => setForm(f => ({ ...f, quantity: Number(e.target.value) }))} />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={`Unit Cost (${getCurrencyLabel()}) *`}
+          hint={costHint === "quote" ? "Approved supplier quote"
+              : costHint === "master" ? "Item master cost, no approved quote for this supplier"
+              : costHint === "none" ? "No price found, enter the invoice price" : undefined}>
+          <input type="number" min={0} step={0.01} className={inputClass} placeholder="0.00"
+            value={form.unit_cost || ""} onChange={e => setForm(f => ({ ...f, unit_cost: Number(e.target.value) }))} />
+        </Field>
+        <Field label={`Tax Amount (${getCurrencyLabel()})`}>
+          <input type="number" min={0} step={0.01} className={inputClass} placeholder="0.00"
+            value={form.tax_amount || ""} onChange={e => setForm(f => ({ ...f, tax_amount: Number(e.target.value) }))} />
+        </Field>
+      </div>
+
+      <div className="bg-secondary/40 rounded-xl p-4 space-y-1.5 border border-border">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Gross Amount</span>
+          <span className="font-semibold tabular-nums">{fmtEGP(gross)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Tax</span>
+          <span className="font-semibold tabular-nums">{fmtEGP(form.tax_amount)}</span>
+        </div>
+        <div className="flex justify-between border-t border-border pt-2 mt-1">
+          <span className="text-sm font-semibold text-foreground">Total Payable</span>
+          <span className="text-base font-bold text-primary tabular-nums">{fmtEGP(payable)}</span>
+        </div>
+      </div>
+
+      <Field label="Notes">
+        <textarea className={inputClass} rows={2} placeholder="Optional notes"
+          value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+      </Field>
+    </Modal>
+  );
+}
+    
   
 
   // ─── Stock Table Card ─────────────────────────────────────────────────────────
@@ -2487,6 +2425,7 @@
         {showPOModal && (
           <POGeneratorModal
             balances={safeBalances}
+            branches={branches ?? []}
             onClose={() => setShowPOModal(false)}
             t={t}
             branchId={branchId}
@@ -2507,7 +2446,7 @@
             </select>
             
             {branchId > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setShowPOModal(true)} className="border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30">
+              <Button variant="outline" size="sm" onClick={() => setShowPOModal(true)} disabled={selectedPeriodClosed} title={selectedPeriodClosed ? "Period is closed" : undefined} className="border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30">
                 <ShoppingCart className="w-4 h-4 mr-1.5" /> {t("inv.generatePO")}
               </Button>
             )}
@@ -2644,7 +2583,7 @@
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{t("inv.alerts.title")}</h2>
                   {(stats.negative > 0 || stats.lowStock > 0) && (
-                    <Button size="sm" variant="outline" onClick={() => setShowPOModal(true)} className="text-xs">
+                    <Button size="sm" variant="outline" onClick={() => setShowPOModal(true)} disabled={selectedPeriodClosed} title={selectedPeriodClosed ? "Period is closed" : undefined} className="text-xs">
                       <ShoppingCart className="w-3 h-3 mr-1" /> {t("inv.alerts.createPO")}
                     </Button>
                   )}

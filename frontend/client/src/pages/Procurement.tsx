@@ -725,6 +725,11 @@ export default function Procurement() {
   }, [fetchPurchases]);
 
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
+  useEffect(() => {
+  const refresh = () => { void fetchPurchases(); };
+  window.addEventListener(PROCUREMENT_PO_EVENT, refresh);
+  return () => window.removeEventListener(PROCUREMENT_PO_EVENT, refresh);
+}, [fetchPurchases]);
 
   const handleOpenPoHtml = useCallback(async (id: number) => {
     setOpeningPoId(id);
