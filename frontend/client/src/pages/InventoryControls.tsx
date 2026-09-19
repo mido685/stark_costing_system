@@ -1,4 +1,4 @@
-  import React, { useState, useMemo, useCallback, useRef } from "react";
+  import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
   import { Card } from "@/components/ui/card";
   import { Button } from "@/components/ui/button";
   import {
@@ -7,12 +7,12 @@
     Printer, Download, ClipboardList, History, TrendingDown, TrendingUp,
     CheckCircle, Clock, XCircle, ShoppingCart, Lock, BarChart2,
     Calendar, ChevronRight, Eye, Percent, Shield, Zap, FileText,
-    ArrowDownToLine, ArrowUpFromLine, BookOpen,
+    ArrowDownToLine, ArrowUpFromLine, BookOpen, Check,
   } from "lucide-react";
   import { useApi } from "@/hooks/useApi";
   import {
     getBranches, getStockBalances, getFinishedGoodsBalances,
-    addStockAdjustment, addStockCount, addTransfer, addOpeningStock, apiCall,
+    addStockAdjustment, addStockCount, addTransfer, addOpeningStock, addPurchase, apiCall,
     isPeriodClosed, getPeriodStatus, setPeriodStatus,
   } from "@/lib/api";
   import type { StockBalance, Branch, PeriodStatusValue, PeriodStatusRow } from "@/lib/api";
@@ -24,6 +24,7 @@
     getCurrencyLabel,
   } from "@/lib/localization";
   import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
+  import { PROCUREMENT_PO_EVENT } from "./Governance";
 
   // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1167,29 +1168,162 @@
     );
   }
 
-  // ─── PO Generator Modal ───────────────────────────────────────────────────────
+    // ─── PO Generator Modal ───────────────────────────// Latest approved quote from this supplier for this ingredient.
+  // Same lookup Procurement's "New Purchase" modal uses.
+  async function resolveUnitCost(ingredientId: number, supplierId: number): Promise<number | null> {
+    try {
+      const prices = await apiCall<any[]>(`/api/suppliers/price-history/${ingredientId}`);
+      const approved = (Array.isArray(prices) ? prices : []).find(
+        p => Number(p.supplier_id) === supplierId && p.status === "approved"
+      );
+      const price = approved ? Number(approved.price) : 0;
+      return price > 0 ? price : null;
+    } catch {
+      return null;
+    }
+  }
 
-  function POGeneratorModal({ balances, onClose, t }: { balances: StockBalance[]; onClose: () => void; t: (k: string) => string }) {
-    const reorderItems = balances.filter(b => b.negative_alert || b.reorder_alert);
-    const [selected, setSelected] = useState<Set<number>>(new Set(reorderItems.map(b => b.ingredient_id)));
-    const [quantities, setQuantities] = useState<Record<number, number>>(
-      Object.fromEntries(reorderItems.map(b => [b.ingredient_id, Math.max(0, (b.reorder_level ?? 0) * 1.5 - b.balance_qty)]))
+  function POGeneratorModal({
+    balances,
+    onClose,
+    t,
+    branchId,
+    onPurchasesCreated,
+  }: {
+    balances: StockBalance[];
+    onClose: () => void;
+    t: (k: string) => string;
+    branchId: number;
+    onPurchasesCreated?: () => void;
+  }) {
+    const [suppliers, setSuppliers] = useState<any[]>([]);
+    const [loadingSuppliers, setLoadingSuppliers] = useState(false);
+    const reorderItems = balances.filter((b: StockBalance) => b.negative_alert || b.reorder_alert);
+    const [selectedItems, setSelectedItems] = useState<Set<number>>(
+      new Set(reorderItems.map((b: StockBalance) => b.ingredient_id))
     );
+    const [quantities, setQuantities] = useState<Record<number, number>>(
+      Object.fromEntries(reorderItems.map((b: StockBalance) => [b.ingredient_id, Math.max(0, (b.reorder_level ?? 0) * 1.5 - b.balance_qty)]))
+    );
+    const [selectedSuppliers, setSelectedSuppliers] = useState<Record<number, number>>({});
+    const [creating, setCreating] = useState(false);
+    const [createError, setCreateError] = useState("");
+
+    useEffect(() => {
+      async function loadSuppliers() {
+        setLoadingSuppliers(true);
+        try {
+          const data = await apiCall<any[]>("/api/suppliers");
+          setSuppliers(data ?? []);
+        } catch {
+          setSuppliers([]);
+        } finally {
+          setLoadingSuppliers(false);
+        }
+      }
+      loadSuppliers();
+    }, []);
 
     function toggle(id: number) {
-      setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+      setSelectedItems((s: Set<number>) => {
+        const n = new Set(s);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+      });
     }
 
-    function exportPO() {
-      const items = reorderItems.filter(b => selected.has(b.ingredient_id));
+    async function createPurchases() {
+      const items = reorderItems.filter((b: StockBalance) => selectedItems.has(b.ingredient_id));
+
+      for (const item of items) {
+        if (!selectedSuppliers[item.ingredient_id]) {
+          setCreateError(`Please select a supplier for ${item.name}`);
+          return;
+        }
+      }
+
+      setCreating(true);
+      setCreateError("");
+
+      const created = new Set<number>();
+      const noPrice: string[] = [];
+      const failed: string[] = [];
+
+      for (const item of items) {
+        try {
+          const qty = quantities[item.ingredient_id] ?? 0;
+          if (qty <= 0) continue;
+
+          const supplierId = selectedSuppliers[item.ingredient_id];
+          const unitCost = await resolveUnitCost(item.ingredient_id, supplierId);
+          if (!unitCost) { noPrice.push(item.name); continue; }
+
+          await addPurchase({
+            branch_id: branchId,
+            supplier_id: supplierId,
+            item_id: item.ingredient_id,
+            entry_date: today(),
+            quantity: qty,
+            unit_cost: unitCost,
+            tax_amount: 0,
+            payable_amount: qty * unitCost,
+            notes: `Auto-generated from low stock alert - Reorder level: ${(item.reorder_level ?? 0).toFixed(3)} ${item.unit}`,
+            user_id: Number(localStorage.getItem("user_id") ?? 1),
+          });
+          created.add(item.ingredient_id);
+        } catch (err) {
+          console.error(`Failed to create PO for ${item.name}:`, err);
+          failed.push(item.name);
+        }
+      }
+
+      setCreating(false);
+
+      if (created.size > 0) {
+        window.dispatchEvent(
+          new CustomEvent(PROCUREMENT_PO_EVENT, { detail: { count: created.size, branchId } })
+        );
+        onPurchasesCreated?.();
+      }
+
+      // Everything went through: confirm and close.
+      if (noPrice.length === 0 && failed.length === 0) {
+        alert(`✓ ${created.size} PO${created.size !== 1 ? "s" : ""} created successfully`);
+        onClose();
+        return;
+      }
+
+      // Partial or total failure: keep the modal open and say exactly what happened.
+      // Uncheck the ones already created so a retry can't duplicate them.
+      if (created.size > 0) {
+        setSelectedItems((s: Set<number>) => {
+          const n = new Set(s);
+          created.forEach(id => n.delete(id));
+          return n;
+        });
+      }
+
+      const parts: string[] = [];
+      if (created.size > 0) parts.push(`${created.size} PO${created.size !== 1 ? "s" : ""} created.`);
+      if (noPrice.length > 0) parts.push(`No approved supplier price for: ${noPrice.join(", ")}. Add a quote in Suppliers, or pick a different supplier.`);
+      if (failed.length > 0) parts.push(`Failed: ${failed.join(", ")}.`);
+      setCreateError(parts.join(" "));
+    }
+
+    function exportAsHtml() {
+      const items = reorderItems.filter((b: StockBalance) => selectedItems.has(b.ingredient_id));
       const now = formatDateTime(new Date());
-      const rows = items.map(b => `
+      const rows = items
+        .map(
+          (b: StockBalance) => `
         <tr>
           <td>${esc(b.name)}</td><td>${esc(b.unit)}</td>
           <td style="color:#dc2626;font-weight:700">${esc(b.balance_qty.toFixed(3))}</td>
           <td>${esc((b.reorder_level ?? 0).toFixed(3))}</td>
           <td style="font-weight:700;color:#1d4ed8">${esc((quantities[b.ingredient_id] ?? 0).toFixed(3))}</td>
-        </tr>`).join("");
+        </tr>`
+        )
+        .join("");
 
       const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Purchase Order Draft</title>
       <style>body{font-family:'Segoe UI',sans-serif;padding:32px;font-size:12px;color:#1e293b}
@@ -1212,7 +1346,6 @@
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      onClose();
     }
 
     return (
@@ -1221,43 +1354,133 @@
           <div className="px-6 py-4 border-b border-border bg-secondary/30 flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
-                <ShoppingCart className="w-4 h-4 text-violet-600" />{t("inv.po.title")}
+                <ShoppingCart className="w-4 h-4 text-violet-600" />
+                {t("inv.po.title")}
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">{t("inv.po.sub").replace("{n}", String(reorderItems.length))}</p>
             </div>
-            <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="max-h-[60vh] overflow-y-auto px-6 py-4 space-y-2">
+
+          <div className="max-h-[60vh] overflow-y-auto px-6 py-4 space-y-3">
+            {createError && (
+              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                {createError}
+              </div>
+            )}
+
             {reorderItems.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">{t("inv.po.empty")}</p>
-            ) : reorderItems.map(b => (
-              <div key={b.ingredient_id} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${selected.has(b.ingredient_id) ? "border-primary/40 bg-primary/5" : "border-border bg-secondary/20"}`}>
-                <input type="checkbox" checked={selected.has(b.ingredient_id)} onChange={() => toggle(b.ingredient_id)} className="w-4 h-4 rounded accent-primary flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm text-foreground">{b.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("inv.po.current")} <span className={b.negative_alert ? "text-red-600 font-bold" : "text-amber-600 font-semibold"}>{b.balance_qty.toFixed(3)}</span>
-                    {" "}{b.unit} · {t("inv.po.reorderAt")} {(b.reorder_level ?? 0).toFixed(3)} {b.unit}
-                  </p>
+            ) : (
+              reorderItems.map((b: StockBalance) => (
+                <div
+                  key={b.ingredient_id}
+                  className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                    selectedItems.has(b.ingredient_id) ? "border-primary/40 bg-primary/5" : "border-border bg-secondary/20"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedItems.has(b.ingredient_id)}
+                    onChange={() => toggle(b.ingredient_id)}
+                    className="w-4 h-4 rounded accent-primary flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm text-foreground">{b.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("inv.po.current")}{" "}
+                      <span className={b.negative_alert ? "text-red-600 font-bold" : "text-amber-600 font-semibold"}>
+                        {b.balance_qty.toFixed(3)}
+                      </span>
+                      {" "}{b.unit} · {t("inv.po.reorderAt")} {(b.reorder_level ?? 0).toFixed(3)} {b.unit}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {selectedItems.has(b.ingredient_id) && (
+                      <select
+                        value={selectedSuppliers[b.ingredient_id] || ""}
+                        onChange={(e) =>
+                          setSelectedSuppliers((prev) => ({
+                            ...prev,
+                            [b.ingredient_id]: Number(e.target.value),
+                          }))
+                        }
+                        className="px-2 py-1 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        disabled={loadingSuppliers || creating}
+                      >
+                        <option value="">Select supplier...</option>
+                        {suppliers.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{t("inv.po.orderQty")}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.001}
+                        value={quantities[b.ingredient_id] ?? 0}
+                        onChange={(e) =>
+                          setQuantities((q) => ({
+                            ...q,
+                            [b.ingredient_id]: Number(e.target.value),
+                          }))
+                        }
+                        disabled={!selectedItems.has(b.ingredient_id) || creating}
+                        className="w-24 px-2 py-1 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring font-mono disabled:opacity-50"
+                      />
+                      <span className="text-xs text-muted-foreground w-8">{b.unit}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-xs text-muted-foreground">{t("inv.po.orderQty")}</span>
-                  <input type="number" min={0} step={0.001} value={quantities[b.ingredient_id] ?? 0}
-                    onChange={e => setQuantities(q => ({ ...q, [b.ingredient_id]: Number(e.target.value) }))}
-                    className="w-24 px-2 py-1 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring font-mono" />
-                  <span className="text-xs text-muted-foreground w-8">{b.unit}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
+
           <div className="px-6 py-4 border-t border-border bg-secondary/20 flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">{t("inv.po.selected").replace("{n}", String(selected.size))}</span>
+            <span className="text-xs text-muted-foreground">
+              {t("inv.po.selected").replace("{n}", String(selectedItems.size))}
+            </span>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={onClose}>{t("inv.modal.cancel")}</Button>
-              <Button onClick={exportPO} disabled={selected.size === 0} className="bg-violet-600 hover:bg-violet-700 text-white">
-                <Printer className="w-4 h-4 mr-2" />{t("inv.po.print")}
+              <Button variant="outline" onClick={onClose} disabled={creating}>
+                {t("inv.modal.cancel")}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={exportAsHtml}
+                disabled={selectedItems.size === 0 || creating}
+                className="gap-1.5"
+              >
+                <Printer className="w-4 h-4" />
+                {t("inv.po.print")}
+              </Button>
+              <Button
+                onClick={createPurchases}
+                disabled={selectedItems.size === 0 || creating}
+                className="bg-violet-600 hover:bg-violet-700 text-white gap-1.5"
+              >
+                {creating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Create {selectedItems.size} PO{selectedItems.size !== 1 ? "s" : ""}
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -1265,6 +1488,8 @@
       </div>
     );
   }
+
+  
 
   // ─── Stock Table Card ─────────────────────────────────────────────────────────
 
@@ -2259,8 +2484,15 @@
           </Modal>
         )}
 
-        {showPOModal && <POGeneratorModal balances={safeBalances} onClose={() => setShowPOModal(false)} t={t} />}
-
+        {showPOModal && (
+          <POGeneratorModal
+            balances={safeBalances}
+            onClose={() => setShowPOModal(false)}
+            t={t}
+            branchId={branchId}
+            onPurchasesCreated={refetchAll}
+          />
+        )}
         {/* ── Page Header ── */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>

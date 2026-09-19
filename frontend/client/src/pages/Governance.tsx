@@ -62,6 +62,7 @@ type GovernanceHistoryRow = {
   amount?:          number;
   currency?:        string;
   from_procurement: boolean;
+  branch_name?:     string;
   branch_id?:       number;
   supplier_name?:   string;
   ingredient_name?: string;
@@ -1344,12 +1345,21 @@ export default function Governance() {
 
   useEffect(() => {
     function handleNewPO(event: Event) {
-      const po = (event as CustomEvent).detail;
-      if (!po) return;
-      setNewPOCount((c) => c + 1);
-      addToast("warning", `New ${poRef(po.po_number, po.id)} added to approval queue.`);
-      fetchApprovals();
-    }
+      const d = (event as CustomEvent).detail;
+      if (!d) return;
+      // InventoryControls sends a batch: { count, branchId }
+      // Procurement sends one saved PO: { id, po_number, ... }
+      const isBatch = d.count != null;
+      const count = isBatch ? Number(d.count) : 1;
+      setNewPOCount((c) => c + count);
+      addToast(
+        "warning",
+        isBatch
+          ? `${count} new Purchase Order${count !== 1 ? "s" : ""} added to approval queue.`
+          : `New ${poRef(d.po_number, d.id)} added to approval queue.`
+      );
+    fetchApprovals();
+  }
     window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
     return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
   }, [addToast, fetchApprovals]);
