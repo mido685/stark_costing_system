@@ -29,7 +29,7 @@
   // ─── Types ────────────────────────────────────────────────────────────────────
 
   // Added "periodStatus" to ModalType
-  type ModalType = "count" | "adjustment" | "transfer" | "opening" | "periodClose" | "poGenerate" | "periodStatus" | null;
+  type ModalType = "count" | "adjustment" | "waste" | "transfer" | "opening" | "periodClose" | "poGenerate" | "periodStatus" | null;
   type StatusFilter = "all" | "negative" | "low" | "ok";
   type SortField = "name" | "balance_qty" | "reorder_level" | "inventory_value";
   type SortDir = "asc" | "desc";
@@ -61,6 +61,20 @@
     user_name: string;
     status: "pending" | "approved" | "rejected";
     approved_by?: string;
+  }
+
+  interface WasteRecord {
+    id: number;
+    branch_id: number;
+    branch_name?: string;
+    ingredient_id: number;
+    ingredient_name: string;
+    entry_date: string;
+    quantity: number;
+    unit_cost: number;
+    waste_reason: string;
+    notes?: string;
+    wasted_by?: string;
   }
 
   interface VarianceRow {
@@ -289,6 +303,16 @@
   }
   async function getAdjustmentsByBranch(branchId?: number): Promise<any[]> {
     try { return await apiCall<any[]>(`/api/stock-adjustments/by-branch${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
+  }
+
+  async function getWasteByBranch(branchId?: number, limit = 50): Promise<WasteRecord[]> {
+    try {
+      const p = new URLSearchParams({ limit: String(limit) });
+      if (branchId) p.set("branch_id", String(branchId));
+      return await apiCall<WasteRecord[]>(`/api/waste?${p}`);
+    } catch {
+      return [];
+    }
   }
   async function getPeriodSnapshots(branchId?: number): Promise<PeriodSnapshot[]> {
     try { return await apiCall<PeriodSnapshot[]>(`/api/period-snapshots${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
@@ -1955,6 +1979,7 @@
     const { data: transfers,    refetch: refetchTransfers  } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined),        { deps: [branchId] });
     const { data: openingStock, refetch: refetchOpening    } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined),     { deps: [branchId] });
     const { data: adjustments,  loading: adjLoading, refetch: refetchAdjustments } = useApi<any[]>(() => getAdjustmentsByBranch(branchId || undefined), { deps: [branchId] });
+    const { data: wasteRecords, refetch: refetchWaste } = useApi<WasteRecord[]>(() => getWasteByBranch(branchId || undefined), { deps: [branchId] });
     const { data: periodSnapshots, refetch: refetchSnapshots } = useApi<PeriodSnapshot[]>(() => getPeriodSnapshots(branchId || undefined), { deps: [branchId] });
 
     // ── NEW: Company period status (same as Finance) ──────────────────────────
@@ -1978,6 +2003,7 @@
 
     const [countForm,    setCountForm]    = useState({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" });
     const [adjForm,      setAdjForm]      = useState({ ingredient_id: 0, entry_date: today(), quantity_delta: 0, reason: "", notes: "", requires_approval: false });
+    const [wasteForm,    setWasteForm]    = useState({ ingredient_id: 0, entry_date: today(), quantity: 0, waste_reason: "other", notes: "" });
     const [transferForm, setTransferForm] = useState({ from_branch_id: branchId, to_branch_id: 0, ingredient_id: 0, entry_date: today(), quantity: 0, notes: "" });
     const [openingForm,  setOpeningForm]  = useState({ ingredient_id: 0, entry_date: today(), qty_issued: 0, notes: "" });
     const [periodForm,   setPeriodForm]   = useState({ period_label: "", entry_date: today(), notes: "" });
@@ -1989,6 +2015,7 @@
     const safeTransfers   = transfers ?? [];
     const safeOpening     = openingStock ?? [];
     const safeAdjustments = adjustments ?? [];
+    const safeWaste       = wasteRecords ?? [];
     const safeSnapshots   = periodSnapshots ?? [];
 
     const branchName = branches?.find(b => b.id === branchId)?.name ?? t("dashboard.allBranches");
@@ -2031,10 +2058,10 @@
 
     function refetchAll() {
       refetchBalances?.(); refetchFG?.(); refetchCounts?.(); refetchPurchases?.();
-      refetchTransfers?.(); refetchOpening?.(); refetchAdjustments?.(); refetchSnapshots?.();
+      refetchTransfers?.(); refetchOpening?.(); refetchAdjustments?.(); refetchWaste?.(); refetchSnapshots?.();
       refetchCompanyPeriodStatus?.(); refetchBranchPeriodStatus?.(); refetchProductionMovements?.();
     }
-    const WRITE_MODALS: ModalType[] = ["count", "adjustment", "transfer", "opening", "periodClose"];
+    const WRITE_MODALS: ModalType[] = ["count", "adjustment", "waste", "transfer", "opening", "periodClose"];
 
     function openModal(type: ModalType) {
       if (selectedPeriodClosed && type && WRITE_MODALS.includes(type)) return;
@@ -2114,6 +2141,51 @@
         refetchAll();
       } else setFormError(t("inv.err.saveFailed"));
   }
+
+    async function handleSaveWaste() {
+      if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
+      if (!wasteForm.ingredient_id) { setFormError(t("inv.err.selectIngredient")); return; }
+      if (wasteForm.quantity <= 0) { setFormError(t("inv.err.qtyPositive")); return; }
+      if (!wasteForm.waste_reason.trim()) { setFormError("Waste reason is required."); return; }
+
+      setSaving(true);
+      setFormError("");
+
+      try {
+        await apiCall("/api/waste", {
+          method: "POST",
+          body: JSON.stringify({
+            branch_id: branchId,
+            ingredient_id: wasteForm.ingredient_id,
+            entry_date: wasteForm.entry_date,
+            quantity: wasteForm.quantity,
+            waste_reason: wasteForm.waste_reason,
+            notes: wasteForm.notes,
+          }),
+        });
+
+        setModal(null);
+        setWasteForm({
+          ingredient_id: 0,
+          entry_date: today(),
+          quantity: 0,
+          waste_reason: "other",
+          notes: "",
+        });
+
+        // Waste creates an inventory ledger movement, so refresh both
+        // the balance and the waste history.
+        refetchBalances?.();
+        refetchWaste?.();
+      } catch (e) {
+        console.error("[waste] save failed", e);
+        setFormError(
+          e instanceof Error ? e.message : "Could not record waste."
+        );
+      } finally {
+        setSaving(false);
+      }
+    }
 
     async function handleSaveTransfer() {
       if (!transferForm.from_branch_id) { setFormError(t("inv.err.sourceBranch")); return; }
@@ -2288,6 +2360,87 @@
       <p className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2">{t("inv.modal.count.hint")}</p>
     </Modal>
   )}
+
+        {modal === "waste" && (
+          <Modal
+            title="Record Waste"
+            subtitle="Record wasted raw material and reduce stock immediately."
+            onClose={() => setModal(null)}
+            onSave={handleSaveWaste}
+            saving={saving}
+            cancelLabel={t("inv.modal.cancel")}
+            saveLabel="Record Waste"
+          >
+            {formError && (
+              <p className="text-xs text-red-600 flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                {formError}
+              </p>
+            )}
+
+            <Field label="Ingredient">
+              <IngredientSelect
+                balances={safeBalances}
+                value={wasteForm.ingredient_id}
+                onChange={id => setWasteForm({ ...wasteForm, ingredient_id: id })}
+                placeholder={t("inv.modal.selectIngredient")}
+              />
+            </Field>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date">
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={wasteForm.entry_date}
+                  onChange={e => setWasteForm({ ...wasteForm, entry_date: e.target.value })}
+                />
+              </Field>
+
+              <Field label="Quantity">
+                <input
+                  type="number"
+                  min={0.001}
+                  step={0.001}
+                  className={inputClass}
+                  placeholder="0.000"
+                  value={wasteForm.quantity || ""}
+                  onChange={e => setWasteForm({ ...wasteForm, quantity: Number(e.target.value) })}
+                />
+              </Field>
+            </div>
+
+            <Field label="Waste Reason">
+              <select
+                className={inputClass}
+                value={wasteForm.waste_reason}
+                onChange={e => setWasteForm({ ...wasteForm, waste_reason: e.target.value })}
+              >
+                <option value="waste">Waste</option>
+                <option value="damage">Damage</option>
+                <option value="spoilage">Spoilage</option>
+                <option value="expiry">Expiry</option>
+                <option value="theft">Theft</option>
+                <option value="production_error">Production Error</option>
+                <option value="other">Other</option>
+              </select>
+            </Field>
+
+            <Field label="Notes">
+              <textarea
+                className={inputClass}
+                rows={2}
+                placeholder="Optional notes..."
+                value={wasteForm.notes}
+                onChange={e => setWasteForm({ ...wasteForm, notes: e.target.value })}
+              />
+            </Field>
+
+            <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+              Waste reduces the selected ingredient's stock immediately. The backend calculates the unit cost from the inventory cost history.
+            </p>
+          </Modal>
+        )}
 
         {modal === "adjustment" && (
           <Modal
@@ -2550,6 +2703,7 @@
                   {[
                     { key: "count"      as ModalType, label: t("inv.ops.count"),      desc: t("inv.ops.countDesc"),      icon: <ClipboardList className="w-5 h-5 text-blue-600" />,    bg: "bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-900"        },
                     { key: "adjustment" as ModalType, label: t("inv.ops.adjustment"), desc: t("inv.ops.adjustmentDesc"), icon: <Zap className="w-5 h-5 text-amber-600" />,             bg: "bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900"    },
+                    { key: "waste"      as ModalType, label: "Waste",                   desc: "Record wasted stock",                                           icon: <TrendingDown className="w-5 h-5 text-red-600" />,    bg: "bg-red-50 dark:bg-red-950/40 border-red-100 dark:border-red-900"          },
                     { key: "transfer"   as ModalType, label: t("inv.ops.transfer"),   desc: t("inv.ops.transferDesc"),   icon: <ArrowUpFromLine className="w-5 h-5 text-green-600" />,  bg: "bg-green-50 dark:bg-green-950/40 border-green-100 dark:border-green-900"    },
                     { key: "opening"    as ModalType, label: t("inv.ops.opening"),    desc: t("inv.ops.openingDesc"),    icon: <ArrowDownToLine className="w-5 h-5 text-violet-600" />, bg: "bg-violet-50 dark:bg-violet-950/40 border-violet-100 dark:border-violet-900" },
                   ].map(item => (
@@ -2639,6 +2793,64 @@
                 ))}
               </Card>
             </div>
+
+            {/* ── Recent Waste ── */}
+            {branchId > 0 && (
+              <Card className="overflow-hidden">
+                <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Recent Waste</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">Latest waste records for the selected branch</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openModal("waste")}
+                    disabled={selectedPeriodClosed}
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Record Waste
+                  </Button>
+                </div>
+
+                {safeWaste.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <TrendingDown className="w-9 h-9 text-muted-foreground/20 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">No waste recorded for this branch.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-secondary/50 border-b border-border">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Date</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Ingredient</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-foreground">Quantity</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Reason</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Recorded By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {safeWaste.slice(0, 10).map(w => (
+                          <tr key={w.id} className="border-b border-border last:border-0 hover:bg-secondary/30">
+                            <td className="px-4 py-3 text-xs text-muted-foreground">{w.entry_date}</td>
+                            <td className="px-4 py-3 font-medium text-foreground">{w.ingredient_name}</td>
+                            <td className="px-4 py-3 text-right font-mono text-red-600 font-semibold">
+                              -{Number(w.quantity).toFixed(3)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                                {w.waste_reason}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">{w.wasted_by ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            )}
 
             {/* ── Period History Mini ── */}
             {safeSnapshots.length > 0 && (

@@ -1099,3 +1099,212 @@ def list_transfers_by_branch(company_id: int, branch_id: int | None = None, limi
 def list_inventory_movements_by_branch(company_id: int, branch_id: int | None = None,
                                        movement_type: str | None = None, limit: int = 200):
     return list_inventory_movements(company_id, branch_id, movement_type, limit)
+def _verify_ingredient(cur, ingredient_id: int, company_id: int) -> None:
+    cur.execute(
+        """
+        SELECT id
+        FROM ingredients
+        WHERE id = %s
+          AND company_id = %s
+        """,
+        (ingredient_id, company_id),
+    )
+
+    if not cur.fetchone():
+        raise ValueError("Ingredient not found or access denied")
+# ---------------------------------------------------------------------------
+# Waste
+# ---------------------------------------------------------------------------
+
+def list_waste(
+    company_id: int,
+    branch_id: int | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        where = ["b.company_id = %s"]
+        params: list[Any] = [company_id]
+
+        if branch_id:
+            where.append("w.branch_id = %s")
+            params.append(branch_id)
+
+        cur.execute(
+            f"""
+            SELECT
+                w.*,
+                b.name AS branch_name,
+                i.name AS ingredient_name,
+                i.unit,
+                u.display_name AS wasted_by
+            FROM waste_records w
+            JOIN branches b
+                ON b.id = w.branch_id
+            JOIN ingredients i
+                ON i.id = w.ingredient_id
+            LEFT JOIN app_users u
+                ON u.id = w.created_by
+            WHERE {' AND '.join(where)}
+            ORDER BY w.entry_date DESC, w.id DESC
+            LIMIT %s
+            """,
+            params + [limit],
+        )
+
+        return [_row(dict(r)) for r in cur.fetchall()]
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+def add_waste(
+    company_id: int,
+    user_id: int,
+    branch_id: int,
+    ingredient_id: int,
+    entry_date: str,
+    quantity: float,
+    waste_reason: str,
+    notes: str = "",
+    ip_address: str | None = None,
+) -> dict:
+    """
+    Record wasted stock.
+
+    Waste decreases inventory immediately.
+    A waste_records row and its inventory movement are
+    created in the same database transaction.
+    """
+
+    if is_period_frozen(company_id, entry_date):
+        raise ValueError(
+            "This accounting period is closed for the selected branch"
+        )
+
+    if quantity <= 0:
+        raise ValueError("Waste quantity must be greater than zero")
+
+    if not waste_reason or not waste_reason.strip():
+        raise ValueError("Waste reason is required")
+
+    conn = get_connection()
+    cur = dict_cursor(conn)
+
+    try:
+        # Verify branch belongs to the current company
+        _verify_branch(cur, branch_id, company_id)
+        _verify_ingredient(cur, ingredient_id, company_id)
+
+        # Get current weighted-average cost for this ingredient
+        unit_cost = _ingredient_weighted_avg_cost(
+            cur,
+            ingredient_id,
+            branch_id,
+        )
+
+        # Create the waste business record
+        cur.execute(
+            """
+            INSERT INTO waste_records
+                (
+                    branch_id,
+                    ingredient_id,
+                    entry_date,
+                    quantity,
+                    unit_cost,
+                    waste_reason,
+                    notes,
+                    created_by
+                )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                branch_id,
+                ingredient_id,
+                entry_date,
+                quantity,
+                unit_cost,
+                waste_reason.strip(),
+                notes,
+                user_id,
+            ),
+        )
+
+        waste = dict(cur.fetchone())
+
+        # Waste decreases inventory
+        cur.execute(
+            """
+            INSERT INTO inventory_movements
+                (
+                    branch_id,
+                    ingredient_id,
+                    movement_type,
+                    entry_date,
+                    quantity_delta,
+                    unit_cost,
+                    reference_table,
+                    reference_id,
+                    notes
+                )
+            VALUES
+                (%s, %s, 'waste', %s, %s, %s, 'waste_records', %s, %s)
+            """,
+            (
+                branch_id,
+                ingredient_id,
+                entry_date,
+                -quantity,
+                unit_cost,
+                waste["id"],
+                notes or waste_reason,
+            ),
+        )
+
+        # Audit log
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="CREATE",
+            table_name="waste_records",
+            record_id=waste["id"],
+            new_data=waste,
+            ip_address=ip_address,
+        )
+
+        # System event
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="created",
+            category="data",
+            entity_type="waste_records",
+            entity_id=waste["id"],
+            payload={
+                "ingredient_id": ingredient_id,
+                "quantity": quantity,
+                "unit_cost": unit_cost,
+                "waste_reason": waste_reason,
+            },
+            ip_address=ip_address,
+        )
+
+        conn.commit()
+
+        return waste
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        cur.close()
+        conn.close()

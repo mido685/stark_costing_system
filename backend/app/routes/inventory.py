@@ -9,6 +9,7 @@ from app.schemas import (
     StockCountRequest,
     StockIssueRequest,
     TransferRequest,
+    WasteRequest,
 )
 from app.security.dependencies import check_period_open, get_current_user, require_roles
 
@@ -349,3 +350,51 @@ def inventory_movements(
         current_user["company_id"], branch_id, movement_type, limit
     )
     return success("Movements retrieved", inventory_movements=rows)
+# ---------------------------------------------------------------------------
+# Waste
+# ---------------------------------------------------------------------------
+
+@router.get("/waste")
+def list_waste(
+    branch_id: int | None = Query(None),
+    limit: int = Query(50),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = inventory_db.list_waste(
+        current_user["company_id"],
+        branch_id,
+        limit,
+    )
+    return success("Waste records retrieved", waste=rows)
+
+
+@router.post("/waste", status_code=201)
+def create_waste(
+    req: WasteRequest,
+    request: Request,
+    current_user: dict = Depends(
+        require_roles("owner", "admin", "manager")
+    ),
+):
+    check_period_open(str(req.entry_date), current_user)
+
+    try:
+        row = inventory_db.add_waste(
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            branch_id=req.branch_id,
+            ingredient_id=req.ingredient_id,
+            entry_date=req.entry_date,
+            quantity=req.quantity,
+            waste_reason=req.waste_reason,
+            notes=req.notes,
+            ip_address=request.client.host,
+        )
+
+        return success(
+            "Waste recorded — stock updated",
+            waste=row,
+        )
+
+    except ValueError as e:
+        return error(str(e))
