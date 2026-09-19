@@ -2172,13 +2172,32 @@
     }
 
     async function handleApprove(id: number, notes: string) {
-      try { await approveAdjustment(id, "approved", notes); setDismissedApprovals(prev => new Set(prev).add(id)); }
-      finally { refetchAdjustments?.(); }
+      try {
+        await approveAdjustment(id, "approved", notes);
+
+        setDismissedApprovals(prev => new Set(prev).add(id));
+
+        // Refresh both the approval list and actual stock balance
+        refetchBalances?.();
+        refetchAdjustments?.();
+      } catch (error) {
+        console.error("[adjustment] approval failed", error);
+        throw error;
+      }
     }
 
     async function handleReject(id: number, notes: string) {
-      try { await approveAdjustment(id, "rejected", notes); setDismissedApprovals(prev => new Set(prev).add(id)); }
-      finally { refetchAdjustments?.(); }
+      try {
+        await approveAdjustment(id, "rejected", notes);
+
+        setDismissedApprovals(prev => new Set(prev).add(id));
+
+        // Adjustment status changed
+        refetchAdjustments?.();
+      } catch (error) {
+        console.error("[adjustment] rejection failed", error);
+        throw error;
+      }
     }
 
     const tabs: { key: MainTab; label: string; icon: React.ReactNode; badge?: number }[] = [
