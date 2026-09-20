@@ -32,6 +32,8 @@ def list_purchases(
     branch_id: int | None = None,
     status: str | None = None,
     limit: int = 50,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> list[dict[str, Any]]:
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -44,6 +46,12 @@ def list_purchases(
         if status:
             conditions.append("p.status = %s")
             params.append(status)
+        if date_from:
+            conditions.append("p.entry_date >= %s")
+            params.append(date_from)
+        if date_to:
+            conditions.append("p.entry_date <= %s")
+            params.append(date_to)
 
         cur.execute(f"""
             SELECT p.*, b.name AS branch_name,

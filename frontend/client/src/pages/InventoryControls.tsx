@@ -387,6 +387,20 @@
     return null;
   }
 
+  // Approved purchases for one month, filtered by the server. Throws on failure.
+  async function fetchPurchasesForPeriod(branchId: number | undefined, period: string): Promise<any[]> {
+    const [y, m] = period.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const p = new URLSearchParams({
+      date_from: `${period}-01`,
+      date_to: `${period}-${String(lastDay).padStart(2, "0")}`,
+      status: "approved",
+      limit: "1000",
+    });
+    if (branchId) p.set("branch_id", String(branchId));
+    return asList(await apiCall<any[]>(`/api/purchases/by-branch?${p}`));
+  }
+
   function normalizeBalance(b: any): StockBalance {
     return {
       ...b,
@@ -428,7 +442,7 @@
     return tracked("stock counts", async () =>
       asList(await apiCall<any[]>(`/api/stock-counts/with-purchases${branchId ? `?branch_id=${branchId}` : ""}`)), []);
   }
-  function getPurchasesByBranch(branchId?: number, limit = 2000): Promise<any[]> {
+  function getPurchasesByBranch(branchId?: number, limit = 1000): Promise<any[]> {
     return tracked("purchases", async () => {
       const p = new URLSearchParams();
       if (branchId) p.set("branch_id", String(branchId));
@@ -1060,18 +1074,37 @@
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     });
 
-    const filteredPurchases = useMemo(() => {
-      if (!period) return purchases;
-      return purchases.filter(p => {
-        const entryMonth = (p.entry_date ?? "").slice(0, 7);
-        return entryMonth === period;
-      });
-    }, [purchases, period]);
+    const [filteredPurchases, setFilteredPurchases] = useState<any[]>([]);
+    const [purchState, setPurchState] = useState<"loading" | "ok" | "error">("loading");
+    const [reloadKey, setReloadKey] = useState(0);
+
+    useEffect(() => {
+      if (!period) { setFilteredPurchases([]); setPurchState("ok"); return; }
+      let cancelled = false;
+      setPurchState("loading");
+      fetchPurchasesForPeriod(branchId || undefined, period)
+        .then(rows => { if (!cancelled) { setFilteredPurchases(rows); setPurchState("ok"); } })
+        .catch(e => { console.error("[cogs] purchases load failed", e); if (!cancelled) setPurchState("error"); });
+      return () => { cancelled = true; };
+    }, [branchId, period, reloadKey]);
 
     const totalCurrentValue   = balances.reduce((s, b) => s + assetValue(b), 0);
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
     const openingValue  = openingValueForPeriod(snapshots, period);
     const estimatedCOGS = openingValue + totalPurchasesValue - totalCurrentValue;
+
+    if (purchState === "error") {
+      return (
+        <Card className="p-10 text-center">
+          <AlertCircle className="w-10 h-10 text-red-500/40 mx-auto mb-3" />
+          <p className="text-sm font-medium text-foreground">Could not load purchases for {period}</p>
+          <p className="text-xs text-muted-foreground mt-1">COGS would be wrong without them.</p>
+          <Button size="sm" variant="outline" className="mt-4" onClick={() => setReloadKey(k => k + 1)}>
+            <RefreshCw className="w-3 h-3 mr-1" /> Retry
+          </Button>
+        </Card>
+      );
+    }
 
     if (!snapshots.length) {
       return (
@@ -2566,13 +2599,27 @@
       };
     }, [safeBalances, safeFG, safePurchases]);
     // Single source of truth for the period-close modal and the saved snapshot
+    const closePeriodKey = periodOf(periodForm.entry_date);
+    const [closePurchases, setClosePurchases] = useState<any[]>([]);
+    const [closePurchState, setClosePurchState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+
+    useEffect(() => {
+      if (modal !== "periodClose" || !closePeriodKey) { setClosePurchState("idle"); return; }
+      let cancelled = false;
+      setClosePurchState("loading");
+      fetchPurchasesForPeriod(branchId || undefined, closePeriodKey)
+        .then(rows => { if (!cancelled) { setClosePurchases(rows); setClosePurchState("ok"); } })
+        .catch(e => { console.error("[period close] purchases load failed", e); if (!cancelled) setClosePurchState("error"); });
+      return () => { cancelled = true; };
+    }, [modal, branchId, closePeriodKey]);
+
     const closePreview = useMemo(() => {
-      const period = periodOf(periodForm.entry_date);
+      const period = closePeriodKey;
       const opening = openingValueForPeriod(safeSnapshots, period);
-      const purchasesValue = purchasesValueForPeriod(safePurchases, period);
+      const purchasesValue = purchasesValueForPeriod(closePurchases, period);
       const closing = stats.rawValue + stats.fgValue;
       return { period, opening, purchasesValue, closing, cogs: opening + purchasesValue - closing };
-    }, [periodForm.entry_date, safeSnapshots, safePurchases, stats.rawValue, stats.fgValue]);
+    }, [closePeriodKey, safeSnapshots, closePurchases, stats.rawValue, stats.fgValue]);
 
     const alerts = useMemo(() =>
       safeBalances.filter(b => b.negative_alert || b.reorder_alert)
@@ -2778,6 +2825,12 @@
     async function handlePeriodClose() {
       if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
       if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
+      if (closePurchState !== "ok") {
+        setFormError(closePurchState === "loading"
+          ? "Still loading this period's purchases. Try again in a moment."
+          : "Could not load this period's purchases, so the closing numbers would be wrong. Change the date and back, or reopen this dialog.");
+        return;
+      }
       if (financeDataFailed) {
         setFormError("Purchases or previous snapshots failed to load, so the closing numbers would be wrong. Close this dialog, click Retry, and try again.");
         return;

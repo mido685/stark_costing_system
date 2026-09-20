@@ -36,12 +36,18 @@ def list_purchases(
 @router.get("/by-branch")
 def purchases_by_branch(
     branch_id: int | None = Query(None),
+    status: str | None = Query(None, pattern="^(pending|approved|rejected)$"),
+    date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     limit: int = Query(200, ge=1, le=1000),
     current_user: dict = Depends(get_current_user),
 ):
     purchases = purchases_db.list_purchases(
         company_id=current_user["company_id"],
         branch_id=branch_id,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
         limit=limit,
     )
     return success("Purchases retrieved", purchases=purchases)
