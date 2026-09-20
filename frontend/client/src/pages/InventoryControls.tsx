@@ -34,7 +34,7 @@
   type SortField = "name" | "balance_qty" | "reorder_level" | "inventory_value";
   type SortDir = "asc" | "desc";
   type GroupBy = "none" | "status" | "unit";
-  type MainTab = "dashboard" | "rawMaterials" | "finishedGoods" | "variance" | "auditLog" | "cogs";
+  type MainTab = "dashboard" | "rawMaterials" | "finishedGoods" | "transactions" | "variance" | "auditLog" | "cogs";
 
   interface PeriodSnapshot {
     id: number;
@@ -79,6 +79,7 @@
 
   interface VarianceRow {
     ingredient_id: number;
+    kind?: "ingredient" | "fg";
     name: string;
     unit: string;
     theoretical_usage: number;
@@ -105,6 +106,16 @@
     );
   }
 
+  // Waste above this share of on-hand stock (or more than is on hand) is sent for
+  // manager approval as an adjustment. Set to Infinity to keep all waste immediate.
+  const WASTE_APPROVAL_PCT = 20;
+
+  function wasteNeedsApproval(bal: StockBalance | undefined, qty: number): boolean {
+    if (!bal || qty <= 0) return false;
+    if (qty > bal.balance_qty) return true;
+    return (qty / bal.balance_qty) * 100 > WASTE_APPROVAL_PCT;
+  }
+
   function today() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -119,6 +130,19 @@
 
   function fmtPct(n: number) { return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`; }
 
+  // fmtEGP applies Math.abs, so negatives need an explicit sign
+  function fmtSignedEGP(v: number) { return `${v < 0 ? "−" : ""}${fmtEGP(v)}`; }
+
+  // Signed row value: the sign follows the quantity, so it is right whether the API sends signed or absolute values
+  function stockValue(b: StockBalance): number {
+    const raw = Number(b.inventory_value ?? b.stock_value ?? 0) || 0;
+    return b.balance_qty < 0 ? -Math.abs(raw) : Math.abs(raw);
+  }
+  // Value counted toward totals and closing inventory: negative stock counts as 0
+  function assetValue(b: StockBalance): number {
+    return Math.max(0, stockValue(b));
+  }
+
   function getStatus(b: StockBalance): Exclude<StatusFilter, "all"> {
     if (b.negative_alert) return "negative";
     if (b.reorder_alert) return "low";
@@ -127,23 +151,56 @@
 
   // ─── CSV Export ───────────────────────────────────────────────────────────────
 
-  function exportCSV(rows: StockBalance[], title: string, branchName: string) {
+  function exportCSV(
+    rows: StockBalance[], title: string, branchName: string, isFinished: boolean,
+    countMap: Record<number, any>,
+    purchaseMap: Record<number, { totalQty: number; totalValue: number; count: number }>,
+    transferMap: Record<number, { in: number; out: number }>,
+    openingMap: Record<number, number>,
+    adjustmentMap: Record<number, { total: number; waste: number }>,
+  ) {
     const currencyLabel = getCurrencyLabel();
     const headers = [
       "Name", "Unit", "Balance Qty", "Reorder Level", `Inventory Value (${currencyLabel})`,
       "Last Count Qty", "Count Diff", "Total Purchased", "Transfer In",
       "Transfer Out", "Opening Qty", "Net Adjustment", "Status",
     ];
-    const csvRows = rows.map(r => [
-      `"${String(r.name).replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"`,
-      r.unit,
-      r.balance_qty.toFixed(3),
-      (r.reorder_level ?? 0).toFixed(3),
-      Math.abs(r.inventory_value ?? r.stock_value ?? 0).toFixed(2),
-      "", "", "", "", "", "", "",
-      getStatus(r),
-    ].join(","));
-    const csv = [headers.join(","), ...csvRows].join("\n");
+
+    // Quote every text cell and neutralise spreadsheet formula injection
+    const text = (v: unknown) =>
+      `"${String(v ?? "").replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"`;
+    // Blank when there is no data, so "0" always means a real zero
+    const num = (v: number | null | undefined, d = 3) =>
+      v === null || v === undefined || Number.isNaN(v) ? "" : v.toFixed(d);
+
+    const csvRows = rows.map(r => {
+      // Movement maps are keyed by ingredient_id, so finished goods must not read them
+      const rid = Number((r as any).ingredient_id ?? (r as any).product_id);
+      const countData = isFinished ? undefined : countMap[rid];
+      const purchase  = isFinished ? undefined : purchaseMap[rid];
+      const transfer  = isFinished ? undefined : transferMap[rid];
+      const opening   = isFinished ? undefined : openingMap[rid];
+      const adjust    = isFinished ? undefined : adjustmentMap[rid];
+
+      return [
+        text(r.name),
+        text(r.unit),
+        num(r.balance_qty),
+        num(r.reorder_level ?? 0),
+        num(stockValue(r), 2),
+        num(countData ? Number(countData.counted_qty ?? 0) : null),
+        num(countData ? Number(countData.delta ?? 0) : null),
+        num(purchase?.totalQty),
+        num(transfer?.in),
+        num(transfer?.out),
+        num(opening),
+        num(adjust?.total),
+        getStatus(r),
+      ].join(",");
+    });
+
+    // BOM so Excel opens UTF-8 (e.g. Arabic item names) correctly
+    const csv = "\uFEFF" + [headers.join(","), ...csvRows].join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -165,32 +222,34 @@
   ) {
     const now = formatDateTime(new Date());
     const currencyLabel = getCurrencyLabel();
-    const totalValue = rows.reduce((s, r) => s + Math.abs(r.inventory_value ?? r.stock_value ?? 0), 0);
+    const totalValue = rows.reduce((s, r) => s + assetValue(r), 0);
     const negative = rows.filter(r => r.negative_alert).length;
     const low = rows.filter(r => r.reorder_alert && !r.negative_alert).length;
 
     const tableRows = rows.map(r => {
-      const val = Math.abs(r.inventory_value ?? r.stock_value ?? 0);
+      const val = stockValue(r);
       const status = getStatus(r);
       const statusColor = status === "negative" ? "#dc2626" : status === "low" ? "#d97706" : "#16a34a";
       const statusLabel = status === "negative" ? "Negative" : status === "low" ? "Low" : "OK";
-      const countData = countMap[r.ingredient_id];
+      // Movement maps are keyed by ingredient_id, so finished goods must not read them
+      const rid = Number((r as any).ingredient_id ?? (r as any).product_id);
+      const countData = isFinished ? undefined : countMap[rid];
       const countedQty = countData ? Number(countData.counted_qty ?? 0) : null;
       const countDiff = countData ? Number(countData.delta ?? 0) : null;
-      const purchaseData = purchaseMap[r.ingredient_id];
+      const purchaseData = isFinished ? undefined : purchaseMap[rid];
       const totalPurchased = purchaseData?.totalQty ?? null;
-      const transfer = transferMap[r.ingredient_id];
-      const openingQty = openingMap[r.ingredient_id] ?? null;
-      const adjustment = adjustmentMap[r.ingredient_id];
+      const transfer = isFinished ? undefined : transferMap[rid];
+      const openingQty = isFinished ? null : (openingMap[rid] ?? null);
+      const adjustment = isFinished ? undefined : adjustmentMap[rid];
       const expectedUsage = (openingQty ?? 0) + (purchaseData?.totalQty ?? 0) + (transfer?.in ?? 0) - (transfer?.out ?? 0) - r.balance_qty;
-      const actualAdj = adjustment?.waste ?? 0;
-      const variancePct = expectedUsage > 0 ? ((actualAdj / expectedUsage) * 100).toFixed(1) : "—";
+      const actualAdj = adjustment?.total ?? 0;
+      const variancePct = !isFinished && expectedUsage > 0 ? ((actualAdj / expectedUsage) * 100).toFixed(1) : "—";
 
       return `<tr>
         <td>${esc(r.name)}</td>
         <td class="num" style="${r.negative_alert ? "color:#dc2626;font-weight:700" : ""}">${r.balance_qty.toFixed(3)} ${esc(r.unit)}</td>
         <td class="num">${(r.reorder_level ?? 0).toFixed(3)}</td>
-        <td class="num">${fmtEGP(val)}</td>
+        <td class="num" style="${val < 0 ? "color:#dc2626" : ""}">${fmtSignedEGP(val)}</td>
         <td class="num" style="background:#eff6ff">${countedQty !== null ? countedQty.toFixed(3) : "—"}</td>
         <td class="num" style="background:#eff6ff;color:${countDiff && countDiff < 0 ? "#dc2626" : "#16a34a"};font-weight:700">
           ${countDiff !== null ? (countDiff >= 0 ? "+" : "") + countDiff.toFixed(3) : "—"}
@@ -284,50 +343,142 @@
 
   // ─── API helpers ──────────────────────────────────────────────────────────────
 
-  async function getStockCountsWithPurchases(branchId?: number): Promise<any[]> {
-    try { return await apiCall<any[]>(`/api/stock-counts/with-purchases${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
+  // Postgres NUMERIC often arrives as a string; coerce once at the boundary
+  const n = (v: unknown): number => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
+
+  const periodOf = (date?: string) => (date ?? "").slice(0, 7); // "YYYY-MM"
+
+  function purchasesValueForPeriod(purchases: any[], period: string): number {
+    return purchases
+      .filter(p => periodOf(p.entry_date) === period)
+      .reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
   }
-  async function getPurchasesByBranch(branchId?: number, limit = 200): Promise<any[]> {
+
+  // Opening = closing value of the latest snapshot dated before this period starts
+  function openingValueForPeriod(snapshots: PeriodSnapshot[], period: string): number {
+    const start = `${period}-01`;
+    const prior = snapshots
+      .filter(s => (s.entry_date ?? "") < start)
+      .sort((a, b) => (b.entry_date ?? "").localeCompare(a.entry_date ?? ""));
+    return prior.length ? n(prior[0].closing_value) : 0;
+  }
+
+  // Is the period containing `date` open for this branch? Returns an error message, or null if OK.
+  // Fails open on network errors: the server remains the real enforcement.
+  async function checkDateOpen(branchId: number, date: string): Promise<string | null> {
+    const period = periodOf(date);
+    if (!period) return null;
+
+    const company = await getPeriodStatus(period).catch(() => null);
+    const branch = branchId
+      ? await isPeriodClosed(branchId, date).catch(() => null)
+      : null;
+
+    const state = company?.status ?? branch?.status ?? "open";
+    if (state === "locked" || branch?.is_locked) {
+      return `${period} is locked. Entries dated in this period are not allowed. Pick a date in an open period.`;
+    }
+    if (state === "closed" || branch?.is_closed) {
+      return `${period} is closed. Entries dated in this period are not allowed. Pick a date in an open period.`;
+    }
+    return null;
+  }
+
+  function normalizeBalance(b: any): StockBalance {
+    return {
+      ...b,
+      balance_qty: n(b.balance_qty),
+      reorder_level: n(b.reorder_level),
+      // keep null/undefined so the `inventory_value ?? stock_value` fallbacks still work
+      inventory_value: b.inventory_value == null ? b.inventory_value : n(b.inventory_value),
+      stock_value: b.stock_value == null ? b.stock_value : n(b.stock_value),
+    } as StockBalance;
+  }
+
+  async function fetchBalances(branchId: number): Promise<StockBalance[]> {
+    const rows = await getStockBalances(branchId);
+    return (Array.isArray(rows) ? rows : []).map(normalizeBalance);
+  }
+  async function fetchFGBalances(branchId: number): Promise<StockBalance[]> {
+    const rows = await getFinishedGoodsBalances(branchId);
+    return (Array.isArray(rows) ? rows : []).map(normalizeBalance);
+  }
+
+  const LOAD_ERROR_EVENT = "inventory:load-error";
+
+  // Keeps the old "return a fallback" behaviour, but tells the page whether the load worked
+  async function tracked<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
     try {
+      const result = await fn();
+      window.dispatchEvent(new CustomEvent(LOAD_ERROR_EVENT, { detail: { label, ok: true } }));
+      return result;
+    } catch (e) {
+      console.error(`[inventory] failed to load ${label}`, e);
+      window.dispatchEvent(new CustomEvent(LOAD_ERROR_EVENT, { detail: { label, ok: false } }));
+      return fallback;
+    }
+  }
+
+  const asList = (r: unknown): any[] => (Array.isArray(r) ? r : []);
+
+  function getStockCountsWithPurchases(branchId?: number): Promise<any[]> {
+    return tracked("stock counts", async () =>
+      asList(await apiCall<any[]>(`/api/stock-counts/with-purchases${branchId ? `?branch_id=${branchId}` : ""}`)), []);
+  }
+  function getPurchasesByBranch(branchId?: number, limit = 2000): Promise<any[]> {
+    return tracked("purchases", async () => {
       const p = new URLSearchParams();
       if (branchId) p.set("branch_id", String(branchId));
       p.set("limit", String(limit));
-      return await apiCall<any[]>(`/api/purchases/by-branch?${p}`);
-    } catch { return []; }
+      return asList(await apiCall<any[]>(`/api/purchases/by-branch?${p}`));
+    }, []);
   }
-  async function getTransfersByBranch(branchId?: number): Promise<any[]> {
-    try { return await apiCall<any[]>(`/api/transfers/by-branch${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
+  function getTransfersByBranch(branchId?: number): Promise<any[]> {
+    return tracked("transfers", async () =>
+      asList(await apiCall<any[]>(`/api/transfers/by-branch${branchId ? `?branch_id=${branchId}` : ""}`)), []);
   }
-  async function getOpeningStockByBranch(branchId?: number): Promise<any[]> {
-    try { return await apiCall<any[]>(`/api/opening-stock/by-branch${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
+  function getOpeningStockByBranch(branchId?: number): Promise<any[]> {
+    return tracked("opening stock", async () =>
+      asList(await apiCall<any[]>(`/api/opening-stock/by-branch${branchId ? `?branch_id=${branchId}` : ""}`)), []);
   }
-  async function getAdjustmentsByBranch(branchId?: number): Promise<any[]> {
-    try { return await apiCall<any[]>(`/api/stock-adjustments/by-branch${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
+  function getAdjustmentsByBranch(branchId?: number): Promise<any[]> {
+    return tracked("adjustments", async () =>
+      asList(await apiCall<any[]>(`/api/stock-adjustments/by-branch${branchId ? `?branch_id=${branchId}` : ""}`)), []);
   }
 
-  async function getWasteByBranch(branchId?: number, limit = 50): Promise<WasteRecord[]> {
-    try {
+  function getWasteByBranch(branchId?: number, limit = 2000): Promise<WasteRecord[]> {
+    return tracked("waste", async () => {
       const p = new URLSearchParams({ limit: String(limit) });
       if (branchId) p.set("branch_id", String(branchId));
-      return await apiCall<WasteRecord[]>(`/api/waste?${p}`);
-    } catch {
-      return [];
-    }
+      return asList(await apiCall<WasteRecord[]>(`/api/waste?${p}`)) as WasteRecord[];
+    }, [] as WasteRecord[]);
   }
-  async function getPeriodSnapshots(branchId?: number): Promise<PeriodSnapshot[]> {
-    try { return await apiCall<PeriodSnapshot[]>(`/api/period-snapshots${branchId ? `?branch_id=${branchId}` : ""}`); } catch { return []; }
+  function getPeriodSnapshots(branchId?: number): Promise<PeriodSnapshot[]> {
+    return tracked("period snapshots", async () =>
+      asList(await apiCall<PeriodSnapshot[]>(`/api/period-snapshots${branchId ? `?branch_id=${branchId}` : ""}`)) as PeriodSnapshot[], [] as PeriodSnapshot[]);
   }
   async function createPeriodSnapshot(payload: any): Promise<boolean> {
     try { await apiCall("/api/period-snapshots", { method: "POST", body: JSON.stringify(payload) }); return true; } catch { return false; }
   }
   async function getVarianceReport(branchId?: number, dateFrom?: string, dateTo?: string): Promise<VarianceRow[]> {
-    try {
+    {
       const p = new URLSearchParams();
       if (branchId) p.set("branch_id", String(branchId));
       if (dateFrom) p.set("date_from", dateFrom);
       if (dateTo) p.set("date_to", dateTo);
-      return await apiCall<VarianceRow[]>(`/api/reports/variance?${p}`);
-    } catch { return []; }
+      const raw = await apiCall<any[]>(`/api/reports/variance?${p}`);
+      return (Array.isArray(raw) ? raw : []).map(r => ({
+        ...r,
+        theoretical_usage: n(r.theoretical_usage),
+        actual_usage: n(r.actual_usage),
+        variance: n(r.variance),
+        variance_pct: n(r.variance_pct),
+        variance_value: n(r.variance_value),
+      })) as VarianceRow[];
+    }
   }
   async function approveAdjustment(id: number, status: "approved" | "rejected", notes?: string): Promise<boolean> {
     await apiCall(`/api/stock-adjustments/${id}/approve`, {
@@ -336,21 +487,21 @@
     });
     return true;
   }
-  async function getAuditLog(branchId?: number, limit = 100): Promise<any[]> {
-    try {
+  function getAuditLog(branchId?: number, limit = 100): Promise<any[]> {
+    return tracked("audit log", async () => {
       const p = new URLSearchParams({ limit: String(limit) });
       if (branchId) p.set("branch_id", String(branchId));
-      return await apiCall<any[]>(`/api/audit-log?${p}`);
-    } catch { return []; }
+      return asList(await apiCall<any[]>(`/api/audit-log?${p}`));
+    }, []);
   }
   // Add new API helper
-  async function getInventoryMovements(branchId?: number, movementType?: string): Promise<any[]> {
-    try {
+  function getInventoryMovements(branchId?: number, movementType?: string): Promise<any[]> {
+    return tracked(movementType ? "production movements" : "inventory movements", async () => {
       const p = new URLSearchParams();
       if (branchId) p.set("branch_id", String(branchId));
       if (movementType) p.set("movement_type", movementType);
-      return await apiCall<any[]>(`/api/inventory-movements/by-branch?${p}`);
-    } catch { return []; }
+      return asList(await apiCall<any[]>(`/api/inventory-movements/by-branch?${p}`));
+    }, []);
   }
   // ─── Modal ────────────────────────────────────────────────────────────────────
 
@@ -587,17 +738,23 @@
   }) {
     const [processingId, setProcessingId] = useState<number | null>(null);
     const [approvalNote, setApprovalNote] = useState<Record<number, string>>({});
+    const [errors, setErrors] = useState<Record<number, string>>({});
 
     const pending = adjustments.filter(a => a.status === "pending");
     const visible = pending.filter(a => !dismissedIds.has(a.id));
 
     async function handle(id: number, action: "approved" | "rejected") {
       setProcessingId(id);
+      setErrors(prev => { const { [id]: _removed, ...rest } = prev; return rest; });
       try {
         if (action === "approved") await onApprove(id, approvalNote[id] ?? "");
         else await onReject(id, approvalNote[id] ?? "");
-      } catch {
-        // silently unfreeze
+      } catch (e) {
+        const detail = e instanceof Error && e.message ? ` (${e.message})` : "";
+        setErrors(prev => ({
+          ...prev,
+          [id]: `Could not ${action === "approved" ? "approve" : "reject"} this adjustment${detail}. Check that the period is open and you have permission, then try again.`,
+        }));
       } finally {
         setProcessingId(null);
       }
@@ -673,6 +830,12 @@
                   {t("inv.approvals.reject")}
                 </Button>
               </div>
+              {errors[adj.id] && (
+                <p role="alert" className="text-xs text-red-600 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                  <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  <span>{errors[adj.id]}</span>
+                </p>
+              )}
             </div>
           </div>
         ))}
@@ -693,37 +856,55 @@
     const [rows, setRows] = useState<VarianceRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [ran, setRan] = useState(false);
+    const [error, setError] = useState("");
 
     async function runReport() {
       setLoading(true);
-      const result = await getVarianceReport(branchId, dateFrom, dateTo);
-      setRows(result);
-      setRan(true);
-      setLoading(false);
+      setError("");
+      try {
+        const result = await getVarianceReport(branchId, dateFrom, dateTo);
+        setRows(result);
+        setRan(true);
+      } catch (e) {
+        console.error("[variance] load failed", e);
+        setRows([]);
+        setRan(false);
+        setError("Could not load the variance report. Nothing was calculated, so this is not a 'no variance' result. Try again.");
+      } finally {
+        setLoading(false);
+      }
     }
 
+    // Finished goods: only negative stock is a variance signal. This is a snapshot as of
+    // today and does not follow the date range (there is no FG movement history here).
     const fgVarianceRows = useMemo<VarianceRow[]>(() => {
       return fgBalances
-        .filter(b => b.balance_qty !== 0)
+        .filter(b => b.balance_qty < 0)
         .map(b => ({
-          ingredient_id: Number((b as any).product_id ?? b.ingredient_id),
-          name:          b.name + " (Finished Good)",
-          unit:          b.unit,
+          kind:              "fg" as const,
+          ingredient_id:     Number((b as any).product_id ?? b.ingredient_id),
+          name:              b.name,
+          unit:              b.unit,
           theoretical_usage: 0,
           actual_usage:      b.balance_qty,
           variance:          b.balance_qty,
-          variance_pct:      b.balance_qty < 0 ? -100 : 0,
-          variance_value:    Math.abs(b.stock_value ?? b.inventory_value ?? 0),
+          variance_pct:      -100,
+          variance_value:    Math.abs(stockValue(b)),
         }));
     }, [fgBalances]);
 
     const displayRows = useMemo(() => {
       if (!ran) return [];
-      return [...fgVarianceRows, ...rows].sort((a, b) => Math.abs(b.variance_pct) - Math.abs(a.variance_pct));
+      const ingredientRows = rows.map(r => ({ ...r, kind: "ingredient" as const }));
+      return [...fgVarianceRows, ...ingredientRows].sort((a, b) => Math.abs(b.variance_pct) - Math.abs(a.variance_pct));
     }, [ran, rows, fgVarianceRows]);
 
     const totalShrinkageValue = displayRows.reduce((s, r) => s + (r.variance < 0 ? Math.abs(r.variance_value) : 0), 0);
     const highShrinkage = displayRows.filter(r => r.variance_pct < -10).length;
+    const ingRows = displayRows.filter(r => r.kind !== "fg");
+    const avgAbsPct = ingRows.length
+      ? ingRows.reduce((s, r) => s + Math.abs(r.variance_pct), 0) / ingRows.length
+      : 0;
 
     return (
       <div className="space-y-5">
@@ -744,16 +925,31 @@
           {ran && (
             <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
               <span>{t("inv.variance.info")}</span>
+              <span className="text-violet-600 dark:text-violet-400">
+                Finished goods with negative stock are shown as of today and ignore the date range.
+              </span>
             </div>
           )}
         </Card>
+
+        {error && (
+          <p role="alert" className="text-xs text-red-600 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+            <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />{error}
+          </p>
+        )}
+
+        {error && (
+          <p role="alert" className="text-xs text-red-600 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+            <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />{error}
+          </p>
+        )}
 
         {ran && displayRows.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiCard label={t("inv.variance.analyzed")}       value={String(displayRows.length)}      color="text-blue-600"   icon={<Package className="w-5 h-5 text-blue-600" />} />
             <KpiCard label={t("inv.variance.highShrinkage")}  value={String(highShrinkage)}            color="text-red-600"    icon={<TrendingDown className="w-5 h-5 text-red-600" />} sub={t("inv.variance.highShrinkageSub")} />
             <KpiCard label={t("inv.variance.totalValue")}     value={fmtEGP(totalShrinkageValue)}      color="text-red-600"    icon={<AlertTriangle className="w-5 h-5 text-red-600" />} />
-            <KpiCard label={t("inv.variance.avg")}            value={`${(displayRows.reduce((s, r) => s + Math.abs(r.variance_pct), 0) / displayRows.length).toFixed(1)}%`} color="text-amber-600" icon={<Percent className="w-5 h-5 text-amber-600" />} />
+            <KpiCard label={t("inv.variance.avg")}            value={`${avgAbsPct.toFixed(1)}%`} color="text-amber-600" icon={<Percent className="w-5 h-5 text-amber-600" />} />
           </div>
         )}
 
@@ -801,8 +997,8 @@
                       medium:   "inv.variance.risk.medium",
                       low:      "inv.variance.risk.low",
                     };
-                    const isFG = row.name.includes("(Finished Good)");
-                    const displayName = row.name.replace(" (Finished Good)", "");
+                    const isFG = row.kind === "fg";
+                    const displayName = row.name;
 
                     return (
                       <tr key={`${isFG ? "fg" : "ing"}-${row.ingredient_id}`} className={`border-b border-border hover:bg-secondary/30 ${isFG ? "bg-red-50/20 dark:bg-red-950/10" : ""}`}>
@@ -872,10 +1068,9 @@
       });
     }, [purchases, period]);
 
-    const totalCurrentValue   = balances.reduce((s, b) => s + Math.abs(b.inventory_value ?? b.stock_value ?? 0), 0);
+    const totalCurrentValue   = balances.reduce((s, b) => s + assetValue(b), 0);
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
-    const lastSnapshot  = snapshots[0];
-    const openingValue  = lastSnapshot ? lastSnapshot.closing_value : 0;
+    const openingValue  = openingValueForPeriod(snapshots, period);
     const estimatedCOGS = openingValue + totalPurchasesValue - totalCurrentValue;
 
     if (!snapshots.length) {
@@ -946,7 +1141,7 @@
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KpiCard label={t("inv.cogs.currentInv2")}                                       value={fmtEGP(totalCurrentValue)}          color="text-blue-600"   icon={<Package className="w-5 h-5 text-blue-600" />} />
           <KpiCard label={t("inv.cogs.purchases").replace("{period}", period)}              value={fmtEGP(totalPurchasesValue)}        color="text-violet-600" icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
-          <KpiCard label={t("inv.cogs.estThisPeriod")}                                     value={fmtEGP(Math.max(0, estimatedCOGS))} color="text-amber-600"  icon={<BarChart2 className="w-5 h-5 text-amber-600" />} />
+          <KpiCard label={t("inv.cogs.estThisPeriod")}                                     value={openingValue > 0 ? fmtEGP(Math.max(0, estimatedCOGS)) : "—"} color="text-amber-600"  icon={<BarChart2 className="w-5 h-5 text-amber-600" />} sub={openingValue > 0 ? undefined : "No prior closing snapshot for this period"} />
           <KpiCard label={t("inv.cogs.lockedPeriods")}                                     value={String(snapshots.length)}           color="text-green-600"  icon={<Lock className="w-5 h-5 text-green-600" />} />
         </div>
 
@@ -969,7 +1164,8 @@
               </thead>
               <tbody>
                 {snapshots.map(s => {
-                  const cogsIsHigh = s.cogs > s.opening_value * 0.8;
+                  const available = n(s.opening_value) + n(s.purchases_value);
+                  const cogsIsHigh = available > 0 && n(s.cogs) > available * 0.8;
                   return (
                     <tr key={s.id} className="border-b border-border hover:bg-secondary/30">
                       <td className="px-4 py-3">
@@ -1034,7 +1230,7 @@
       return map[action] ?? action?.replace(/_/g, " ") ?? "—";
     }
 
-    function humanEntity(entityType: string, displayNum?: number): string {
+    function humanEntity(entityType: string, entityId?: number | string | null): string {
       const map: Record<string, string> = {
         sale:                  t("inv.audit.entity.sale"),
         purchase:              t("inv.audit.entity.purchase"),
@@ -1048,7 +1244,8 @@
         purchase_return:       t("inv.audit.entity.purchase_return"),
       };
       const label = map[entityType] ?? entityType?.replace(/_/g, " ") ?? t("inv.audit.entity.record");
-      return displayNum != null ? `${label} #${String(displayNum).padStart(2, "0")}` : label;
+      const hasId = entityId !== null && entityId !== undefined && String(entityId).trim() !== "";
+      return hasId ? `${label} #${entityId}` : label;
     }
 
     const ACTION_FILTERS = ["all", "create", "approve", "reject", "adjustment", "close"];
@@ -1069,6 +1266,7 @@
       adjustment: { badge: "bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-300", dot: "bg-violet-500" },
       other:      { badge: "bg-secondary text-muted-foreground",                                        dot: "bg-muted-foreground/40" },
     };
+    
 
     const filtered = safeLog.filter(l => {
       const group = getGroup(l.action ?? "");
@@ -1156,7 +1354,7 @@
                           {humanAction(log.action)}
                         </span>
                         <span className="text-sm font-medium text-foreground">
-                          {humanEntity(log.entity_type, i + 1)}
+                          {humanEntity(log.entity_type, log.entity_id ?? log.record_id)}
                         </span>
                       </div>
                       {log.details && (
@@ -1298,6 +1496,8 @@
     if (form.unit_cost <= 0){ setFormError("Unit cost is required."); return; }
 
     setSaving(true); setFormError(""); setInfo("");
+    const blocked = await checkDateOpen(form.branch_id, form.entry_date);
+    if (blocked) { setSaving(false); setFormError(blocked); return; }
     try {
       const saved = await addPurchase({
         branch_id: form.branch_id,
@@ -1457,13 +1657,13 @@
 
   function StockTableCard({
     title, icon, rows, loading, isFinished, branchName, accentColor,
-    branchId, stockCounts, purchases, transfers, openingStock, adjustments, productionMovements, t,
+    branchId, stockCounts, purchases, transfers, openingStock, adjustments, productionMovements, wasteRecords, t,
   }: {
     title: string; icon: React.ReactNode; rows: StockBalance[]; loading: boolean;
     isFinished: boolean; branchName: string; accentColor: string;
     branchId: number; 
     stockCounts: any[]; purchases: any[]; transfers: any[];
-    openingStock: any[]; adjustments: any[]; productionMovements: any[]; t: (k: string) => string;
+    openingStock: any[]; adjustments: any[]; productionMovements: any[]; wasteRecords: any[]; t: (k: string) => string;
   }) {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatus] = useState<StatusFilter>("all");
@@ -1530,6 +1730,8 @@
       return map;
     }, [openingStock]);
 
+    // total = approved adjustments + recorded waste (net effect on stock)
+    // waste = recorded waste only (always <= 0)
     const adjustmentMap = useMemo(() => {
       const map: Record<number, { total: number; waste: number }> = {};
       adjustments
@@ -1537,12 +1739,19 @@
         .forEach(a => {
           const id = Number(a.ingredient_id);
           if (!map[id]) map[id] = { total: 0, waste: 0 };
-          const qty = Number(a.quantity_delta ?? 0);
+          map[id].total += Number(a.quantity_delta ?? 0);
+        });
+      wasteRecords
+        .filter(w => !w.status || w.status === "approved")
+        .forEach(w => {
+          const id = Number(w.ingredient_id);
+          if (!map[id]) map[id] = { total: 0, waste: 0 };
+          const qty = -Math.abs(Number(w.quantity ?? 0));
           map[id].total += qty;
           map[id].waste += qty;
         });
       return map;
-    }, [adjustments]);
+    }, [adjustments, wasteRecords]);
       const productionMap = useMemo(() => {
         const map: Record<number, number> = {};
         productionMovements.forEach(m => {
@@ -1562,6 +1771,18 @@
       if (sortField !== field) return <ChevronsUpDown className="w-3 h-3 text-muted-foreground inline ml-1" />;
       return sortDir === "asc" ? <ChevronUp className="w-3 h-3 inline ml-1 text-primary" /> : <ChevronDown className="w-3 h-3 inline ml-1 text-primary" />;
     }
+    const STATUS_ORDER: Record<string, number> = { negative: 0, low: 1, ok: 2 };
+
+    const groupLabel = useCallback((r: StockBalance): string => {
+      if (groupBy === "status") {
+        const s = getStatus(r);
+        return s === "negative" ? t("inv.table.status.negative")
+            : s === "low"      ? t("inv.table.status.low")
+            :                    t("inv.table.status.ok");
+      }
+      if (groupBy === "unit") return r.unit || "—";
+      return "";
+    }, [groupBy, t]);
 
     const filtered = useMemo(() => {
       const q = search.trim().toLowerCase();
@@ -1572,20 +1793,26 @@
           return true;
         })
         .sort((a, b) => {
+          if (groupBy !== "none") {
+            const ga = groupBy === "status" ? STATUS_ORDER[getStatus(a)] : (a.unit ?? "");
+            const gb = groupBy === "status" ? STATUS_ORDER[getStatus(b)] : (b.unit ?? "");
+            if (ga < gb) return -1;
+            if (ga > gb) return 1;
+          }
           let av: any, bv: any;
           if (sortField === "name") { av = a.name; bv = b.name; }
           else if (sortField === "balance_qty") { av = a.balance_qty; bv = b.balance_qty; }
           else if (sortField === "reorder_level") { av = a.reorder_level ?? 0; bv = b.reorder_level ?? 0; }
-          else { av = Math.abs(a.inventory_value ?? a.stock_value ?? 0); bv = Math.abs(b.inventory_value ?? b.stock_value ?? 0); }
+          else { av = stockValue(a); bv = stockValue(b); }
           if (av < bv) return sortDir === "asc" ? -1 : 1;
           if (av > bv) return sortDir === "asc" ? 1 : -1;
           return 0;
         });
-    }, [rows, search, statusFilter, sortField, sortDir]);
+    }, [rows, search, statusFilter, sortField, sortDir, groupBy]);
 
     const pagedRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
     const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-    const totalValue = rows.reduce((s, r) => s + Math.abs(r.inventory_value ?? r.stock_value ?? 0), 0);
+    const totalValue = rows.reduce((s, r) => s + assetValue(r), 0);
     const negCount = rows.filter(r => r.negative_alert).length;
     const lowCount = rows.filter(r => r.reorder_alert && !r.negative_alert).length;
 
@@ -1613,7 +1840,7 @@
             </div>
             <div className="flex items-center gap-2">
               <Button size="sm" variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white"
-                onClick={() => exportCSV(filtered.length ? filtered : rows, title, branchName)}>
+                onClick={() => exportCSV(filtered.length ? filtered : rows, title, branchName, isFinished, countMap, purchaseMap, transferMap, openingMap, adjustmentMap)}>
                 <Download className="w-4 h-4 mr-1" /> CSV
               </Button>
               <Button size="sm" variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white"
@@ -1756,7 +1983,7 @@
                 {pagedRows.map((row, i) => {
                   const rid = Number((row as any).ingredient_id ?? (row as any).product_id);
                   const status = getStatus(row);
-                  const value = Math.abs(row.inventory_value ?? row.stock_value ?? 0);
+                  const value = stockValue(row);
                   const reorderPct = row.reorder_level > 0 ? Math.min(100, (row.balance_qty / row.reorder_level) * 100) : 100;
 
                   // movement data is keyed by ingredient_id, so only raw materials may read it
@@ -1772,7 +1999,9 @@
                     ? Number((row.balance_qty - countedQty).toFixed(3))
                     : null;
                   const totalPurchased = purchaseData?.totalQty ?? null;
-                  const netAdj = adjustmentData?.waste ?? null;
+                  const netAdj = adjustmentData?.total ?? null;
+                  const wasteOnly = adjustmentData?.waste ?? 0;
+                  const adjOnly = (adjustmentData?.total ?? 0) - wasteOnly;
                   const isExpanded = expandedRows.has(rid);
                   const sysBefore = countData ? Math.abs(countData.system_qty) : null;
                   const varPct =
@@ -1780,8 +2009,24 @@
                     : sysBefore && sysBefore > 0 ? (countDiff / sysBefore) * 100
                     : countDiff === 0 ? 0
                     : Math.sign(countDiff) * 100;
+
+                  const showGroupHeader =
+                    groupBy !== "none" &&
+                    (i === 0 || groupLabel(pagedRows[i - 1]) !== groupLabel(row));
+                  const groupCount = showGroupHeader
+                    ? filtered.filter(r => groupLabel(r) === groupLabel(row)).length
+                    : 0;
+
                   return (
                     <React.Fragment key={rid}>
+                      {showGroupHeader && (
+                        <tr className="bg-secondary/60 border-b border-border">
+                          <td colSpan={15} className="px-4 py-2 text-xs font-bold uppercase tracking-wide text-foreground">
+                            {groupLabel(row)}
+                            <span className="ml-2 font-normal text-muted-foreground">({groupCount})</span>
+                          </td>
+                        </tr>
+                      )}
                       <tr className={`border-b border-border hover:bg-secondary/30 transition-colors ${isExpanded ? "bg-secondary/20" : ""}`}>
                         <td className="px-2 py-3 text-center">
                           <button
@@ -1806,7 +2051,7 @@
                         <td className="px-4 py-3 text-right text-sm text-muted-foreground font-mono tabular-nums">
                           {(row.reorder_level ?? 0).toFixed(3)}<span className="text-xs ml-1">{row.unit}</span>
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-semibold">{fmtEGP(value)}</td>
+                        <td className={`px-4 py-3 text-right text-sm font-semibold ${value < 0 ? "text-red-600" : ""}`}>{fmtSignedEGP(value)}</td>
                         <td className="px-4 py-3 text-right border-l border-blue-100 dark:border-blue-900 bg-blue-50/30 dark:bg-blue-950/20">
                           {countedQty !== null ? (
                             <div>
@@ -1892,7 +2137,8 @@
                                       { label: t("inv.flow.transferIn"),  value: transferData?.in && transferData.in > 0 ? `+${transferData.in.toFixed(3)} ${row.unit}` : "—", color: "text-green-600" },
                                       { label: t("inv.flow.transferOut"), value: transferData?.out && transferData.out > 0 ? `-${transferData.out.toFixed(3)} ${row.unit}` : "—", color: "text-orange-600" },
                                       { label: t("inv.flow.production"),  value: (() => { const used = isFinished ? 0 : (productionMap[rid] ?? 0); return used < 0 ? `-${Math.abs(used).toFixed(3)} ${row.unit}` : "—"; })(), color: "text-red-600" },
-                                      { label: t("inv.flow.adjustments"), value: netAdj !== null && netAdj !== 0 ? `${netAdj >= 0 ? "+" : ""}${netAdj.toFixed(3)} ${row.unit}` : "—", color: netAdj && netAdj < 0 ? "text-red-600" : "text-green-600" },
+                                      { label: t("inv.flow.adjustments"), value: Math.abs(adjOnly) > 0.0005 ? `${adjOnly >= 0 ? "+" : ""}${adjOnly.toFixed(3)} ${row.unit}` : "—", color: adjOnly < 0 ? "text-red-600" : "text-green-600" },
+                                      { label: "Waste", value: Math.abs(wasteOnly) > 0.0005 ? `${wasteOnly.toFixed(3)} ${row.unit}` : "—", color: "text-red-600" },
                                       { label: t("inv.flow.balance"),     value: `${row.balance_qty.toFixed(3)} ${row.unit}`, color: "text-foreground font-bold" },
                                     ].map(item => (
                                     <div key={item.label} className="flex items-center justify-between text-xs bg-background rounded-lg px-3 py-1.5 border border-border">
@@ -1954,6 +2200,226 @@
   }
 
   // ─── Main Component ───────────────────────────────────────────────────────────
+  function InventoryTransactions({
+      movements,
+      loading,
+      t,
+    }: {
+      movements: any[];
+      loading: boolean;
+      t: (k: string) => string;
+    }) {
+      const [search, setSearch] = useState("");
+      const [movementType, setMovementType] = useState("all");
+
+      const filtered = useMemo(() => {
+        return movements.filter((m) => {
+          const matchesType =
+            movementType === "all" ||
+            m.movement_type === movementType;
+
+          const text = [
+            m.ingredient_name,
+            m.branch_name,
+            m.movement_type,
+            m.reference_table,
+            m.reference_id,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          const matchesSearch =
+            !search || text.includes(search.toLowerCase());
+
+          return matchesType && matchesSearch;
+        });
+      }, [movements, search, movementType]);
+
+      const movementTypes = [
+        "opening_stock",
+        "grn",
+        "purchase_return",
+        "transfer_in",
+        "transfer_out",
+        "issue",
+        "waste",
+        "damage",
+        "adjustment",
+        "stock_count",
+        "customer_return",
+      ];
+
+      return (
+        <div className="space-y-5">
+
+          {/* Header */}
+          <div>
+            <h2 className="text-lg font-bold text-foreground">
+              Inventory Transactions
+            </h2>
+
+            <p className="text-sm text-muted-foreground mt-1">
+              Complete history of stock movements
+            </p>
+          </div>
+
+          {/* Filters */}
+          <Card className="p-4">
+            <div className="flex gap-3 flex-wrap">
+
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+
+                <input
+                  className={inputClass + " pl-9"}
+                  placeholder="Search ingredient, reference..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <select
+                className={inputClass + " w-auto min-w-[180px]"}
+                value={movementType}
+                onChange={(e) => setMovementType(e.target.value)}
+              >
+                <option value="all">All movement types</option>
+
+                {movementTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </select>
+
+            </div>
+          </Card>
+
+          {/* Transaction table */}
+          <Card className="overflow-hidden">
+
+            {loading ? (
+              <div className="p-10 text-center text-sm text-muted-foreground">
+                Loading transactions...
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="p-16 text-center">
+                <ClipboardList className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+
+                <p className="text-sm font-medium text-muted-foreground">
+                  No inventory transactions found
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+
+                <table className="w-full text-sm">
+
+                  <thead>
+                    <tr className="bg-secondary/70 border-b border-border">
+
+                      <th className="px-4 py-3 text-left">
+                        Date
+                      </th>
+
+                      <th className="px-4 py-3 text-left">
+                        Ingredient
+                      </th>
+
+                      <th className="px-4 py-3 text-left">
+                        Movement
+                      </th>
+
+                      <th className="px-4 py-3 text-right">
+                        Quantity
+                      </th>
+
+                      <th className="px-4 py-3 text-right">
+                        Unit Cost
+                      </th>
+
+                      <th className="px-4 py-3 text-left">
+                        Reference
+                      </th>
+
+                      <th className="px-4 py-3 text-left">
+                        Notes
+                      </th>
+
+                    </tr>
+                  </thead>
+
+                  <tbody>
+
+                    {filtered.map((m) => {
+
+                      const quantity = Number(m.quantity_delta ?? 0);
+                      const positive = quantity >= 0;
+
+                      return (
+                        <tr
+                          key={m.id}
+                          className="border-b border-border hover:bg-secondary/30"
+                        >
+
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
+                            {m.entry_date ?? "—"}
+                          </td>
+
+                          <td className="px-4 py-3 font-medium">
+                            {m.ingredient_name ?? `Ingredient #${m.ingredient_id}`}
+                          </td>
+
+                          <td className="px-4 py-3">
+
+                            <span className="text-xs px-2 py-1 rounded-full bg-secondary capitalize">
+                              {String(m.movement_type ?? "")
+                                .replaceAll("_", " ")}
+                            </span>
+
+                          </td>
+
+                          <td
+                            className={`px-4 py-3 text-right font-mono font-bold ${
+                              positive
+                                ? "text-green-600"
+                                : "text-red-600"
+                            }`}
+                          >
+                            {positive ? "+" : ""}
+                            {quantity.toFixed(3)}
+                          </td>
+
+                          <td className="px-4 py-3 text-right font-mono">
+                            {Number(m.unit_cost ?? 0).toFixed(4)}
+                          </td>
+
+                          <td className="px-4 py-3 text-xs">
+                            {m.reference_table
+                              ? `${m.reference_table} #${m.reference_id ?? ""}`
+                              : "—"}
+                          </td>
+
+                          <td className="px-4 py-3 text-xs text-muted-foreground max-w-[250px] truncate">
+                            {m.notes ?? "—"}
+                          </td>
+
+                        </tr>
+                      );
+                    })}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+            )}
+
+          </Card>
+        </div>
+      );
+    }
 
   export default function InventoryControls() {
     const { t } = useLanguage();
@@ -1972,8 +2438,8 @@
     const [periodStatusForm, setPeriodStatusForm] = useState<{ status: PeriodStatusValue; notes: string }>({ status: "closed", notes: "" });
 
     const { data: branches } = useApi<Branch[]>(getBranches);
-    const { data: balances,              loading: balancesLoading, refetch: refetchBalances   } = useApi<StockBalance[]>(() => branchId ? getStockBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
-    const { data: finishedGoodsBalances, loading: fgLoading,      refetch: refetchFG          } = useApi<StockBalance[]>(() => branchId ? getFinishedGoodsBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
+    const { data: balances,              loading: balancesLoading, refetch: refetchBalances   } = useApi<StockBalance[]>(() => branchId ? fetchBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
+    const { data: finishedGoodsBalances, loading: fgLoading,      refetch: refetchFG          } = useApi<StockBalance[]>(() => branchId ? fetchFGBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
     const { data: stockCounts,  refetch: refetchCounts     } = useApi<any[]>(() => getStockCountsWithPurchases(branchId || undefined), { deps: [branchId] });
     const { data: purchases,    refetch: refetchPurchases  } = useApi<any[]>(() => getPurchasesByBranch(branchId || undefined),        { deps: [branchId] });
     const { data: transfers,    refetch: refetchTransfers  } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined),        { deps: [branchId] });
@@ -1994,6 +2460,17 @@
       );
     const { data: productionMovements, refetch: refetchProductionMovements } =
       useApi<any[]>(() => getInventoryMovements(branchId || undefined, "issue"), { deps: [branchId] });
+    
+    const {
+      data: inventoryMovements,
+      loading: movementsLoading,
+      refetch: refetchMovements,
+    } = useApi<any[]>(
+      () => branchId > 0
+        ? getInventoryMovements(branchId)
+        : Promise.resolve([]),
+      { deps: [branchId] }
+    );
 
     const safeProductionMovements = productionMovements ?? [];
     // Derived period state (company-wide wins over branch-level)
@@ -2005,6 +2482,23 @@
     const [adjForm,      setAdjForm]      = useState({ ingredient_id: 0, entry_date: today(), quantity_delta: 0, reason: "", notes: "", requires_approval: false });
     const [wasteForm,    setWasteForm]    = useState({ ingredient_id: 0, entry_date: today(), quantity: 0, waste_reason: "other", notes: "" });
     const [transferForm, setTransferForm] = useState({ from_branch_id: branchId, to_branch_id: 0, ingredient_id: 0, entry_date: today(), quantity: 0, notes: "" });
+    const [transferBalances, setTransferBalances] = useState<StockBalance[]>([]);
+    const [transferBalancesLoading, setTransferBalancesLoading] = useState(false);
+
+    // Balances for the transfer modal follow the modal's "From" branch, not the page branch
+    useEffect(() => {
+      if (modal !== "transfer" || !transferForm.from_branch_id) {
+        setTransferBalances([]);
+        return;
+      }
+      let cancelled = false;
+      setTransferBalancesLoading(true);
+      fetchBalances(transferForm.from_branch_id)
+        .then(rows => { if (!cancelled) setTransferBalances(rows ?? []); })
+        .catch(() => { if (!cancelled) setTransferBalances([]); })
+        .finally(() => { if (!cancelled) setTransferBalancesLoading(false); });
+      return () => { cancelled = true; };
+    }, [modal, transferForm.from_branch_id]);
     const [openingForm,  setOpeningForm]  = useState({ ingredient_id: 0, entry_date: today(), qty_issued: 0, notes: "" });
     const [periodForm,   setPeriodForm]   = useState({ period_label: "", entry_date: today(), notes: "" });
 
@@ -2017,6 +2511,28 @@
     const safeAdjustments = adjustments ?? [];
     const safeWaste       = wasteRecords ?? [];
     const safeSnapshots   = periodSnapshots ?? [];
+    const safeInventoryMovements = inventoryMovements ?? [];
+
+    // Which list loads have failed right now (cleared when the same load later succeeds)
+    const [loadErrors, setLoadErrors] = useState<Record<string, true>>({});
+    useEffect(() => {
+      const onLoad = (e: Event) => {
+        const { label, ok } = (e as CustomEvent<{ label: string; ok: boolean }>).detail;
+        setLoadErrors(prev => {
+          if (ok) {
+            if (!(label in prev)) return prev;
+            const { [label]: _cleared, ...rest } = prev;
+            return rest;
+          }
+          return prev[label] ? prev : { ...prev, [label]: true };
+        });
+      };
+      window.addEventListener(LOAD_ERROR_EVENT, onLoad);
+      return () => window.removeEventListener(LOAD_ERROR_EVENT, onLoad);
+    }, []);
+    const failedLoads = Object.keys(loadErrors);
+    // COGS and Period Close are wrong if either of these silently came back empty
+    const financeDataFailed = Boolean(loadErrors["purchases"] || loadErrors["period snapshots"]);
 
     const branchName = branches?.find(b => b.id === branchId)?.name ?? t("dashboard.allBranches");
     const pendingApprovals = useMemo(() => {
@@ -2032,8 +2548,8 @@
       const purchases = Array.isArray(safePurchases) ? safePurchases : [];
 
       return {
-        rawValue: balances.reduce((s, b) => s + (b.inventory_value ?? 0), 0),
-        fgValue: fg.reduce((s, b) => s + (b.inventory_value ?? b.stock_value ?? 0), 0),
+        rawValue: balances.reduce((s, b) => s + assetValue(b), 0),
+        fgValue: fg.reduce((s, b) => s + assetValue(b), 0),
 
         lowStock: balances.filter(
           (b) => b.reorder_alert && !b.negative_alert
@@ -2049,6 +2565,15 @@
         ),
       };
     }, [safeBalances, safeFG, safePurchases]);
+    // Single source of truth for the period-close modal and the saved snapshot
+    const closePreview = useMemo(() => {
+      const period = periodOf(periodForm.entry_date);
+      const opening = openingValueForPeriod(safeSnapshots, period);
+      const purchasesValue = purchasesValueForPeriod(safePurchases, period);
+      const closing = stats.rawValue + stats.fgValue;
+      return { period, opening, purchasesValue, closing, cogs: opening + purchasesValue - closing };
+    }, [periodForm.entry_date, safeSnapshots, safePurchases, stats.rawValue, stats.fgValue]);
+
     const alerts = useMemo(() =>
       safeBalances.filter(b => b.negative_alert || b.reorder_alert)
         .sort((a, b) => Number(b.negative_alert) - Number(a.negative_alert))
@@ -2060,6 +2585,7 @@
       refetchBalances?.(); refetchFG?.(); refetchCounts?.(); refetchPurchases?.();
       refetchTransfers?.(); refetchOpening?.(); refetchAdjustments?.(); refetchWaste?.(); refetchSnapshots?.();
       refetchCompanyPeriodStatus?.(); refetchBranchPeriodStatus?.(); refetchProductionMovements?.();
+      refetchMovements?.();
     }
     const WRITE_MODALS: ModalType[] = ["count", "adjustment", "waste", "transfer", "opening", "periodClose"];
 
@@ -2080,6 +2606,8 @@
       if (!countForm.ingredient_id) { setFormError(t("inv.err.selectIngredient")); return; }
       if (countForm.counted_quantity < 0) { setFormError(t("inv.err.negativeQty")); return; }
       setSaving(true); setFormError("");
+      const blocked = await checkDateOpen(branchId, countForm.entry_date);
+      if (blocked) { setSaving(false); setFormError(blocked); return; }
 
       // The server recalculates system_qty itself; we still send it because the schema likely requires it.
       const sysBefore = safeBalances.find(b => b.ingredient_id === countForm.ingredient_id)?.balance_qty ?? 0;
@@ -2116,6 +2644,8 @@
       if (!adjForm.reason.trim()) { setFormError(t("inv.err.reasonRequired")); return; }
       if (!adjForm.quantity_delta) { setFormError(t("inv.err.qtyPositive")); return; }
       setSaving(true); setFormError("");
+      const blocked = await checkDateOpen(branchId, adjForm.entry_date);
+      if (blocked) { setSaving(false); setFormError(blocked); return; }
 
       let ok = false;
       try {
@@ -2151,18 +2681,38 @@
       setSaving(true);
       setFormError("");
 
+      const blocked = await checkDateOpen(branchId, wasteForm.entry_date);
+      if (blocked) { setSaving(false); setFormError(blocked); return; }
+
+      const wasteBalance = safeBalances.find(b => b.ingredient_id === wasteForm.ingredient_id);
+      const needsApproval = wasteNeedsApproval(wasteBalance, wasteForm.quantity);
+
       try {
-        await apiCall("/api/waste", {
-          method: "POST",
-          body: JSON.stringify({
-            branch_id: branchId,
-            ingredient_id: wasteForm.ingredient_id,
-            entry_date: wasteForm.entry_date,
-            quantity: wasteForm.quantity,
-            waste_reason: wasteForm.waste_reason,
-            notes: wasteForm.notes,
-          }),
-        });
+        if (needsApproval) {
+          // Same pending flow as manual adjustments; stock changes only after approval
+          await apiCall("/api/stock-adjustments", {
+            method: "POST",
+            body: JSON.stringify({
+              branch_id: branchId,
+              ingredient_id: wasteForm.ingredient_id,
+              entry_date: wasteForm.entry_date,
+              quantity_delta: -wasteForm.quantity,
+              notes: `Waste (${wasteForm.waste_reason}): ${wasteForm.notes}`.trim(),
+            }),
+          });
+        } else {
+          await apiCall("/api/waste", {
+            method: "POST",
+            body: JSON.stringify({
+              branch_id: branchId,
+              ingredient_id: wasteForm.ingredient_id,
+              entry_date: wasteForm.entry_date,
+              quantity: wasteForm.quantity,
+              waste_reason: wasteForm.waste_reason,
+              notes: wasteForm.notes,
+            }),
+          });
+        }
 
         setModal(null);
         setWasteForm({
@@ -2173,10 +2723,13 @@
           notes: "",
         });
 
-        // Waste creates an inventory ledger movement, so refresh both
-        // the balance and the waste history.
+        // Waste creates an inventory ledger movement, so refresh the
+        // balance, the waste history and the transactions ledger.
         refetchBalances?.();
         refetchWaste?.();
+        refetchAdjustments?.();
+        refetchMovements?.();
+        refetchProductionMovements?.();
       } catch (e) {
         console.error("[waste] save failed", e);
         setFormError(
@@ -2193,7 +2746,16 @@
       if (transferForm.from_branch_id === transferForm.to_branch_id) { setFormError(t("inv.err.sameBranch")); return; }
       if (!transferForm.ingredient_id) { setFormError(t("inv.err.selectIngredient")); return; }
       if (transferForm.quantity <= 0) { setFormError(t("inv.err.qtyPositive")); return; }
+      const src = transferBalances.find(b => b.ingredient_id === transferForm.ingredient_id);
+      if (src && transferForm.quantity > src.balance_qty) {
+        setFormError(`Only ${src.balance_qty.toFixed(3)} ${src.unit} available in the source branch.`);
+        return;
+      }
       setSaving(true); setFormError("");
+      const blocked =
+        (await checkDateOpen(transferForm.from_branch_id, transferForm.entry_date)) ??
+        (await checkDateOpen(transferForm.to_branch_id, transferForm.entry_date));
+      if (blocked) { setSaving(false); setFormError(blocked); return; }
       const ok = await addTransfer({ from_branch_id: transferForm.from_branch_id, to_branch_id: transferForm.to_branch_id, ingredient_id: transferForm.ingredient_id, entry_date: transferForm.entry_date, quantity: transferForm.quantity, notes: transferForm.notes, user_id: currentUserId });
       setSaving(false);
       if (ok) { setModal(null); setTransferForm({ from_branch_id: branchId, to_branch_id: 0, ingredient_id: 0, entry_date: today(), quantity: 0, notes: "" }); refetchAll(); }
@@ -2205,6 +2767,8 @@
       if (!openingForm.ingredient_id) { setFormError(t("inv.err.selectIngredient")); return; }
       if (openingForm.qty_issued <= 0) { setFormError(t("inv.err.qtyPositive")); return; }
       setSaving(true); setFormError("");
+      const blocked = await checkDateOpen(branchId, openingForm.entry_date);
+      if (blocked) { setSaving(false); setFormError(blocked); return; }
       const ok = await addOpeningStock({ branch_id: branchId, ingredient_id: openingForm.ingredient_id, entry_date: openingForm.entry_date, qty_issued: openingForm.qty_issued, issued_to: "opening_stock", notes: openingForm.notes });
       setSaving(false);
       if (ok) { setModal(null); setOpeningForm({ ingredient_id: 0, entry_date: today(), qty_issued: 0, notes: "" }); refetchAll(); }
@@ -2214,12 +2778,12 @@
     async function handlePeriodClose() {
       if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
       if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
+      if (financeDataFailed) {
+        setFormError("Purchases or previous snapshots failed to load, so the closing numbers would be wrong. Close this dialog, click Retry, and try again.");
+        return;
+      }
       setSaving(true); setFormError("");
-      const closingValue   = stats.rawValue + stats.fgValue;
-      const lastSnapshot   = safeSnapshots[0];
-      const openingValue   = lastSnapshot ? lastSnapshot.closing_value : 0;
-      const purchasesValue = stats.totalPurchasesValue;
-      const cogs           = openingValue + purchasesValue - closingValue;
+      const { opening: openingValue, purchasesValue, closing: closingValue, cogs } = closePreview;
       const ok = await createPeriodSnapshot({ branch_id: branchId, period_label: periodForm.period_label, entry_date: periodForm.entry_date, notes: periodForm.notes, locked_by: currentUserName, opening_value: openingValue, closing_value: closingValue, purchases_value: purchasesValue, cogs });
       setSaving(false);
       if (ok) { setModal(null); setPeriodForm({ period_label: "", entry_date: today(), notes: "" }); refetchAll(); }
@@ -2249,9 +2813,10 @@
 
         setDismissedApprovals(prev => new Set(prev).add(id));
 
-        // Refresh both the approval list and actual stock balance
+        // Refresh the approval list, stock balance and transactions ledger
         refetchBalances?.();
         refetchAdjustments?.();
+        refetchMovements?.();
       } catch (error) {
         console.error("[adjustment] approval failed", error);
         throw error;
@@ -2276,6 +2841,7 @@
       { key: "dashboard",     label: t("inv.tab.dashboard"),     icon: <BarChart2 className="w-4 h-4" /> },
       { key: "rawMaterials",  label: t("inv.tab.rawMaterials"),  icon: <Package className="w-4 h-4" /> },
       { key: "finishedGoods", label: t("inv.tab.finishedGoods"), icon: <Layers className="w-4 h-4" /> },
+      { key: "transactions",  label: t("inv.tab.transactions"),  icon: <ClipboardList className="w-4 h-4" /> },
       { key: "variance",      label: t("inv.tab.variance"),      icon: <TrendingDown className="w-4 h-4" /> },
       { key: "cogs",          label: t("inv.tab.cogs"),          icon: <BarChart2 className="w-4 h-4" /> },
       { key: "auditLog",      label: t("inv.tab.auditLog"),      icon: <History className="w-4 h-4" /> },
@@ -2439,6 +3005,12 @@
             <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
               Waste reduces the selected ingredient's stock immediately. The backend calculates the unit cost from the inventory cost history.
             </p>
+            {wasteNeedsApproval(safeBalances.find(b => b.ingredient_id === wasteForm.ingredient_id), wasteForm.quantity) && (
+              <p className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2 flex items-start gap-2">
+                <Shield className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                This is large compared with stock on hand, so it will be sent for manager approval. Stock changes only after approval.
+              </p>
+            )}
           </Modal>
         )}
 
@@ -2481,7 +3053,19 @@
             {formError && <p className="text-xs text-red-600 flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2"><AlertCircle className="w-3 h-3 flex-shrink-0" />{formError}</p>}
             <div className="grid grid-cols-2 gap-3">
               <Field label={t("inv.modal.transfer.field.from")}>
-                <select className={inputClass} value={transferForm.from_branch_id || ""} onChange={e => setTransferForm({ ...transferForm, from_branch_id: Number(e.target.value) })}>
+                <select
+                  className={inputClass}
+                  value={transferForm.from_branch_id || ""}
+                  onChange={e => {
+                    const from = Number(e.target.value);
+                    setTransferForm(f => ({
+                      ...f,
+                      from_branch_id: from,
+                      ingredient_id: 0,
+                      to_branch_id: f.to_branch_id === from ? 0 : f.to_branch_id,
+                    }));
+                  }}
+                >
                   <option value="">{t("inv.modal.selectBranch")}</option>
                   {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
@@ -2494,11 +3078,28 @@
               </Field>
             </div>
             <Field label={t("inv.modal.transfer.field.ingredient")}>
-              <IngredientSelect balances={safeBalances} value={transferForm.ingredient_id} onChange={id => setTransferForm({ ...transferForm, ingredient_id: id })} placeholder={t("inv.modal.selectIngredient")} />
+              <IngredientSelect
+                balances={transferBalances}
+                value={transferForm.ingredient_id}
+                onChange={id => setTransferForm({ ...transferForm, ingredient_id: id })}
+                placeholder={
+                  !transferForm.from_branch_id ? t("inv.modal.selectBranch")
+                  : transferBalancesLoading ? "Loading..."
+                  : t("inv.modal.selectIngredient")
+                }
+              />
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label={t("inv.modal.transfer.field.date")}><input type="date" className={inputClass} value={transferForm.entry_date} onChange={e => setTransferForm({ ...transferForm, entry_date: e.target.value })} /></Field>
-              <Field label={t("inv.modal.transfer.field.qty")}><input type="number" min={0.001} step={0.001} className={inputClass} placeholder="0.000" value={transferForm.quantity || ""} onChange={e => setTransferForm({ ...transferForm, quantity: Number(e.target.value) })} /></Field>
+              <Field
+                label={t("inv.modal.transfer.field.qty")}
+                hint={(() => {
+                  const src = transferBalances.find(b => b.ingredient_id === transferForm.ingredient_id);
+                  return src ? `Available in source branch: ${src.balance_qty.toFixed(3)} ${src.unit}` : undefined;
+                })()}
+              >
+                <input type="number" min={0.001} step={0.001} className={inputClass} placeholder="0.000" value={transferForm.quantity || ""} onChange={e => setTransferForm({ ...transferForm, quantity: Number(e.target.value) })} />
+              </Field>
             </div>
             <Field label={t("inv.modal.transfer.field.notes")}><textarea className={inputClass} rows={2} placeholder={t("inv.modal.transferNotesPlaceholder")} value={transferForm.notes} onChange={e => setTransferForm({ ...transferForm, notes: e.target.value })} /></Field>
           </Modal>
@@ -2534,9 +3135,12 @@
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-background rounded-lg p-2 border border-border"><p className="text-muted-foreground">{t("inv.modal.period.closingRaw")}</p><p className="font-bold text-foreground">{fmtEGP(stats.rawValue)}</p></div>
                 <div className="bg-background rounded-lg p-2 border border-border"><p className="text-muted-foreground">{t("inv.modal.period.closingFG")}</p><p className="font-bold text-foreground">{fmtEGP(stats.fgValue)}</p></div>
-                <div className="bg-background rounded-lg p-2 border border-border"><p className="text-muted-foreground">{t("inv.modal.period.totalPurch")}</p><p className="font-bold text-violet-600">{fmtEGP(stats.totalPurchasesValue)}</p></div>
-                <div className="bg-background rounded-lg p-2 border border-border"><p className="text-muted-foreground">{t("inv.modal.period.estCogs")}</p><p className="font-bold text-amber-600">{fmtEGP(stats.totalPurchasesValue - (stats.rawValue + stats.fgValue))}</p></div>
+                <div className="bg-background rounded-lg p-2 border border-border"><p className="text-muted-foreground">{t("inv.modal.period.totalPurch")}</p><p className="font-bold text-violet-600">{fmtEGP(closePreview.purchasesValue)}</p></div>
+                <div className="bg-background rounded-lg p-2 border border-border"><p className="text-muted-foreground">{t("inv.modal.period.estCogs")}</p><p className="font-bold text-amber-600">{closePreview.cogs < 0 ? "−" : ""}{fmtEGP(closePreview.cogs)}</p></div>
               </div>
+              <p className="text-[11px] text-muted-foreground">
+                Period {closePreview.period || "—"} (from the date below): opening {fmtEGP(closePreview.opening)} + purchases {fmtEGP(closePreview.purchasesValue)} − closing {fmtEGP(closePreview.closing)}
+              </p>
             </div>
             <Field label={t("inv.modal.period.field.label")} hint={t("inv.modal.period.field.labelHint")}>
               <input type="text" className={inputClass} placeholder={t("inv.modal.period.field.labelPlaceholder")} value={periodForm.period_label} onChange={e => setPeriodForm({ ...periodForm, period_label: e.target.value })} />
@@ -2622,6 +3226,26 @@
                 <ShoppingCart className="w-4 h-4 mr-1.5" /> {t("inv.generatePO")}
               </Button>
             )}
+            {branchId > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openModal("periodClose")}
+                disabled={selectedPeriodClosed}
+                title={selectedPeriodClosed ? "Period is already closed" : undefined}
+              >
+                <Lock className="w-4 h-4 mr-1.5" /> {t("inv.modal.period.title")}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openModal("periodStatus")}
+              disabled={periodStatusLoading}
+              title={`${workingPeriod}: ${selectedPeriodState}`}
+            >
+              <Calendar className="w-4 h-4 mr-1.5" /> {workingPeriod} · {selectedPeriodState}
+            </Button>
             <Button variant="outline" size="sm" onClick={refetchAll} disabled={balancesLoading}>
               <RefreshCw className={`w-4 h-4 ${balancesLoading ? "animate-spin" : ""}`} />
             </Button>
@@ -2636,15 +3260,34 @@
           </Card>
         )}
 
+        {failedLoads.length > 0 && (
+          <Card className="p-4 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                Could not load: {failedLoads.join(", ")}. Empty tables may be missing data, not zero.
+              </p>
+              <Button size="sm" variant="outline" onClick={refetchAll}>
+                <RefreshCw className="w-3 h-3 mr-1" /> Retry
+              </Button>
+            </div>
+          </Card>
+        )}
+
         {/* ── NEW: Period closed/locked alert banner (mirrors Finance) ─────────── */}
         {selectedPeriodClosed && (
           <Card className={`${selectedPeriodLocked ? "border-red-200 dark:border-red-700/40 bg-red-50 dark:bg-red-900/20" : "border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-900/20"} p-4`}>
-            <p className={`flex items-center gap-2 text-sm ${selectedPeriodLocked ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
-              <Lock className="h-4 w-4" />
-              {selectedPeriodLocked
-                ? `${workingPeriod} is locked for the whole company. No inventory edits are allowed.`
-                : `${workingPeriod} is closed for the whole company. Inventory entries are restricted.`}
-            </p>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className={`flex items-center gap-2 text-sm ${selectedPeriodLocked ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
+                <Lock className="h-4 w-4" />
+                {selectedPeriodLocked
+                  ? `${workingPeriod} is locked for the whole company. No inventory edits are allowed.`
+                  : `${workingPeriod} is closed for the whole company. Inventory entries are restricted.`}
+              </p>
+              <Button size="sm" variant="outline" onClick={() => openModal("periodStatus")}>
+                Change status
+              </Button>
+            </div>
           </Card>
         )}
 
@@ -2787,7 +3430,7 @@
                     <p className="text-xs text-muted-foreground pl-6">
                       {alert.negative_alert
                         ? t("inv.alerts.negative").replace("{qty}", alert.balance_qty.toFixed(2)).replace("{unit}", alert.unit)
-                        : t("inv.alerts.lowDetail").replace("{qty}", alert.balance_qty.toFixed(2)).replace("{reorder}", alert.reorder_level.toFixed(2)).replace("{unit}", alert.unit)}
+                        : t("inv.alerts.lowDetail").replace("{qty}", alert.balance_qty.toFixed(2)).replace("{reorder}", (alert.reorder_level ?? 0).toFixed(2)).replace("{unit}", alert.unit)}
                     </p>
                   </div>
                 ))}
@@ -2886,7 +3529,7 @@
           <StockTableCard title={t("inv.tab.rawMaterials")} icon={<Package className="w-5 h-5 text-white" />}
             rows={safeBalances} loading={balancesLoading} isFinished={false} branchName={branchName}
             accentColor="from-blue-700 to-blue-500" branchId={branchId} stockCounts={safeCounts} purchases={safePurchases}
-            transfers={safeTransfers} openingStock={safeOpening} adjustments={safeAdjustments} productionMovements={safeProductionMovements} t={t} />
+            transfers={safeTransfers} openingStock={safeOpening} adjustments={safeAdjustments} productionMovements={safeProductionMovements} wasteRecords={safeWaste} t={t} />
         )}
         {activeTab === "rawMaterials" && !branchId && (
           <Card className="p-12 text-center"><p className="text-sm text-muted-foreground">{t("inv.table.selectBranch")}</p></Card>
@@ -2897,7 +3540,7 @@
           <StockTableCard title={t("inv.tab.finishedGoods")} icon={<Layers className="w-5 h-5 text-white" />}
             rows={safeFG} loading={fgLoading} isFinished={true} branchName={branchName}
             accentColor="from-violet-700 to-violet-500" branchId={branchId} stockCounts={safeCounts} purchases={safePurchases}
-            transfers={safeTransfers} openingStock={safeOpening} adjustments={safeAdjustments} productionMovements={safeProductionMovements} t={t} />
+            transfers={safeTransfers} openingStock={safeOpening} adjustments={safeAdjustments} productionMovements={safeProductionMovements} wasteRecords={safeWaste} t={t} />
         )}
         {activeTab === "finishedGoods" && !branchId && (
           <Card className="p-12 text-center"><p className="text-sm text-muted-foreground">{t("inv.table.selectBranch")}</p></Card>
@@ -2907,10 +3550,29 @@
         {activeTab === "variance" && <VarianceReport branchId={branchId} balances={safeBalances} fgBalances={safeFG} t={t} />}
 
         {/* ── COGS Tab ── */}
-        {activeTab === "cogs" && <CogsPanel snapshots={safeSnapshots} balances={[...safeBalances, ...safeFG]} purchases={safePurchases} branchId={branchId} t={t} />}
+        {activeTab === "cogs" && (financeDataFailed ? (
+          <Card className="p-10 text-center">
+            <AlertCircle className="w-10 h-10 text-red-500/40 mx-auto mb-3" />
+            <p className="text-sm font-medium text-foreground">COGS can't be calculated right now</p>
+            <p className="text-xs text-muted-foreground mt-1">Purchases or period snapshots failed to load. Showing a figure would be misleading.</p>
+            <Button size="sm" variant="outline" className="mt-4" onClick={refetchAll}>
+              <RefreshCw className="w-3 h-3 mr-1" /> Retry
+            </Button>
+          </Card>
+        ) : (
+          <CogsPanel snapshots={safeSnapshots} balances={[...safeBalances, ...safeFG]} purchases={safePurchases} branchId={branchId} t={t} />
+        ))}
 
         {/* ── Audit Log Tab ── */}
         {activeTab === "auditLog" && <AuditLogPanel branchId={branchId} t={t} />}
+        {/* ── Transactions Tab ── */}
+        {activeTab === "transactions" && (
+          <InventoryTransactions
+            movements={safeInventoryMovements}
+            loading={movementsLoading}
+            t={t}
+          />
+        )}
       </div>
     );
   }
