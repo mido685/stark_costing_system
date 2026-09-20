@@ -10,7 +10,7 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to xlocalhost:8085
-export const API_BASE = "https://genes-hormone-audience-venture.trycloudflare.com";
+export const API_BASE = "https://garmin-drops-inventory-symposium.trycloudflare.com";
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
   if (!path) return "";
