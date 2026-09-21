@@ -26,6 +26,7 @@ interface AuthState {
   checking: boolean;
   login:    (user: AuthUser, token: string) => void;
   logout:   () => void;
+  updateUser: (patch: Partial<AuthUser>) => void;
 }
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
@@ -101,6 +102,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(authToken);
     storageSave(KEYS.token, authToken);
     storageSave(KEYS.user,  JSON.stringify(authUser));
+  }, []);
+
+  const updateUser = useCallback((patch: Partial<AuthUser>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      storageSave(KEYS.user, JSON.stringify(next));
+      return next;
+    });
   }, []);
 
   // ── Session restore on mount ──────────────────────────────────────────────
@@ -184,8 +194,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // not on every render of AuthProvider itself.
 
   const value = useMemo<AuthState>(
-    () => ({ user, token, checking, login, logout }),
-    [user, token, checking, login, logout]
+    () => ({ user, token, checking, login, logout, updateUser }),
+    [user, token, checking, login, logout, updateUser]
   );
 
   return (

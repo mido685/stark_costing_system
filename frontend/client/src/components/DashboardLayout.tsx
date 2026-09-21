@@ -61,7 +61,35 @@ export default function DashboardLayout({ children, onLogout }: Props) {
 
   const { toggleTheme, isDark }                = useTheme();
   const { language, toggleLanguage, t, isRTL } = useLanguage();
-  const { user }                               = useAuth();
+  const { user, token, updateUser }            = useAuth();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const canEditLogo = user?.role === "owner" || user?.role === "admin";
+
+  async function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    setLogoError("");
+    try {
+      const form = new FormData();
+      form.append("logo", file);
+      const res = await fetch("/api/auth/company-logo", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }, // no Content-Type: the browser sets the boundary
+        body: form,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.detail ?? body?.message ?? "Upload failed");
+      updateUser({ company_logo: body.company_logo });
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const menuRef    = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -255,6 +283,26 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                         alt={t("topbar.companyLogo")}
                         className="w-8 h-8 rounded-full object-cover mb-2 ring-2 ring-primary/20"
                       />
+                    )}
+                    {canEditLogo && (
+                      <>
+                        <input
+                          ref={fileRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          className="hidden"
+                          onChange={handleLogoFile}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileRef.current?.click()}
+                          disabled={uploading}
+                          className="text-[10px] text-primary hover:underline mb-1 disabled:opacity-50"
+                        >
+                          {uploading ? "Uploading..." : companyLogo ? "Change company logo" : "Upload company logo"}
+                        </button>
+                        {logoError && <p className="text-[10px] text-destructive">{logoError}</p>}
+                      </>
                     )}
                     <p className="text-xs font-semibold text-foreground truncate">{displayName}</p>
                     <p className="text-[10px] text-muted-foreground capitalize">{role}</p>

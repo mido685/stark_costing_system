@@ -10,6 +10,7 @@ from app.database.connection import get_connection, dict_cursor
 from app.schemas import LoginRequest
 from app.security import auth
 from app.config import APP_NAME, APP_VERSION
+from app.security.dependencies import require_roles
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer = HTTPBearer()
@@ -145,7 +146,44 @@ def me(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
         cur.close()
         conn.close()
 
+ALLOWED_LOGO_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
+MAX_LOGO_BYTES = 2 * 1024 * 1024
 
+
+@router.post("/company-logo")
+async def update_company_logo(
+    logo: UploadFile = File(...),
+    current_user: dict = Depends(require_roles("owner", "admin")),
+):
+    ext = (logo.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_LOGO_EXT:
+        return error("Logo must be png, jpg, jpeg, webp or gif", status=400)
+
+    data = await logo.read()
+    if len(data) > MAX_LOGO_BYTES:
+        return error("Logo must be 2 MB or smaller", status=400)
+
+    filename = f"company{current_user['company_id']}_{uuid.uuid4().hex[:8]}.{ext}"
+    with open(os.path.join(LOGO_DIR, filename), "wb") as f:
+        f.write(data)
+    logo_url = f"/static/logos/{filename}"
+
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute(
+            "UPDATE companies SET logo_url = %s WHERE id = %s",
+            (logo_url, current_user["company_id"]),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+    return success("Logo updated", company_logo=logo_url)
 # ─── Companies (public list for login dropdown) ───────────────────────────────
 
 @router.get("/companies")
