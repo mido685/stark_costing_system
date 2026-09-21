@@ -10,6 +10,7 @@ from app.schemas import (
     StockIssueRequest,
     TransferRequest,
     WasteRequest,
+    UpdateTransferRequest,
 )
 from app.security.dependencies import check_period_open, get_current_user, require_roles
 
