@@ -1265,35 +1265,44 @@
       };
       return map[action] ?? action?.replace(/_/g, " ") ?? "—";
     }
-        function auditSummary(log: any): string {
-      if (log.details) return log.details;
+    function auditSummary(log: any): string[] {
+      const fmt = (v: any) => (typeof v === "number" ? v.toLocaleString() : String(v));
+      if (log.details) return [String(log.details)];
       let d = log.new_data ?? log.old_data;
       if (typeof d === "string") {
-        try { d = JSON.parse(d); } catch { return ""; }
+        try { d = JSON.parse(d); } catch { return []; }
       }
-      if (!d || typeof d !== "object") return "";
+      if (!d || typeof d !== "object") return [];
 
+      const n = log.names ?? {};
       const parts: string[] = [];
-      const label =
-        d.name ?? d.item_name ?? d.supplier_name ?? d.po_number ?? d.invoice_number ?? d.description;
-      if (label) parts.push(String(label));
+
+      const item =
+        n.ingredient_id ?? d.name ?? d.item_name ?? d.supplier_name ??
+        d.po_number ?? d.invoice_number ?? d.description;
+      if (item) parts.push(String(item));
 
       const qty = d.quantity ?? d.qty_issued ?? d.qty;
-      if (qty != null) parts.push(`qty ${qty}`);
+      if (qty != null) parts.push(`Qty ${fmt(qty)}`);
 
       const amount = d.total_amount ?? d.total ?? d.amount;
-      if (amount != null) parts.push(`amount ${amount}`);
+      if (amount != null) parts.push(`Amount ${fmt(amount)}`);
 
       if (d.from_branch_id != null && d.to_branch_id != null) {
-        parts.push(`branch ${d.from_branch_id} → ${d.to_branch_id}`);
+        parts.push(
+          `${n.from_branch_id ?? `Branch ${d.from_branch_id}`} → ${n.to_branch_id ?? `Branch ${d.to_branch_id}`}`
+        );
+      } else if (n.branch_id) {
+        parts.push(n.branch_id);
       }
-      if (d.issued_to) parts.push(`issued to ${String(d.issued_to).replace(/_/g, " ")}`);
-      if (d.manager)   parts.push(`manager ${d.manager}`);
+
+      if (d.issued_to) parts.push(`Issued to ${String(d.issued_to).replace(/_/g, " ")}`);
+      if (d.manager)   parts.push(`Manager ${d.manager}`);
       if (d.location)  parts.push(String(d.location));
       if (d.status)    parts.push(String(d.status));
       if (d.reason)    parts.push(String(d.reason));
 
-      return parts.slice(0, 4).join(" · ");
+      return parts.slice(0, 5);
     }
     function humanEntity(entityType: string, entityId?: number | string | null): string {
       const map: Record<string, string> = {
@@ -1479,8 +1488,18 @@
                           {humanEntity(entityType, log.entity_id ?? log.record_id)}
                         </span>
                       </div>
-                      {summary && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-md">{summary}</p>
+                      {summary.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {summary.map((part, idx) => (
+                            <span
+                              key={idx}
+                              dir="auto"
+                              className="rounded-md bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground capitalize"
+                            >
+                              {part}
+                            </span>
+                          ))}
+                        </div>
                       )}
                       <div className="flex items-center gap-3 mt-1">
                         {log.user_name && (
@@ -1488,9 +1507,6 @@
                             {t("inv.audit.by")} <span className="font-medium text-foreground">{log.user_name}</span>
                           </span>
                         )}
-                        <span className="text-xs text-muted-foreground capitalize">
-                          {entityType?.replace(/_/g, " ")}
-                        </span>
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">

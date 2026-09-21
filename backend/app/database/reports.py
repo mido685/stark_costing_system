@@ -715,11 +715,57 @@ def list_audit_log(
                 ORDER BY al.created_at DESC, al.id DESC
                 LIMIT %s
             """, (company_id, limit))
-        return [dict(r) for r in cur.fetchall()]
+        rows = [dict(r) for r in cur.fetchall()]
+        return _attach_audit_names(conn, cur, company_id, rows)
     finally:
         cur.close()
         conn.close()
+def _attach_audit_names(conn, cur, company_id: int, rows: list[dict]) -> list[dict]:
+    """Resolve *_id fields inside old_data/new_data to display names (adds row['names'])."""
+    import json
 
+    lookups = {
+        "branch_id":      "branches",
+        "from_branch_id": "branches",
+        "to_branch_id":   "branches",
+        "ingredient_id":  "ingredients",
+    }
+
+    parsed: list[dict] = []
+    ids: dict[str, set] = {"branches": set(), "ingredients": set()}
+    for r in rows:
+        d = r.get("new_data") or r.get("old_data")
+        if isinstance(d, str):
+            try:
+                d = json.loads(d)
+            except ValueError:
+                d = None
+        d = d if isinstance(d, dict) else {}
+        parsed.append(d)
+        for field, table in lookups.items():
+            if isinstance(d.get(field), int):
+                ids[table].add(d[field])
+
+    names: dict[str, dict] = {"branches": {}, "ingredients": {}}
+    for table, idset in ids.items():
+        if not idset:
+            continue
+        try:
+            cur.execute(
+                f"SELECT id, name FROM {table} WHERE company_id = %s AND id = ANY(%s)",
+                (company_id, list(idset)),
+            )
+            names[table] = {r["id"]: r["name"] for r in cur.fetchall()}
+        except Exception:
+            conn.rollback()  # never break the audit page over a name lookup
+
+    for r, d in zip(rows, parsed):
+        r["names"] = {
+            field: names[table][d[field]]
+            for field, table in lookups.items()
+            if isinstance(d.get(field), int) and d[field] in names[table]
+        }
+    return rows
 # ─────────────────────────────────────────────────────────────────────────────
 # Budget vs Actual
 # ─────────────────────────────────────────────────────────────────────────────
