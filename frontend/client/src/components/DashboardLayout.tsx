@@ -10,7 +10,7 @@ import { useTheme }    from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth }     from "@/contexts/AuthContext";
 import PeriodStatusControl from "@/components/PeriodStatusControl";
-import { assetUrl } from "@/lib/api";
+import { API_BASE, assetUrl } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -76,14 +76,18 @@ export default function DashboardLayout({ children, onLogout }: Props) {
     try {
       const form = new FormData();
       form.append("logo", file);
-      const res = await fetch("/api/auth/company-logo", {
+      const res = await fetch(`${API_BASE}/api/auth/company-logo`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` }, // no Content-Type: the browser sets the boundary
         body: form,
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.detail ?? body?.message ?? "Upload failed");
-      updateUser({ company_logo: body.company_logo });
+      const newLogo =
+        body.company_logo ??
+        (typeof body.data === "string" ? body.data : body.data?.company_logo);
+      if (!newLogo) throw new Error("Upload succeeded but no logo URL was returned");
+      updateUser({ company_logo: newLogo });
     } catch (err) {
       setLogoError(err instanceof Error ? err.message : "Upload failed");
     } finally {
