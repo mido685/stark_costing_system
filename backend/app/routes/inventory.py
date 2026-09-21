@@ -319,7 +319,28 @@ def create_transfer(
     except ValueError as e:
         return error(str(e))
 
-
+@router.put("/transfers/{transfer_id}")
+def update_transfer(
+    transfer_id: int,
+    req: UpdateTransferRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    check_period_open(str(req.entry_date), current_user)
+    try:
+        row = inventory_db.update_transfer(
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            transfer_id=transfer_id,
+            to_branch_id=req.to_branch_id,
+            entry_date=req.entry_date,
+            quantity=req.quantity,
+            notes=req.notes,
+            ip_address=request.client.host,
+        )
+        return success("Transfer updated", transfer=row)
+    except ValueError as e:
+        return error(str(e))
 # ---------------------------------------------------------------------------
 # Inventory movements ledger (read-only)
 # ---------------------------------------------------------------------------

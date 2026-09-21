@@ -517,3 +517,9 @@ class SkuPrefixRequest(BaseModel):
     
 class SupplierPriceApprovalRequest(BaseModel):
     action: Literal["approved", "rejected"]
+    
+class UpdateTransferRequest(BaseModel):
+    to_branch_id: int
+    entry_date: date          # match whatever type TransferRequest uses
+    quantity: float = Field(gt=0)
+    notes: str = ""

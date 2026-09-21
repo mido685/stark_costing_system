@@ -955,13 +955,6 @@ import {
             <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />{error}
           </p>
         )}
-
-        {error && (
-          <p role="alert" className="text-xs text-red-600 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
-            <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />{error}
-          </p>
-        )}
-
         {ran && displayRows.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KpiCard label={t("inv.variance.analyzed")}       value={String(displayRows.length)}      color="text-blue-600"   icon={<Package className="w-5 h-5 text-blue-600" />} />
@@ -2988,7 +2981,8 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     const { data: finishedGoodsBalances, loading: fgLoading,      refetch: refetchFG          } = useApi<StockBalance[]>(() => branchId ? fetchFGBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
     const { data: stockCounts,  refetch: refetchCounts     } = useApi<any[]>(() => getStockCountsWithPurchases(branchId || undefined), { deps: [branchId] });
     const { data: purchases,    refetch: refetchPurchases  } = useApi<any[]>(() => getPurchasesByBranch(branchId || undefined),        { deps: [branchId] });
-    const { data: transfers, loading: transfersLoading, refetch: refetchTransfers } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined), { deps: [branchId] });    const { data: openingStock, refetch: refetchOpening    } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined),     { deps: [branchId] });
+    const { data: transfers, loading: transfersLoading, refetch: refetchTransfers } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined), { deps: [branchId] });
+const { data: openingStock, refetch: refetchOpening } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined), { deps: [branchId] });
     const { data: adjustments,  loading: adjLoading, refetch: refetchAdjustments } = useApi<any[]>(() => getAdjustmentsByBranch(branchId || undefined), { deps: [branchId] });
     const { data: wasteRecords, refetch: refetchWaste } = useApi<WasteRecord[]>(() => getWasteByBranch(branchId || undefined), { deps: [branchId] });
     const { data: periodSnapshots, refetch: refetchSnapshots } = useApi<PeriodSnapshot[]>(() => getPeriodSnapshots(branchId || undefined), { deps: [branchId] });
@@ -3340,12 +3334,6 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     async function handlePeriodClose() {
       if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
       if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
-      if (closePurchState !== "ok") {
-        setFormError(closePurchState === "loading"
-          ? "Still loading this period's purchases. Try again in a moment."
-          : "Could not load this period's purchases, so the closing numbers would be wrong. Change the date and back, or reopen this dialog.");
-        return;
-      }
       if (closePurchState !== "ok") {
         setFormError(closePurchState === "loading"
           ? "Still loading this period's purchases. Try again in a moment."

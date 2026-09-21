@@ -902,7 +902,124 @@ def add_transfer(
     finally:
         cur.close()
         conn.close()
+def update_transfer(
+    company_id: int,
+    user_id: int,
+    transfer_id: int,
+    to_branch_id: int,
+    entry_date: str,
+    quantity: float,
+    notes: str = "",
+    ip_address: str | None = None,
+) -> dict:
+    """
+    Edit an approved transfer's destination, date, quantity or notes.
+    The transfer row and both of its ledger movements are updated in one
+    transaction, so both branches' stock stays correct.
+    Ingredient and source branch cannot be changed.
+    """
+    if quantity <= 0:
+        raise ValueError("Quantity must be greater than zero")
 
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute(
+            """
+            SELECT t.*
+            FROM transfers t
+            JOIN branches bf ON bf.id = t.from_branch_id
+            JOIN branches bt ON bt.id = t.to_branch_id
+            WHERE t.id = %s AND bf.company_id = %s AND bt.company_id = %s
+            FOR UPDATE OF t
+            """,
+            (transfer_id, company_id, company_id),
+        )
+        old = cur.fetchone()
+        if not old:
+            raise ValueError("Transfer not found or access denied")
+        old = dict(old)
+        if old["status"] != "approved":
+            raise ValueError("Only approved transfers can be edited")
+
+        if to_branch_id == old["from_branch_id"]:
+            raise ValueError("Source and destination must be different branches")
+        _verify_branch(cur, to_branch_id, company_id)
+
+        # Both the old and the new date must be in an open period
+        for d in {str(old["entry_date"]), str(entry_date)}:
+            if is_period_frozen_with_cur(cur, company_id, d):
+                raise ValueError("This accounting period is closed; the transfer cannot be edited")
+
+        # Source stock check: current balance already includes the old outgoing qty
+        cur.execute(
+            "SELECT COALESCE(SUM(quantity_delta), 0) AS bal FROM inventory_movements "
+            "WHERE ingredient_id = %s AND branch_id = %s",
+            (old["ingredient_id"], old["from_branch_id"]),
+        )
+        available = float(cur.fetchone()["bal"]) + float(old["quantity"])
+        if quantity > available:
+            raise ValueError(f"Only {available:.3f} available in the source branch")
+
+        cur.execute(
+            """
+            UPDATE transfers
+            SET to_branch_id = %s, entry_date = %s, quantity = %s, notes = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (to_branch_id, entry_date, quantity, notes, transfer_id),
+        )
+        new = dict(cur.fetchone())
+
+        # Keep the original unit cost on the ledger rows
+        cur.execute(
+            """
+            UPDATE inventory_movements
+            SET entry_date = %s, quantity_delta = %s, notes = %s
+            WHERE reference_table = 'transfers' AND reference_id = %s
+              AND movement_type = 'transfer_out'
+            """,
+            (entry_date, -quantity, notes, transfer_id),
+        )
+        cur.execute(
+            """
+            UPDATE inventory_movements
+            SET branch_id = %s, entry_date = %s, quantity_delta = %s, notes = %s
+            WHERE reference_table = 'transfers' AND reference_id = %s
+              AND movement_type = 'transfer_in'
+            """,
+            (to_branch_id, entry_date, quantity, notes, transfer_id),
+        )
+
+        log_audit(
+            conn, company_id=company_id, user_id=user_id,
+            branch_id=old["from_branch_id"], action="UPDATE",
+            table_name="transfers", record_id=transfer_id,
+            old_data=old, new_data=new, ip_address=ip_address,
+        )
+        log_event(
+            conn, company_id=company_id, user_id=user_id,
+            branch_id=old["from_branch_id"], action="updated", category="data",
+            entity_type="transfers", entity_id=transfer_id,
+            payload={
+                "ingredient_id": old["ingredient_id"],
+                "from_branch_id": old["from_branch_id"],
+                "old": {"to_branch_id": old["to_branch_id"], "entry_date": str(old["entry_date"]),
+                        "quantity": float(old["quantity"])},
+                "new": {"to_branch_id": to_branch_id, "entry_date": str(entry_date),
+                        "quantity": quantity},
+            },
+            ip_address=ip_address,
+        )
+        conn.commit()
+        return _row(new)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 # ---------------------------------------------------------------------------
 # Inventory movements  (read-only — no logging needed)
@@ -1091,6 +1208,7 @@ def list_transfers_by_branch(company_id: int, branch_id: int | None = None, limi
             JOIN branches bf ON bf.id = t.from_branch_id
             JOIN branches bt ON bt.id = t.to_branch_id
             JOIN ingredients i ON i.id = t.ingredient_id
+            LEFT JOIN app_users u ON u.id = t.created_by
             WHERE {' AND '.join(where)}
             ORDER BY t.entry_date DESC, t.id DESC
             LIMIT %s
