@@ -1265,21 +1265,105 @@
       };
       return map[action] ?? action?.replace(/_/g, " ") ?? "—";
     }
+        function auditSummary(log: any): string {
+      if (log.details) return log.details;
+      let d = log.new_data ?? log.old_data;
+      if (typeof d === "string") {
+        try { d = JSON.parse(d); } catch { return ""; }
+      }
+      if (!d || typeof d !== "object") return "";
 
+      const parts: string[] = [];
+      const label =
+        d.name ?? d.item_name ?? d.supplier_name ?? d.po_number ?? d.invoice_number ?? d.description;
+      if (label) parts.push(String(label));
+
+      const qty = d.quantity ?? d.qty_issued ?? d.qty;
+      if (qty != null) parts.push(`qty ${qty}`);
+
+      const amount = d.total_amount ?? d.total ?? d.amount;
+      if (amount != null) parts.push(`amount ${amount}`);
+
+      if (d.from_branch_id != null && d.to_branch_id != null) {
+        parts.push(`branch ${d.from_branch_id} → ${d.to_branch_id}`);
+      }
+      if (d.issued_to) parts.push(`issued to ${String(d.issued_to).replace(/_/g, " ")}`);
+      if (d.manager)   parts.push(`manager ${d.manager}`);
+      if (d.location)  parts.push(String(d.location));
+      if (d.status)    parts.push(String(d.status));
+      if (d.reason)    parts.push(String(d.reason));
+
+      return parts.slice(0, 4).join(" · ");
+    }
     function humanEntity(entityType: string, entityId?: number | string | null): string {
       const map: Record<string, string> = {
-        sale:                  t("inv.audit.entity.sale"),
-        purchase:              t("inv.audit.entity.purchase"),
-        transfer:              t("inv.audit.entity.transfer"),
-        approval_request:      t("inv.audit.entity.approval_request"),
-        inventory_movement:    t("inv.audit.entity.inventory_movement"),
-        period_closure:        t("inv.audit.entity.period_closure"),
-        period_snapshot:       t("inv.audit.entity.period_snapshot"),
-        company_period_status: "Period Status",
-        customer_return:       t("inv.audit.entity.customer_return"),
-        purchase_return:       t("inv.audit.entity.purchase_return"),
+        // existing entries (singular + plural so both match)
+        sale:                       t("inv.audit.entity.sale"),
+        sales:                      t("inv.audit.entity.sale"),
+        purchase:                   t("inv.audit.entity.purchase"),
+        purchases:                  t("inv.audit.entity.purchase"),
+        transfer:                   t("inv.audit.entity.transfer"),
+        transfers:                  t("inv.audit.entity.transfer"),
+        approval_request:           t("inv.audit.entity.approval_request"),
+        approval_requests:          t("inv.audit.entity.approval_request"),
+        inventory_movement:         t("inv.audit.entity.inventory_movement"),
+        period_closure:             t("inv.audit.entity.period_closure"),
+        period_closures:            t("inv.audit.entity.period_closure"),
+        period_snapshot:            t("inv.audit.entity.period_snapshot"),
+        period_snapshots:           t("inv.audit.entity.period_snapshot"),
+        company_period_status:      "Period Status",
+        company_period_statuses:    "Period Status",
+        customer_return:            t("inv.audit.entity.customer_return"),
+        purchase_return:            t("inv.audit.entity.purchase_return"),
+        purchase_returns:           t("inv.audit.entity.purchase_return"),
+
+        // procurement
+        cash_purchases:             "Cash Purchase",
+        purchase_invoices:          "Purchase Invoice",
+        goods_receipts:             "Goods Receipt",
+        petty_cash_ledger:          "Petty Cash Entry",
+        supplier_price_history:     "Supplier Price",
+        suppliers:                  "Supplier",
+
+        // inventory
+        ingredients:                "Ingredient",
+        products:                   "Product",
+        sku_prefixes:               "SKU Prefix",
+        stock_adjustments:          "Stock Adjustment",
+        stock_counts:               "Stock Count",
+        stock_issues:               "Stock Issue",
+        waste_log:                  "Waste Entry",
+        waste_records:              "Waste Record",
+        damage_log:                 "Damage Entry",
+        inventory_period_snapshots: "Inventory Snapshot",
+
+        // production
+        recipes:                    "Recipe",
+        recipe_ingredients:         "Recipe Ingredient",
+        production_costs:           "Production Cost",
+
+        // finance
+        expenses:                   "Expense",
+        expense_categories:         "Expense Category",
+        revenues:                   "Revenue",
+        budgets:                    "Budget",
+        payroll_entries:            "Payroll Entry",
+        prepayment_entries:         "Prepayment",
+
+        // administration
+        app_users:                  "User",
+        roles:                      "Role",
+        role_permissions:           "Role Permissions",
+        user_permissions:           "User Permissions",
+        user_branches:              "User Branches",
+        branches:                   "Branch",
+        companies:                  "Company",
       };
-      const label = map[entityType] ?? entityType?.replace(/_/g, " ") ?? t("inv.audit.entity.record");
+      const label =
+        map[entityType] ??
+        (entityType
+          ? entityType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+          : t("inv.audit.entity.record"));
       const hasId = entityId !== null && entityId !== undefined && String(entityId).trim() !== "";
       return hasId ? `${label} #${entityId}` : label;
     }
@@ -1380,6 +1464,8 @@
                 const colors = groupColorMap[group] ?? groupColorMap.other;
                 const dateStr = log.created_at ? formatDate(log.created_at, { day: "2-digit", month: "short", year: "numeric" }) : "—";
                 const timeStr = log.created_at ? formatDateTime(log.created_at, { hour: "2-digit", minute: "2-digit" }) : "";
+                const entityType = log.entity_type ?? log.table_name;
+                const summary = auditSummary(log);
 
                 return (
                   <div key={log.id ?? i} className="flex items-start gap-4 px-5 py-3.5 hover:bg-secondary/30 transition-colors">
@@ -1390,11 +1476,11 @@
                           {humanAction(log.action)}
                         </span>
                         <span className="text-sm font-medium text-foreground">
-                          {humanEntity(log.entity_type, log.entity_id ?? log.record_id)}
+                          {humanEntity(entityType, log.entity_id ?? log.record_id)}
                         </span>
                       </div>
-                      {log.details && (
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-md">{log.details}</p>
+                      {summary && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-md">{summary}</p>
                       )}
                       <div className="flex items-center gap-3 mt-1">
                         {log.user_name && (
@@ -1403,7 +1489,7 @@
                           </span>
                         )}
                         <span className="text-xs text-muted-foreground capitalize">
-                          {log.entity_type?.replace(/_/g, " ")}
+                          {entityType?.replace(/_/g, " ")}
                         </span>
                       </div>
                     </div>

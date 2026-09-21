@@ -692,7 +692,8 @@ def list_audit_log(
     try:
         if branch_id:
             cur.execute("""
-                SELECT al.id, al.action, al.table_name, al.record_id,
+                    SELECT al.id, al.action, al.table_name, al.record_id,
+                       al.table_name AS entity_type, al.record_id AS entity_id,
                        al.old_data, al.new_data, al.ip_address, al.created_at,
                        u.display_name AS user_name, u.company_id
                 FROM audit_log al
@@ -705,11 +706,12 @@ def list_audit_log(
         else:
             cur.execute("""
                 SELECT al.id, al.action, al.table_name, al.record_id,
+                       al.table_name AS entity_type, al.record_id AS entity_id,
                        al.old_data, al.new_data, al.ip_address, al.created_at,
                        u.display_name AS user_name, u.company_id
                 FROM audit_log al
                 LEFT JOIN app_users u ON u.id = al.user_id
-                WHERE u.company_id = %s
+                WHERE al.company_id = %s
                 ORDER BY al.created_at DESC, al.id DESC
                 LIMIT %s
             """, (company_id, limit))
