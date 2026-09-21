@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Settings2, Package, ShoppingCart,
   Factory, ClipboardList, DollarSign, TrendingUp,
   ShieldCheck, FileText, Menu, LogOut, ChevronRight,
-  Sun, Moon, Languages, Users, ChevronDown,Activity,
+  Sun, Moon, Languages, Users, ChevronDown, Activity,
+  Camera, Loader2,
 } from "lucide-react";
 import { useTheme }    from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -276,40 +277,57 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                   aria-label={t("topbar.accountMenu")}
                   className="
                     absolute right-0 top-full mt-1 z-50
-                    w-48 rounded-lg border border-border bg-card shadow-lg
+                    w-56 rounded-lg border border-border bg-card shadow-lg
                     animate-in fade-in slide-in-from-top-1 duration-150
                   "
                 >
-                  <div className="px-3 py-2.5 border-b border-border">
-                    {companyLogo && (
-                      <img
-                        src={resolveLogoUrl(companyLogo)}
-                        alt={t("topbar.companyLogo")}
-                        className="w-8 h-8 rounded-full object-cover mb-2 ring-2 ring-primary/20"
+                  <div className="px-3 py-3 border-b border-border">
+                    <div className="flex items-center gap-3">
+                      <div className="relative shrink-0">
+                        {companyLogo ? (
+                          <img
+                            src={resolveLogoUrl(companyLogo)}
+                            alt={t("topbar.companyLogo")}
+                            className="h-10 w-10 rounded-full object-cover ring-2 ring-primary/20"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white ring-2 ring-amber-500/20">
+                            {getInitials(displayName)}
+                          </div>
+                        )}
+
+                        {canEditLogo && (
+                          <button
+                            type="button"
+                            onClick={() => fileRef.current?.click()}
+                            disabled={uploading}
+                            aria-label={companyLogo ? "Change company logo" : "Upload company logo"}
+                            title={companyLogo ? "Change company logo" : "Upload company logo"}
+                            className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                          >
+                            {uploading
+                              ? <Loader2 size={11} className="animate-spin" />
+                              : <Camera size={11} />}
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-foreground">{displayName}</p>
+                        <p className="text-[10px] capitalize text-muted-foreground">{role}</p>
+                      </div>
+                    </div>
+
+                    {canEditLogo && (
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={handleLogoFile}
                       />
                     )}
-                    {canEditLogo && (
-                      <>
-                        <input
-                          ref={fileRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp,image/gif"
-                          className="hidden"
-                          onChange={handleLogoFile}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileRef.current?.click()}
-                          disabled={uploading}
-                          className="text-[10px] text-primary hover:underline mb-1 disabled:opacity-50"
-                        >
-                          {uploading ? "Uploading..." : companyLogo ? "Change company logo" : "Upload company logo"}
-                        </button>
-                        {logoError && <p className="text-[10px] text-destructive">{logoError}</p>}
-                      </>
-                    )}
-                    <p className="text-xs font-semibold text-foreground truncate">{displayName}</p>
-                    <p className="text-[10px] text-muted-foreground capitalize">{role}</p>
+                    {logoError && <p className="mt-2 text-[10px] text-destructive">{logoError}</p>}
                   </div>
 
                   <div className="p-1.5 space-y-0.5">
