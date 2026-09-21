@@ -1,14 +1,15 @@
   import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
   import { Card } from "@/components/ui/card";
   import { Button } from "@/components/ui/button";
-  import {
-    AlertTriangle, X, Loader2, AlertCircle, RefreshCw, Search,
-    ChevronUp, ChevronDown, ChevronsUpDown, Package, Layers, Filter,
-    Printer, Download, ClipboardList, History, TrendingDown, TrendingUp,
-    CheckCircle, Clock, XCircle, ShoppingCart, Lock, BarChart2,
-    Calendar, ChevronRight, Eye, Percent, Shield, Zap, FileText,
-    ArrowDownToLine, ArrowUpFromLine, BookOpen, Check, Plus,
-  } from "lucide-react";
+import {
+  AlertTriangle, X, Loader2, AlertCircle, RefreshCw, Search,
+  ChevronUp, ChevronDown, ChevronsUpDown, Package, Layers, Filter,
+  Printer, Download, ClipboardList, History, TrendingDown, TrendingUp,
+  CheckCircle, Clock, XCircle, ShoppingCart, Lock, BarChart2,
+  Calendar, ChevronRight, Eye, Percent, Shield, Zap, FileText,
+  ArrowDownToLine, ArrowUpFromLine, BookOpen, Check, Plus,
+  Pencil, ArrowRight,
+} from "lucide-react";
   import { useApi } from "@/hooks/useApi";
   import {
     getBranches, getStockBalances, getFinishedGoodsBalances, getSuppliers,
@@ -34,7 +35,7 @@
   type SortField = "name" | "balance_qty" | "reorder_level" | "inventory_value";
   type SortDir = "asc" | "desc";
   type GroupBy = "none" | "status" | "unit";
-  type MainTab = "dashboard" | "rawMaterials" | "finishedGoods" | "transactions" | "variance" | "auditLog" | "cogs";
+  type MainTab = "dashboard" | "rawMaterials" | "finishedGoods" | "transactions" | "transfers" | "variance" | "auditLog" | "cogs";
 
   interface PeriodSnapshot {
     id: number;
@@ -2558,6 +2559,408 @@
         </div>
       );
     }
+    // ─────────────────────────────────────────────────────────────────────────────
+// PASTE THIS BLOCK into your inventory file, just above `export default function InventoryControls()`.
+// It reuses helpers that already exist there: Card, Button, Modal, Field, inputClass,
+// fetchBalances, checkDateOpen, apiCall, and the React hooks you already import.
+//
+// Also add `Pencil` and `ArrowRight` to your lucide-react import list.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Transfers History ────────────────────────────────────────────────────────
+
+interface TransferRow {
+  id: number;
+  ingredient_id: number;
+  ingredient_name: string;
+  unit: string;
+  from_branch_id: number;
+  from_name: string;
+  to_branch_id: number;
+  to_name: string;
+  quantity: number;
+  entry_date: string; // YYYY-MM-DD
+  notes: string;
+  user_name: string;
+}
+
+async function updateTransfer(
+  id: number,
+  payload: { to_branch_id: number; entry_date: string; quantity: number; notes: string; user_id: number },
+): Promise<void> {
+  // Throws on failure so the modal can show the server's message
+  await apiCall(`/api/transfers/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+function EditTransferModal({ row, branches, onClose, onSaved }: {
+  row: TransferRow;
+  branches: Branch[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    to_branch_id: row.to_branch_id,
+    entry_date: row.entry_date,
+    quantity: row.quantity,
+    notes: row.notes,
+  });
+  const [sourceBalance, setSourceBalance] = useState<StockBalance | undefined>();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  // Stock currently in the source branch, so we can stop an edit that would push it below zero
+  useEffect(() => {
+    let cancelled = false;
+    fetchBalances(row.from_branch_id)
+      .then(rows => {
+        if (!cancelled) setSourceBalance(rows.find(b => b.ingredient_id === row.ingredient_id));
+      })
+      .catch(() => { /* the server still enforces stock rules */ });
+    return () => { cancelled = true; };
+  }, [row.from_branch_id, row.ingredient_id]);
+
+  // The old quantity is added back because the edit replaces it, not adds to it
+  const available = sourceBalance ? sourceBalance.balance_qty + row.quantity : null;
+
+  async function handleSave() {
+    if (!form.to_branch_id) { setError("Select a destination branch."); return; }
+    if (form.to_branch_id === row.from_branch_id) { setError("Source and destination must be different branches."); return; }
+    if (!form.entry_date) { setError("Date is required."); return; }
+    if (!(form.quantity > 0)) { setError("Quantity must be greater than zero."); return; }
+    if (available !== null && form.quantity > available) {
+      setError(`Only ${available.toFixed(3)} ${row.unit} can be sent from ${row.from_name} (current stock plus this transfer).`);
+      return;
+    }
+
+    const unchanged =
+      form.to_branch_id === row.to_branch_id &&
+      form.entry_date === row.entry_date &&
+      form.quantity === row.quantity &&
+      form.notes === row.notes;
+    if (unchanged) { onClose(); return; }
+
+    setSaving(true);
+    setError("");
+
+    // Editing reverses the old entry and writes a new one, so both the old and the new
+    // date must be in an open period, for every branch involved.
+    const checks: [number, string][] = [
+      [row.from_branch_id, row.entry_date],
+      [row.to_branch_id, row.entry_date],
+      [row.from_branch_id, form.entry_date],
+      [form.to_branch_id, form.entry_date],
+    ];
+    for (const [branch, date] of checks) {
+      const blocked = await checkDateOpen(branch, date);
+      if (blocked) { setSaving(false); setError(blocked); return; }
+    }
+
+    try {
+      await updateTransfer(row.id, {
+        to_branch_id: form.to_branch_id,
+        entry_date: form.entry_date,
+        quantity: form.quantity,
+        notes: form.notes,
+        user_id: Number(localStorage.getItem("user_id") ?? 1),
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      console.error("[transfer] update failed", e);
+      setError(e instanceof Error && e.message ? e.message : "Could not update the transfer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Edit transfer #${row.id}`}
+      subtitle="Stock in both branches is corrected automatically."
+      onClose={onClose}
+      onSave={handleSave}
+      saving={saving}
+      saveLabel="Save changes"
+    >
+      {error && (
+        <p role="alert" className="text-xs text-red-600 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+          <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />{error}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Ingredient">
+          <input className={inputClass + " bg-secondary/40"} value={row.ingredient_name} readOnly />
+        </Field>
+        <Field label="From branch">
+          <input className={inputClass + " bg-secondary/40"} value={row.from_name} readOnly />
+        </Field>
+      </div>
+
+      <Field label="To branch">
+        <select className={inputClass} value={form.to_branch_id || ""}
+          onChange={e => setForm(f => ({ ...f, to_branch_id: Number(e.target.value) }))}>
+          <option value="">Select branch...</option>
+          {branches.filter(b => Number(b.id) !== row.from_branch_id).map(b => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Date">
+          <input type="date" className={inputClass} value={form.entry_date}
+            onChange={e => setForm(f => ({ ...f, entry_date: e.target.value }))} />
+        </Field>
+        <Field
+          label={`Quantity${row.unit ? ` (${row.unit})` : ""}`}
+          hint={available !== null ? `Up to ${available.toFixed(3)} ${row.unit} available` : undefined}
+        >
+          <input type="number" min={0.001} step={0.001} className={inputClass}
+            value={form.quantity || ""}
+            onChange={e => setForm(f => ({ ...f, quantity: Number(e.target.value) }))} />
+        </Field>
+      </div>
+
+      <Field label="Notes">
+        <textarea className={inputClass} rows={2} value={form.notes}
+          onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+      </Field>
+
+      <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+        The ingredient and source branch can't be changed here. If one of those was wrong,
+        reverse the transfer and record a new one.
+      </p>
+    </Modal>
+  );
+}
+
+function TransfersHistory({ transfers, loading, branches, branchId, onChanged }: {
+  transfers: any[];
+  loading: boolean;
+  branches: Branch[];
+  branchId: number;
+  onChanged: () => void;
+}) {
+  const PAGE_SIZE = 20;
+  const [search, setSearch] = useState("");
+  const [direction, setDirection] = useState<"all" | "in" | "out">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<TransferRow | null>(null);
+
+  const nameOfBranch = useCallback(
+    (id: number, fallback?: string) =>
+      fallback ?? branches.find(b => Number(b.id) === id)?.name ?? `Branch #${id}`,
+    [branches],
+  );
+
+  const rows = useMemo<TransferRow[]>(() =>
+    transfers
+      .map(r => ({
+        id: Number(r.id),
+        ingredient_id: Number(r.ingredient_id),
+        ingredient_name: String(r.ingredient_name ?? r.name ?? `Ingredient #${r.ingredient_id}`),
+        unit: String(r.unit ?? ""),
+        from_branch_id: Number(r.from_branch_id),
+        from_name: nameOfBranch(Number(r.from_branch_id), r.from_branch_name),
+        to_branch_id: Number(r.to_branch_id),
+        to_name: nameOfBranch(Number(r.to_branch_id), r.to_branch_name),
+        quantity: Number(r.quantity ?? 0),
+        entry_date: String(r.entry_date ?? "").slice(0, 10),
+        notes: String(r.notes ?? ""),
+        user_name: String(r.user_name ?? r.created_by ?? ""),
+      }))
+      .sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.id - a.id),
+    [transfers, nameOfBranch],
+  );
+
+  // Direction is relative to the branch picked at the top of the page
+  const dirOf = useCallback((r: TransferRow): "in" | "out" | null => {
+    if (!branchId) return null;
+    if (r.to_branch_id === branchId) return "in";
+    if (r.from_branch_id === branchId) return "out";
+    return null;
+  }, [branchId]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (direction !== "all" && dirOf(r) !== direction) return false;
+      if (dateFrom && r.entry_date < dateFrom) return false;
+      if (dateTo && r.entry_date > dateTo) return false;
+      if (q) {
+        const hay = `${r.id} ${r.ingredient_name} ${r.from_name} ${r.to_name} ${r.notes} ${r.user_name}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [rows, search, direction, dateFrom, dateTo, dirOf]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const hasFilters = Boolean(search || dateFrom || dateTo || direction !== "all");
+
+  function clearFilters() {
+    setSearch(""); setDirection("all"); setDateFrom(""); setDateTo(""); setPage(1);
+  }
+
+  return (
+    <div className="space-y-5">
+      {editing && (
+        <EditTransferModal
+          row={editing}
+          branches={branches}
+          onClose={() => setEditing(null)}
+          onSaved={onChanged}
+        />
+      )}
+
+      <div>
+        <h2 className="text-lg font-bold text-foreground">Transfers</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Every stock transfer between branches. Use Edit to correct the date, quantity, destination or notes.
+        </p>
+      </div>
+
+      <Card className="p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <input
+              className={inputClass + " pl-9"}
+              placeholder="Search ingredient, branch, notes, #id..."
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input type="date" className={inputClass + " w-auto"} value={dateFrom}
+              onChange={e => { setDateFrom(e.target.value); setPage(1); }} aria-label="From date" />
+            <span className="text-muted-foreground">→</span>
+            <input type="date" className={inputClass + " w-auto"} value={dateTo}
+              onChange={e => { setDateTo(e.target.value); setPage(1); }} aria-label="To date" />
+          </div>
+
+          {branchId > 0 && (
+            <div className="flex gap-1">
+              {(["all", "in", "out"] as const).map(d => (
+                <button key={d} onClick={() => { setDirection(d); setPage(1); }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    direction === d
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-input hover:bg-secondary"
+                  }`}>
+                  {d === "all" ? "All" : d === "in" ? "Received" : "Sent"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {hasFilters && (
+            <button className="text-xs text-primary hover:underline" onClick={clearFilters}>Clear filters</button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          {filtered.length} of {rows.length} transfers
+          {!branchId && " · all branches"}
+        </p>
+      </Card>
+
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="p-6 space-y-2">
+            {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-12 bg-secondary/40 rounded animate-pulse" />)}
+          </div>
+        ) : !rows.length ? (
+          <div className="py-16 text-center">
+            <ArrowUpFromLine className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">No transfers recorded yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Use Transfer on the dashboard to move stock between branches.</p>
+          </div>
+        ) : !filtered.length ? (
+          <div className="py-10 text-center">
+            <p className="text-sm text-muted-foreground">No transfers match these filters.</p>
+            <button className="text-xs text-primary hover:underline mt-2" onClick={clearFilters}>Clear filters</button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-secondary/70 border-b border-border">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Ingredient</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">From → To</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Quantity</th>
+                  {branchId > 0 && <th className="px-4 py-3 text-center text-xs font-semibold text-foreground">Direction</th>}
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Notes</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Recorded by</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {paged.map(r => {
+                  const dir = dirOf(r);
+                  return (
+                    <tr key={r.id} className="border-b border-border hover:bg-secondary/30 transition-colors">
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{r.entry_date || "—"}</td>
+                      <td className="px-4 py-3 font-medium text-foreground">
+                        {r.ingredient_name}
+                        <span className="block text-[10px] text-muted-foreground font-normal">#{r.id}</span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 text-xs">
+                          <span className="font-medium text-foreground">{r.from_name}</span>
+                          <ArrowRight className="w-3 h-3 text-muted-foreground" />
+                          <span className="font-medium text-foreground">{r.to_name}</span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold tabular-nums">
+                        {r.quantity.toFixed(3)}
+                        {r.unit && <span className="text-xs text-muted-foreground font-normal ml-1">{r.unit}</span>}
+                      </td>
+                      {branchId > 0 && (
+                        <td className="px-4 py-3 text-center">
+                          {dir === "in" ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-semibold">Received</span>
+                          ) : dir === "out" ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-semibold">Sent</span>
+                          ) : <span className="text-muted-foreground text-xs">—</span>}
+                        </td>
+                      )}
+                      <td className="px-4 py-3 text-xs text-muted-foreground max-w-[220px] truncate" dir="auto" title={r.notes}>
+                        {r.notes || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{r.user_name || "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button size="sm" variant="outline" onClick={() => setEditing(r)}>
+                          <Pencil className="w-3 h-3 mr-1" /> Edit
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="px-6 py-3 border-t border-border flex items-center justify-between bg-secondary/10">
+            <p className="text-xs text-muted-foreground">Page {safePage} of {totalPages}</p>
+            <div className="flex gap-1">
+              <Button variant="outline" size="sm" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>←</Button>
+              <Button variant="outline" size="sm" disabled={safePage === totalPages} onClick={() => setPage(safePage + 1)}>→</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 
   export default function InventoryControls() {
     const { t } = useLanguage();
@@ -2585,8 +2988,7 @@
     const { data: finishedGoodsBalances, loading: fgLoading,      refetch: refetchFG          } = useApi<StockBalance[]>(() => branchId ? fetchFGBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
     const { data: stockCounts,  refetch: refetchCounts     } = useApi<any[]>(() => getStockCountsWithPurchases(branchId || undefined), { deps: [branchId] });
     const { data: purchases,    refetch: refetchPurchases  } = useApi<any[]>(() => getPurchasesByBranch(branchId || undefined),        { deps: [branchId] });
-    const { data: transfers,    refetch: refetchTransfers  } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined),        { deps: [branchId] });
-    const { data: openingStock, refetch: refetchOpening    } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined),     { deps: [branchId] });
+    const { data: transfers, loading: transfersLoading, refetch: refetchTransfers } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined), { deps: [branchId] });    const { data: openingStock, refetch: refetchOpening    } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined),     { deps: [branchId] });
     const { data: adjustments,  loading: adjLoading, refetch: refetchAdjustments } = useApi<any[]>(() => getAdjustmentsByBranch(branchId || undefined), { deps: [branchId] });
     const { data: wasteRecords, refetch: refetchWaste } = useApi<WasteRecord[]>(() => getWasteByBranch(branchId || undefined), { deps: [branchId] });
     const { data: periodSnapshots, refetch: refetchSnapshots } = useApi<PeriodSnapshot[]>(() => getPeriodSnapshots(branchId || undefined), { deps: [branchId] });
@@ -3014,6 +3416,7 @@
       { key: "rawMaterials",  label: t("inv.tab.rawMaterials"),  icon: <Package className="w-4 h-4" /> },
       { key: "finishedGoods", label: t("inv.tab.finishedGoods"), icon: <Layers className="w-4 h-4" /> },
       { key: "transactions",  label: tr("inv.tab.transactions", "Transactions"),  icon: <ClipboardList className="w-4 h-4" /> },
+      { key: "transfers", label: tr("inv.tab.transfers", "Transfers"), icon: <ArrowUpFromLine className="w-4 h-4" /> },
       { key: "variance",      label: t("inv.tab.variance"),      icon: <TrendingDown className="w-4 h-4" /> },
       { key: "cogs",          label: t("inv.tab.cogs"),          icon: <BarChart2 className="w-4 h-4" /> },
       { key: "auditLog",      label: t("inv.tab.auditLog"),      icon: <History className="w-4 h-4" /> },
@@ -3750,6 +4153,15 @@
             movements={safeInventoryMovements}
             loading={movementsLoading}
             t={t}
+          />
+        )}
+        {activeTab === "transfers" && (
+          <TransfersHistory
+            transfers={safeTransfers}
+            loading={transfersLoading}
+            branches={branches ?? []}
+            branchId={branchId}
+            onChanged={refetchAll}
           />
         )}
       </div>
