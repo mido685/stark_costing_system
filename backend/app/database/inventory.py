@@ -4,7 +4,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_frozen
+from .periods import is_period_frozen, is_period_frozen_with_cur
 from .system_logger import log_event
 
 
@@ -666,6 +666,10 @@ def approve_adjustment(
         if not adjustment:
             raise ValueError("Adjustment not found, already processed, or access denied")
         adjustment = dict(adjustment)
+
+        # Rejecting is always allowed; approving posts stock, so the period must be open
+        if status == "approved" and is_period_frozen_with_cur(cur, company_id, str(adjustment["entry_date"])):
+            raise ValueError("This accounting period is closed; this adjustment cannot be approved")
 
         cur.execute(
             "UPDATE stock_adjustments SET status = %s, approved_by = %s, approval_notes = %s WHERE id = %s",

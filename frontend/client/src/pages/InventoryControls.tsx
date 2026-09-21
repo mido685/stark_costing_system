@@ -108,9 +108,12 @@
 
   // Waste above this share of on-hand stock (or more than is on hand) is sent for
   // manager approval as an adjustment. Set to Infinity to keep all waste immediate.
-  const WASTE_APPROVAL_PCT = 20;
+  // Infinity = all waste is recorded immediately through /api/waste (the backend
+  // writes it once, as a 'waste' movement). Finite = large waste goes to approval.
+  const WASTE_APPROVAL_PCT = Infinity;
 
   function wasteNeedsApproval(bal: StockBalance | undefined, qty: number): boolean {
+    if (!Number.isFinite(WASTE_APPROVAL_PCT)) return false;
     if (!bal || qty <= 0) return false;
     if (qty > bal.balance_qty) return true;
     return (qty / bal.balance_qty) * 100 > WASTE_APPROVAL_PCT;
@@ -2456,6 +2459,11 @@
 
   export default function InventoryControls() {
     const { t } = useLanguage();
+    // Falls back to readable text if a translation key is missing
+    const tr = (key: string, fallback: string) => {
+      const v = t(key);
+      return v === key ? fallback : v;
+    };
     const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
     const currentUserName = localStorage.getItem("user_name") ?? "System";
     const [branchId, setBranchId] = useState<number>(0);
@@ -2609,7 +2617,10 @@
       setClosePurchState("loading");
       fetchPurchasesForPeriod(branchId || undefined, closePeriodKey)
         .then(rows => { if (!cancelled) { setClosePurchases(rows); setClosePurchState("ok"); } })
-        .catch(e => { console.error("[period close] purchases load failed", e); if (!cancelled) setClosePurchState("error"); });
+        .catch(e => {
+          console.error("[period close] purchases load failed", e);
+          if (!cancelled) setClosePurchState("error");
+        });
       return () => { cancelled = true; };
     }, [modal, branchId, closePeriodKey]);
 
@@ -2831,6 +2842,12 @@
           : "Could not load this period's purchases, so the closing numbers would be wrong. Change the date and back, or reopen this dialog.");
         return;
       }
+      if (closePurchState !== "ok") {
+        setFormError(closePurchState === "loading"
+          ? "Still loading this period's purchases. Try again in a moment."
+          : "Could not load this period's purchases, so the closing numbers would be wrong. Change the date and back, or reopen this dialog.");
+        return;
+      }
       if (financeDataFailed) {
         setFormError("Purchases or previous snapshots failed to load, so the closing numbers would be wrong. Close this dialog, click Retry, and try again.");
         return;
@@ -2894,19 +2911,17 @@
       { key: "dashboard",     label: t("inv.tab.dashboard"),     icon: <BarChart2 className="w-4 h-4" /> },
       { key: "rawMaterials",  label: t("inv.tab.rawMaterials"),  icon: <Package className="w-4 h-4" /> },
       { key: "finishedGoods", label: t("inv.tab.finishedGoods"), icon: <Layers className="w-4 h-4" /> },
-      { key: "transactions",  label: t("inv.tab.transactions"),  icon: <ClipboardList className="w-4 h-4" /> },
+      { key: "transactions",  label: tr("inv.tab.transactions", "Transactions"),  icon: <ClipboardList className="w-4 h-4" /> },
       { key: "variance",      label: t("inv.tab.variance"),      icon: <TrendingDown className="w-4 h-4" /> },
       { key: "cogs",          label: t("inv.tab.cogs"),          icon: <BarChart2 className="w-4 h-4" /> },
       { key: "auditLog",      label: t("inv.tab.auditLog"),      icon: <History className="w-4 h-4" /> },
     ];
 
+    // Waste, damage, spoilage and expiry are recorded through the Waste form so each
+    // loss produces exactly one ledger movement. Adjustments are for corrections only.
     const adjReasons = [
-      { key: "inv.modal.adj.reason.waste",     label: t("inv.modal.adj.reason.waste") },
-      { key: "inv.modal.adj.reason.damage",    label: t("inv.modal.adj.reason.damage") },
       { key: "inv.modal.adj.reason.theft",     label: t("inv.modal.adj.reason.theft") },
       { key: "inv.modal.adj.reason.recount",   label: t("inv.modal.adj.reason.recount") },
-      { key: "inv.modal.adj.reason.spoilage",  label: t("inv.modal.adj.reason.spoilage") },
-      { key: "inv.modal.adj.reason.expiry",    label: t("inv.modal.adj.reason.expiry") },
       { key: "inv.modal.adj.reason.prodError", label: t("inv.modal.adj.reason.prodError") },
       { key: "inv.modal.adj.reason.other",     label: t("inv.modal.adj.reason.other") },
     ];
@@ -3094,6 +3109,9 @@
                 <Shield className="w-3 h-3 mt-0.5 flex-shrink-0" />
                 Adjustments stay pending until a manager approves them. Stock changes only after approval.
               </p>
+              <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
+                For waste, damage, spoilage or expiry, use <strong>Waste</strong> on the dashboard instead. It reduces stock immediately and is reported separately.
+              </p>
           </Modal>
         )}
 
@@ -3194,6 +3212,12 @@
               <p className="text-[11px] text-muted-foreground">
                 Period {closePreview.period || "—"} (from the date below): opening {fmtEGP(closePreview.opening)} + purchases {fmtEGP(closePreview.purchasesValue)} − closing {fmtEGP(closePreview.closing)}
               </p>
+              {closePurchState === "loading" && (
+                <p className="text-[11px] text-muted-foreground">Loading purchases for {closePreview.period}...</p>
+              )}
+              {closePurchState === "error" && (
+                <p className="text-[11px] text-red-600">Could not load purchases for {closePreview.period}. Saving is disabled.</p>
+              )}
             </div>
             <Field label={t("inv.modal.period.field.label")} hint={t("inv.modal.period.field.labelHint")}>
               <input type="text" className={inputClass} placeholder={t("inv.modal.period.field.labelPlaceholder")} value={periodForm.period_label} onChange={e => setPeriodForm({ ...periodForm, period_label: e.target.value })} />

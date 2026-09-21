@@ -2,7 +2,7 @@ from typing import Any
 
 from .connection import get_connection, dict_cursor
 from .log_audit import log_audit
-from .periods import is_period_frozen
+from .periods import is_period_frozen, is_period_frozen_with_cur
 from .system_logger import log_event
 
 
@@ -112,8 +112,8 @@ def add_purchase(
     status: str = "pending",   # ignored — always stored as pending
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_frozen(branch_id, entry_date):
-        raise ValueError("This accounting period is closed for the selected branch")
+    if is_period_frozen(company_id, entry_date):
+        raise ValueError("This accounting period is closed")
 
     conn = get_connection()
     cur = dict_cursor(conn)
@@ -210,6 +210,9 @@ def approve_purchase(
         if not purchase:
             raise ValueError("Purchase not found, already approved, or access denied")
         purchase = dict(purchase)
+
+        if is_period_frozen_with_cur(cur, company_id, str(purchase["entry_date"])):
+            raise ValueError("This accounting period is closed; purchases dated in it cannot be approved")
 
         cur.execute("""
             UPDATE purchases
@@ -487,12 +490,16 @@ def delete_purchase(
     cur = dict_cursor(conn)
     try:
         cur.execute("""
-            SELECT p.id, p.branch_id FROM purchases p
+            SELECT p.id, p.branch_id, p.po_number, p.entry_date::text AS entry_date
+            FROM purchases p
             WHERE p.id = %s AND p.company_id = %s
         """, (purchase_id, company_id))
         purchase = cur.fetchone()
         if not purchase:
             raise ValueError("Purchase not found or access denied")
+
+        if is_period_frozen_with_cur(cur, company_id, purchase["entry_date"]):
+            raise ValueError("This accounting period is closed; purchases dated in it cannot be deleted")
 
         # 1 — remove inventory movements linked to GRNs of this PO
         cur.execute("""
@@ -566,8 +573,8 @@ def add_purchase_return(
     status: str = "approved",
     ip_address: str | None = None,
 ) -> dict:
-    if is_period_frozen(branch_id, entry_date):
-        raise ValueError("This accounting period is closed for the selected branch")
+    if is_period_frozen(company_id, entry_date):
+        raise ValueError("This accounting period is closed")
 
     conn = get_connection()
     cur = dict_cursor(conn)

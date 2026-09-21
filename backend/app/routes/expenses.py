@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 
 from app.api.responses import error, success
 from app.database import expenses as expenses_db
@@ -251,7 +252,49 @@ def list_period_snapshots(current_user: dict = Depends(get_current_user)):
         snapshots=expenses_db.list_period_snapshots(current_user["company_id"]),
     )
 
+class InventoryPeriodSnapshotRequest(BaseModel):
+    branch_id: int
+    period_label: str
+    entry_date: str
+    opening_value: float = 0
+    purchases_value: float = 0
+    closing_value: float = 0
+    cogs: float = 0
+    locked_by: str = ""
+    notes: str = ""
 
+
+@router.post("/inventory-period-snapshots", status_code=201)
+def create_inventory_period_snapshot(
+    req: InventoryPeriodSnapshotRequest,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        row = expenses_db.create_inventory_period_snapshot(
+            current_user["company_id"], current_user["id"],
+            ip_address=request.client.host, **req.model_dump()
+        )
+        return success("Inventory period snapshot created", snapshot=row)
+    except ValueError as e:
+        return error(str(e), status=400)
+    except Exception as e:
+        if "unique" in str(e).lower():
+            return error("This branch already has a snapshot with that label", status=409)
+        return error(str(e), status=400)
+
+
+@router.get("/inventory-period-snapshots")
+def list_inventory_period_snapshots(
+    branch_id: int | None = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    return success(
+        "Inventory period snapshots retrieved",
+        snapshots=expenses_db.list_inventory_period_snapshots(
+            current_user["company_id"], branch_id
+        ),
+    )
 # ── Period Backups ────────────────────────────────────────────────────────────
 
 @router.post("/period-backups/generate", status_code=201)
@@ -355,7 +398,7 @@ def is_period_closed_api(
     s = get_period_status(current_user["company_id"], entry_date[:7])
     return success(
         "Period closure checked",
-        is_closed=is_period_frozen(branch_id, entry_date),
+        is_closed=is_period_frozen(current_user["company_id"], entry_date),
         is_locked=s["status"] == "locked",
         status=s["status"],
     )

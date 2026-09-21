@@ -841,7 +841,88 @@ def list_period_snapshots(
 ) -> list[dict[str, Any]]:
     return _list_entries("period_snapshots", company_id, branch_id, None, limit)
 
+def create_inventory_period_snapshot(
+    company_id: int,
+    user_id: int,
+    branch_id: int,
+    period_label: str,
+    entry_date: str,
+    opening_value: float = 0,
+    purchases_value: float = 0,
+    closing_value: float = 0,
+    cogs: float = 0,
+    locked_by: str = "",
+    notes: str = "",
+    ip_address: str | None = None,
+) -> dict[str, Any]:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute(
+            "SELECT id FROM branches WHERE id = %s AND company_id = %s",
+            (branch_id, company_id),
+        )
+        if not cur.fetchone():
+            raise ValueError("Branch not found or access denied")
 
+        cur.execute("""
+            INSERT INTO inventory_period_snapshots
+                (company_id, branch_id, period_label, entry_date,
+                 opening_value, purchases_value, closing_value, cogs,
+                 locked_by, notes, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+        """, (company_id, branch_id, period_label.strip(), entry_date,
+              opening_value, purchases_value, closing_value, cogs,
+              locked_by, notes, user_id))
+        row = _row(dict(cur.fetchone()))
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=branch_id,
+            action="CREATE",
+            table_name="inventory_period_snapshots",
+            record_id=row["id"],
+            new_data=row,
+            ip_address=ip_address,
+        )
+        conn.commit()
+        return row
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def list_inventory_period_snapshots(
+    company_id: int,
+    branch_id: int | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        where = ["s.company_id = %s"]
+        params: list[Any] = [company_id]
+        if branch_id:
+            where.append("s.branch_id = %s")
+            params.append(branch_id)
+        cur.execute(f"""
+            SELECT s.*, b.name AS branch_name
+            FROM inventory_period_snapshots s
+            JOIN branches b ON b.id = s.branch_id
+            WHERE {' AND '.join(where)}
+            ORDER BY s.entry_date DESC, s.id DESC
+            LIMIT %s
+        """, params + [limit])
+        return [_row(dict(r)) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
 # ─────────────────────────────────────────────────────────────────────────────
 # Period Backups
 # ─────────────────────────────────────────────────────────────────────────────
