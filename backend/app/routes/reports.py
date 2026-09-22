@@ -81,24 +81,14 @@ def food_cost_trend(
     return success("Food cost trend retrieved", trend=trend)
 
 
-@router.get("/reports/variance-recipe")
-def variance_report_recipe(
-    branch_id: int = Query(...),
-    period: str = Query(...),
-    current_user: dict = Depends(get_current_user),
-):
-    rows = reports_db.get_variance_report(branch_id, period, current_user["company_id"])
-    return success("Variance report retrieved", variance=rows)
-
-
-@router.get("/reports/variance-movements")
-def variance_report_movements(
+@router.get("/reports/variance")
+def variance_report(
     branch_id: int | None = Query(None),
     date_from: str = Query(""),
     date_to: str = Query(""),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = reports_db.get_variance_movements(
+    rows = reports_db.get_variance_report(
         company_id=current_user["company_id"],
         branch_id=branch_id,
         date_from=date_from,

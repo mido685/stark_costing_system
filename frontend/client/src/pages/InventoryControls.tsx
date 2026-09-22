@@ -486,7 +486,7 @@ import {
       if (branchId) p.set("branch_id", String(branchId));
       if (dateFrom) p.set("date_from", dateFrom);
       if (dateTo) p.set("date_to", dateTo);
-      const raw = await apiCall<any[]>(`/api/reports/variance-movements?${p}`);
+      const raw = await apiCall<any[]>(`/api/reports/variance?${p}`);
       return (Array.isArray(raw) ? raw : []).map(r => ({
         ...r,
         theoretical_usage: n(r.theoretical_usage),

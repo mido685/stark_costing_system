@@ -540,139 +540,181 @@ def get_food_cost_trend(
 # Variance Reports
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+
 def get_variance_report(
-    branch_id: int, period: str, company_id: int
-) -> list[dict[str, Any]]:
-    """
-    Recipe-based variance: theoretical ingredient consumption vs actual issues.
-    Single-query CTE — much faster than the original Python loop approach.
-    """
-    conn = get_connection()
-    cur = dict_cursor(conn)
-    try:
-        _verify_branch(cur, branch_id, company_id)
-        cur.execute("""
-            WITH sold AS (
-                SELECT product_id, SUM(quantity) AS qty_sold
-                FROM sales
-                WHERE branch_id = %s AND status = 'approved'
-                  AND TO_CHAR(entry_date, 'YYYY-MM') = %s
-                GROUP BY product_id
-            ),
-            theoretical AS (
-                SELECT ri.ingredient_id,
-                       SUM(
-                           s.qty_sold * ri.qty_required
-                           / NULLIF(r.yield_pct / 100.0, 0)
-                       ) AS theoretical_qty
-                FROM sold s
-                JOIN recipes r             ON r.product_id  = s.product_id
-                JOIN recipe_ingredients ri ON ri.recipe_id  = r.id
-                GROUP BY ri.ingredient_id
-            ),
-            actual AS (
-                SELECT ingredient_id,
-                       SUM(ABS(quantity_delta)) AS actual_qty
-                FROM inventory_movements
-                WHERE branch_id = %s AND movement_type = 'issue'
-                  AND TO_CHAR(entry_date, 'YYYY-MM') = %s
-                GROUP BY ingredient_id
-            )
-            SELECT
-                i.id                                                    AS ingredient_id,
-                i.name                                                  AS ingredient_name,
-                i.unit,
-                ROUND(i.cost_per_unit::numeric, 4)                     AS cost_per_unit,
-                ROUND(COALESCE(t.theoretical_qty, 0)::numeric, 3)      AS theoretical_qty,
-                ROUND(COALESCE(a.actual_qty,      0)::numeric, 3)      AS actual_qty,
-                ROUND((COALESCE(a.actual_qty, 0)
-                     - COALESCE(t.theoretical_qty, 0))::numeric, 3)    AS variance_qty,
-                CASE
-                    WHEN COALESCE(t.theoretical_qty, 0) <> 0
-                    THEN ROUND(
-                        (COALESCE(a.actual_qty, 0) - COALESCE(t.theoretical_qty, 0))
-                        / t.theoretical_qty * 100, 2)
-                    ELSE 0
-                END                                                     AS variance_pct,
-                ROUND((
-                    (COALESCE(a.actual_qty, 0) - COALESCE(t.theoretical_qty, 0))
-                    * i.cost_per_unit
-                )::numeric, 2)                                          AS variance_cost
-            FROM ingredients i
-            LEFT JOIN theoretical t ON t.ingredient_id = i.id
-            LEFT JOIN actual      a ON a.ingredient_id = i.id
-            WHERE i.company_id = %s
-              AND i.is_active = TRUE
-              AND (COALESCE(t.theoretical_qty, 0) <> 0
-                   OR COALESCE(a.actual_qty,   0) <> 0)
-            ORDER BY ABS(
-                (COALESCE(a.actual_qty, 0) - COALESCE(t.theoretical_qty, 0))
-                * i.cost_per_unit
-            ) DESC
-        """, (branch_id, period, branch_id, period, company_id))
-        return [_row(dict(r)) for r in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
-
-
-def get_variance_movements(
     company_id: int,
     branch_id: int | None = None,
     date_from: str = "",
     date_to: str = "",
 ) -> list[dict[str, Any]]:
+    """
+    Canonical recipe-based usage variance for the legacy /reports/variance
+    endpoint.
+
+    The calculation is:
+        theoretical_usage = approved sales × recipe requirements
+        actual_usage      = issue movements
+        variance           = actual_usage - theoretical_usage
+
+    Waste and damage are intentionally NOT added to usage variance. They are
+    separate loss/waste movements and should be reported separately.
+
+    This function keeps the legacy response field names expected by the
+    existing frontend while using the correct recipe-based calculation.
+    """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        join_conditions = ["im.ingredient_id = i.id"]
-        join_params: list[Any] = []
+        # Build the branch/date filters independently for sales and issues.
+        sales_conditions = ["s.status = 'approved'"]
+        sales_params: list[Any] = []
+
+        actual_conditions = ["im.movement_type = 'issue'"]
+        actual_params: list[Any] = []
+
         if branch_id:
-            join_conditions.append("im.branch_id = %s")
-            join_params.append(branch_id)
+            _verify_branch(cur, branch_id, company_id)
+            sales_conditions.append("s.branch_id = %s")
+            sales_params.append(branch_id)
+            actual_conditions.append("im.branch_id = %s")
+            actual_params.append(branch_id)
+
         if date_from:
-            join_conditions.append("im.entry_date >= %s")
-            join_params.append(date_from)
+            sales_conditions.append("s.entry_date >= %s")
+            sales_params.append(date_from)
+            actual_conditions.append("im.entry_date >= %s")
+            actual_params.append(date_from)
+
         if date_to:
-            join_conditions.append("im.entry_date <= %s")
-            join_params.append(date_to)
+            sales_conditions.append("s.entry_date <= %s")
+            sales_params.append(date_to)
+            actual_conditions.append("im.entry_date <= %s")
+            actual_params.append(date_to)
 
-        params = join_params + [company_id]
+        # If branch_id is not supplied, restrict both sides to branches
+        # belonging to the current company.
+        sales_join = "JOIN branches sb ON sb.id = s.branch_id"
+        actual_join = "JOIN branches ab ON ab.id = im.branch_id"
 
-        cur.execute(f"""
+        sql = f"""
+            WITH sold AS (
+                SELECT
+                    s.product_id,
+                    SUM(s.quantity) AS qty_sold
+                FROM sales s
+                {sales_join}
+                WHERE sb.company_id = %s
+                  AND {' AND '.join(sales_conditions)}
+                GROUP BY s.product_id
+            ),
+
+            theoretical AS (
+                SELECT
+                    ri.ingredient_id,
+                    SUM(
+                        sold.qty_sold
+                        * ri.qty_required
+                        / NULLIF(r.yield_pct / 100.0, 0)
+                    ) AS theoretical_qty
+                FROM sold
+                JOIN recipes r
+                    ON r.product_id = sold.product_id
+                JOIN recipe_ingredients ri
+                    ON ri.recipe_id = r.id
+                GROUP BY ri.ingredient_id
+            ),
+
+            actual AS (
+                SELECT
+                    im.ingredient_id,
+                    SUM(ABS(im.quantity_delta)) AS actual_qty
+                FROM inventory_movements im
+                {actual_join}
+                WHERE ab.company_id = %s
+                  AND {' AND '.join(actual_conditions)}
+                GROUP BY im.ingredient_id
+            )
+
             SELECT
-                i.id             AS ingredient_id,
+                i.id AS ingredient_id,
                 i.name,
                 i.unit,
-                i.cost_per_unit,
-                COALESCE(SUM(im.quantity_delta)
-                    FILTER (WHERE im.movement_type = 'issue'), 0)
-                                                AS theoretical_usage,
-                COALESCE(SUM(ABS(im.quantity_delta))
-                    FILTER (WHERE im.movement_type IN ('waste','damage')), 0)
-                                                AS actual_usage,
-                COALESCE(SUM(ABS(im.quantity_delta))
-                    FILTER (WHERE im.movement_type IN ('waste','damage')), 0)
-                + COALESCE(SUM(im.quantity_delta)
-                    FILTER (WHERE im.movement_type = 'issue'), 0)
-                                                AS variance,
-                COALESCE(SUM(ABS(im.quantity_delta) * im.unit_cost)
-                    FILTER (WHERE im.movement_type IN ('waste','damage')), 0)
-                                                AS variance_value
+
+                ROUND(
+                    COALESCE(t.theoretical_qty, 0)::numeric,
+                    3
+                ) AS theoretical_usage,
+
+                ROUND(
+                    COALESCE(a.actual_qty, 0)::numeric,
+                    3
+                ) AS actual_usage,
+
+                ROUND(
+                    (
+                        COALESCE(a.actual_qty, 0)
+                        - COALESCE(t.theoretical_qty, 0)
+                    )::numeric,
+                    3
+                ) AS variance,
+
+                CASE
+                    WHEN COALESCE(t.theoretical_qty, 0) <> 0
+                    THEN ROUND(
+                        (
+                            COALESCE(a.actual_qty, 0)
+                            - COALESCE(t.theoretical_qty, 0)
+                        )
+                        / t.theoretical_qty * 100,
+                        2
+                    )
+                    ELSE 0
+                END AS variance_pct,
+
+                ROUND(
+                    (
+                        (
+                            COALESCE(a.actual_qty, 0)
+                            - COALESCE(t.theoretical_qty, 0)
+                        )
+                        * i.cost_per_unit
+                    )::numeric,
+                    2
+                ) AS variance_value
+
             FROM ingredients i
-            LEFT JOIN inventory_movements im
-                ON {' AND '.join(join_conditions)}
+            LEFT JOIN theoretical t
+                ON t.ingredient_id = i.id
+            LEFT JOIN actual a
+                ON a.ingredient_id = i.id
+
             WHERE i.company_id = %s
               AND i.is_active = TRUE
-            GROUP BY i.id, i.name, i.unit, i.cost_per_unit
-            HAVING COALESCE(SUM(im.quantity_delta), 0) <> 0
-            ORDER BY ABS(COALESCE(SUM(im.quantity_delta), 0)) DESC
-        """, params)
-        rows = [_row(dict(r)) for r in cur.fetchall()]
-        for r in rows:
-            theoretical = abs(r["theoretical_usage"])
-            r["variance_pct"] = round(r["variance"] / theoretical * 100, 2) if theoretical else 0.0
-        return rows
+              AND (
+                  COALESCE(t.theoretical_qty, 0) <> 0
+                  OR COALESCE(a.actual_qty, 0) <> 0
+              )
+
+            ORDER BY ABS(
+                (
+                    COALESCE(a.actual_qty, 0)
+                    - COALESCE(t.theoretical_qty, 0)
+                ) * i.cost_per_unit
+            ) DESC
+        """
+
+        params = (
+            [company_id]
+            + sales_params
+            + [company_id]
+            + actual_params
+            + [company_id]
+        )
+
+        cur.execute(sql, params)
+        return [_row(dict(r)) for r in cur.fetchall()]
+
     finally:
         cur.close()
         conn.close()
