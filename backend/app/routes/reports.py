@@ -91,14 +91,14 @@ def variance_report_recipe(
     return success("Variance report retrieved", variance=rows)
 
 
-@router.get("/reports/variance")
-def variance_report_legacy(
+@router.get("/reports/variance-movements")
+def variance_report_movements(
     branch_id: int | None = Query(None),
     date_from: str = Query(""),
     date_to: str = Query(""),
     current_user: dict = Depends(get_current_user),
 ):
-    rows = reports_db.get_variance_legacy(
+    rows = reports_db.get_variance_movements(
         company_id=current_user["company_id"],
         branch_id=branch_id,
         date_from=date_from,

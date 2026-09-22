@@ -480,13 +480,13 @@ import {
   async function createPeriodSnapshot(payload: any): Promise<boolean> {
     try { await apiCall("/api/inventory-period-snapshots", { method: "POST", body: JSON.stringify(payload) }); return true; } catch { return false; }
   }
-  async function getVarianceReport(branchId?: number, dateFrom?: string, dateTo?: string): Promise<VarianceRow[]> {
+  async function getVarianceMovementsReport(branchId?: number, dateFrom?: string, dateTo?: string): Promise<VarianceRow[]> {
     {
       const p = new URLSearchParams();
       if (branchId) p.set("branch_id", String(branchId));
       if (dateFrom) p.set("date_from", dateFrom);
       if (dateTo) p.set("date_to", dateTo);
-      const raw = await apiCall<any[]>(`/api/reports/variance?${p}`);
+      const raw = await apiCall<any[]>(`/api/reports/variance-movements?${p}`);
       return (Array.isArray(raw) ? raw : []).map(r => ({
         ...r,
         theoretical_usage: n(r.theoretical_usage),
@@ -879,7 +879,7 @@ import {
       setLoading(true);
       setError("");
       try {
-        const result = await getVarianceReport(branchId, dateFrom, dateTo);
+        const result = await getVarianceMovementsReport(branchId, dateFrom, dateTo);
         setRows(result);
         setRan(true);
       } catch (e) {

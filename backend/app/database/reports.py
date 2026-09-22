@@ -616,30 +616,28 @@ def get_variance_report(
         conn.close()
 
 
-def get_variance_legacy(
+def get_variance_movements(
     company_id: int,
     branch_id: int | None = None,
     date_from: str = "",
     date_to: str = "",
 ) -> list[dict[str, Any]]:
-    """
-    Simpler date-range variance based on movement types (no recipe needed).
-    Useful for ad-hoc investigation outside of a calendar month boundary.
-    """
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        join_conditions = ["i.company_id = %s", "im.ingredient_id = i.id"]
-        params: list[Any] = [company_id]
+        join_conditions = ["im.ingredient_id = i.id"]
+        join_params: list[Any] = []
         if branch_id:
             join_conditions.append("im.branch_id = %s")
-            params.append(branch_id)
+            join_params.append(branch_id)
         if date_from:
             join_conditions.append("im.entry_date >= %s")
-            params.append(date_from)
+            join_params.append(date_from)
         if date_to:
             join_conditions.append("im.entry_date <= %s")
-            params.append(date_to)
+            join_params.append(date_to)
+
+        params = join_params + [company_id]
 
         cur.execute(f"""
             SELECT
@@ -663,8 +661,8 @@ def get_variance_legacy(
                                                 AS variance_value
             FROM ingredients i
             LEFT JOIN inventory_movements im
-                ON {' AND '.join(join_conditions[1:])}
-            WHERE {join_conditions[0]}
+                ON {' AND '.join(join_conditions)}
+            WHERE i.company_id = %s
               AND i.is_active = TRUE
             GROUP BY i.id, i.name, i.unit, i.cost_per_unit
             HAVING COALESCE(SUM(im.quantity_delta), 0) <> 0
@@ -678,7 +676,6 @@ def get_variance_legacy(
     finally:
         cur.close()
         conn.close()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Audit Log
