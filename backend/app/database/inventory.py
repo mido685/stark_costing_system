@@ -1189,8 +1189,56 @@ def list_adjustments_by_branch(company_id: int, branch_id: int | None = None, li
         cur.close(); conn.close()
 
 
-def list_opening_stock_by_branch(company_id: int, branch_id: int | None = None, limit: int = 200):
-    return list_opening_stock(company_id, branch_id, limit)
+def list_opening_stock_by_branch(
+    company_id: int,
+    branch_id: int | None = None,
+    limit: int = 200,
+):
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        where = [
+            "b.company_id = %s",
+            "si.issued_to = 'opening_stock'",
+        ]
+        params: list[Any] = [company_id]
+
+        if branch_id:
+            where.append("si.branch_id = %s")
+            params.append(branch_id)
+
+        cur.execute(
+            f"""
+            SELECT
+                si.id,
+                si.branch_id,
+                si.ingredient_id,
+                i.name AS ingredient_name,
+                i.unit,
+                si.entry_date,
+                si.qty_issued,
+                im.unit_cost,
+                (si.qty_issued * im.unit_cost) AS opening_value
+            FROM stock_issues si
+            JOIN branches b
+                ON b.id = si.branch_id
+            JOIN ingredients i
+                ON i.id = si.ingredient_id
+            JOIN inventory_movements im
+                ON im.reference_table = 'stock_issues'
+               AND im.reference_id = si.id
+               AND im.movement_type = 'opening_stock'
+            WHERE {' AND '.join(where)}
+            ORDER BY si.entry_date DESC, si.id DESC
+            LIMIT %s
+            """,
+            params + [limit],
+        )
+
+        return [_row(dict(r)) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
 
 
 def list_transfers_by_branch(company_id: int, branch_id: int | None = None, limit: int = 200):

@@ -362,14 +362,32 @@ import {
   }
 
   // Opening = closing value of the latest snapshot dated before this period starts
-  function openingValueForPeriod(snapshots: PeriodSnapshot[], period: string): number {
-    const start = `${period}-01`;
-    const prior = snapshots
-      .filter(s => (s.entry_date ?? "") < start)
-      .sort((a, b) => (b.entry_date ?? "").localeCompare(a.entry_date ?? ""));
-    return prior.length ? n(prior[0].closing_value) : 0;
+  function openingValueForPeriod(
+  snapshots: PeriodSnapshot[],
+  openingStock: any[],
+  period: string
+): number {
+  const start = `${period}-01`;
+
+  const prior = snapshots
+    .filter(s => (s.entry_date ?? "") < start)
+    .sort((a, b) =>
+      (b.entry_date ?? "").localeCompare(a.entry_date ?? "")
+    );
+
+  if (prior.length) {
+    return n(prior[0].closing_value);
   }
 
+  const openingRows = openingStock.filter(
+    row => (row.entry_date ?? "") < start
+  );
+
+  return openingRows.reduce(
+    (sum, row) => sum + n(row.opening_value),
+    0
+  );
+}
   // Is the period containing `date` open for this branch? Returns an error message, or null if OK.
   // Fails open on network errors: the server remains the real enforcement.
   async function checkDateOpen(branchId: number, date: string): Promise<string | null> {
@@ -1058,10 +1076,11 @@ import {
 
   // ─── COGS Panel ───────────────────────────────────────────────────────────────
 
-  function CogsPanel({ snapshots, balances, purchases, branchId, t }: {
+  function CogsPanel({ snapshots, balances, purchases, openingStock, branchId, t }: {
     snapshots: PeriodSnapshot[];
     balances: StockBalance[];
     purchases: any[];
+    openingStock: any[];
     branchId: number;
     t: (k: string) => string;
   }) {
@@ -1086,7 +1105,7 @@ import {
 
     const totalCurrentValue   = balances.reduce((s, b) => s + assetValue(b), 0);
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
-    const openingValue  = openingValueForPeriod(snapshots, period);
+    const openingValue  = openingValueForPeriod(snapshots,openingStock, period);
     const estimatedCOGS = openingValue + totalPurchasesValue - totalCurrentValue;
 
     if (purchState === "error") {
@@ -2981,7 +3000,7 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     const { data: stockCounts,  refetch: refetchCounts     } = useApi<any[]>(() => getStockCountsWithPurchases(branchId || undefined), { deps: [branchId] });
     const { data: purchases,    refetch: refetchPurchases  } = useApi<any[]>(() => getPurchasesByBranch(branchId || undefined),        { deps: [branchId] });
     const { data: transfers, loading: transfersLoading, refetch: refetchTransfers } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined), { deps: [branchId] });
-const { data: openingStock, refetch: refetchOpening } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined), { deps: [branchId] });
+    const { data: openingStock, refetch: refetchOpening } = useApi<any[]>(() => getOpeningStockByBranch(branchId || undefined), { deps: [branchId] });
     const { data: adjustments,  loading: adjLoading, refetch: refetchAdjustments } = useApi<any[]>(() => getAdjustmentsByBranch(branchId || undefined), { deps: [branchId] });
     const { data: wasteRecords, refetch: refetchWaste } = useApi<WasteRecord[]>(() => getWasteByBranch(branchId || undefined), { deps: [branchId] });
     const { data: periodSnapshots, refetch: refetchSnapshots } = useApi<PeriodSnapshot[]>(() => getPeriodSnapshots(branchId || undefined), { deps: [branchId] });
@@ -3109,25 +3128,42 @@ const { data: openingStock, refetch: refetchOpening } = useApi<any[]>(() => getO
     const [closePurchState, setClosePurchState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
     useEffect(() => {
-      if (modal !== "periodClose" || !closePeriodKey) { setClosePurchState("idle"); return; }
-      let cancelled = false;
-      setClosePurchState("loading");
-      fetchPurchasesForPeriod(branchId || undefined, closePeriodKey)
-        .then(rows => { if (!cancelled) { setClosePurchases(rows); setClosePurchState("ok"); } })
-        .catch(e => {
-          console.error("[period close] purchases load failed", e);
-          if (!cancelled) setClosePurchState("error");
-        });
-      return () => { cancelled = true; };
-    }, [modal, branchId, closePeriodKey]);
+      if (modal !== "periodClose" || !closePeriodKey) {
+        setClosePurchState("idle");
+        return;
+      }
+
+  let cancelled = false;
+  setClosePurchState("loading");
+
+  Promise.all([
+    fetchPurchasesForPeriod(branchId || undefined, closePeriodKey),
+    getOpeningStockByBranch(branchId || undefined),
+  ])
+    .then(rows => {
+        if (!cancelled) {
+          setClosePurchases(rows);
+          setClosePurchState("ok");
+        }
+      })    .catch(e => {
+      console.error("[period close] finance data load failed", e);
+      if (!cancelled) setClosePurchState("error");
+    });
+
+  return () => { cancelled = true; };
+}, [modal, branchId, closePeriodKey]);
 
     const closePreview = useMemo(() => {
-      const period = closePeriodKey;
-      const opening = openingValueForPeriod(safeSnapshots, period);
+    const period = closePeriodKey;
+    const opening = openingValueForPeriod(
+      safeSnapshots,
+      safeOpening,
+      period
+    );
       const purchasesValue = purchasesValueForPeriod(closePurchases, period);
       const closing = stats.rawValue + stats.fgValue;
       return { period, opening, purchasesValue, closing, cogs: opening + purchasesValue - closing };
-    }, [closePeriodKey, safeSnapshots, closePurchases, stats.rawValue, stats.fgValue]);
+    }, [closePeriodKey, safeSnapshots,safeOpening, closePurchases, stats.rawValue, stats.fgValue]);
 
     const alerts = useMemo(() =>
       safeBalances.filter(b => b.negative_alert || b.reorder_alert)
@@ -4129,7 +4165,7 @@ const { data: openingStock, refetch: refetchOpening } = useApi<any[]>(() => getO
             </Button>
           </Card>
         ) : (
-          <CogsPanel snapshots={safeSnapshots} balances={[...safeBalances, ...safeFG]} purchases={safePurchases} branchId={branchId} t={t} />
+          <CogsPanel snapshots={safeSnapshots} balances={[...safeBalances, ...safeFG]} purchases={safePurchases} openingStock={safeOpening} branchId={branchId} t={t} />
         ))}
 
         {/* ── Audit Log Tab ── */}
