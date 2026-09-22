@@ -476,10 +476,9 @@ import {
   }
   function getPeriodSnapshots(branchId?: number): Promise<PeriodSnapshot[]> {
     return tracked("period snapshots", async () =>
-      asList(await apiCall<PeriodSnapshot[]>(`/api/period-snapshots${branchId ? `?branch_id=${branchId}` : ""}`)) as PeriodSnapshot[], [] as PeriodSnapshot[]);
-  }
+      asList(await apiCall<PeriodSnapshot[]>(`/api/inventory-period-snapshots${branchId ? `?branch_id=${branchId}` : ""}`)) as PeriodSnapshot[], [] as PeriodSnapshot[]);  }
   async function createPeriodSnapshot(payload: any): Promise<boolean> {
-    try { await apiCall("/api/period-snapshots", { method: "POST", body: JSON.stringify(payload) }); return true; } catch { return false; }
+    try { await apiCall("/api/inventory-period-snapshots", { method: "POST", body: JSON.stringify(payload) }); return true; } catch { return false; }
   }
   async function getVarianceReport(branchId?: number, dateFrom?: string, dateTo?: string): Promise<VarianceRow[]> {
     {

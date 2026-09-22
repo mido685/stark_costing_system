@@ -6,7 +6,7 @@ from app.database import expenses as expenses_db
 from app.database.periods import get_period_status, is_period_frozen
 from app.schemas import (
     AccrualRequest, BudgetRequest, ClosePeriodRequest, DepreciationRequest,
-    ExpenseRequest, PayrollRequest, PeriodBackupRequest, PeriodSnapshotRequest,
+    ExpenseRequest, PayrollRequest, PeriodBackupRequest,
     PeriodStatusRequest, PrepaymentRequest,
 )
 from app.security.dependencies import check_period_open, get_current_user, require_roles
@@ -226,30 +226,6 @@ def budget_vs_actual(
         budget=expenses_db.get_budget_summary(
             current_user["company_id"], branch_id, period
         ),
-    )
-
-
-# ── Period Snapshots ──────────────────────────────────────────────────────────
-
-@router.post("/period-snapshots", status_code=201)
-def create_period_snapshot(
-    req: PeriodSnapshotRequest,
-    current_user: dict = Depends(require_roles("owner", "admin")),
-):
-    try:
-        row = expenses_db.create_period_snapshot(
-            current_user["company_id"], current_user["id"], **req.model_dump()
-        )
-        return success("Period snapshot created", snapshot=row)
-    except Exception as e:
-        return error(str(e))
-
-
-@router.get("/period-snapshots")
-def list_period_snapshots(current_user: dict = Depends(get_current_user)):
-    return success(
-        "Period snapshots retrieved",
-        snapshots=expenses_db.list_period_snapshots(current_user["company_id"]),
     )
 
 class InventoryPeriodSnapshotRequest(BaseModel):
