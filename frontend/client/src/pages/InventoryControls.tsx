@@ -110,8 +110,9 @@ import {
   // Waste above this share of on-hand stock (or more than is on hand) is sent for
   // manager approval as an adjustment. Set to Infinity to keep all waste immediate.
   // Infinity = all waste is recorded immediately through /api/waste (the backend
-  // writes it once, as a 'waste' movement). Finite = large waste goes to approval.
+  // writes it once, as a 'waste' movement). Finite = large waste goes to appro
   const WASTE_APPROVAL_PCT = Infinity;
+
 
   function wasteNeedsApproval(bal: StockBalance | undefined, qty: number): boolean {
     if (!Number.isFinite(WASTE_APPROVAL_PCT)) return false;
@@ -362,31 +363,24 @@ import {
   }
 
   // Opening = closing value of the latest snapshot dated before this period starts
-  function openingValueForPeriod(
+function openingValueForPeriod(
   snapshots: PeriodSnapshot[],
   openingStock: any[],
   period: string
-): number {
+): { value: number; source: "snapshot" | "manual" } {
   const start = `${period}-01`;
 
   const prior = snapshots
     .filter(s => (s.entry_date ?? "") < start)
-    .sort((a, b) =>
-      (b.entry_date ?? "").localeCompare(a.entry_date ?? "")
-    );
+    .sort((a, b) => (b.entry_date ?? "").localeCompare(a.entry_date ?? ""));
 
   if (prior.length) {
-    return n(prior[0].closing_value);
+    return { value: n(prior[0].closing_value), source: "snapshot" };
   }
 
-  const openingRows = openingStock.filter(
-    row => (row.entry_date ?? "") < start
-  );
-
-  return openingRows.reduce(
-    (sum, row) => sum + n(row.opening_value),
-    0
-  );
+  const openingRows = openingStock.filter(row => (row.entry_date ?? "") < start);
+  const value = openingRows.reduce((sum, row) => sum + n(row.opening_value), 0);
+  return { value, source: "manual" };
 }
   // Is the period containing `date` open for this branch? Returns an error message, or null if OK.
   // Fails open on network errors: the server remains the real enforcement.
@@ -1105,7 +1099,7 @@ import {
 
     const totalCurrentValue   = balances.reduce((s, b) => s + assetValue(b), 0);
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
-    const openingValue  = openingValueForPeriod(snapshots,openingStock, period);
+    const { value: openingValue, source: openingSource } = openingValueForPeriod(snapshots, openingStock, period);
     const estimatedCOGS = openingValue + totalPurchasesValue - totalCurrentValue;
 
     if (purchState === "error") {
@@ -1225,8 +1219,8 @@ import {
                       <td className="px-4 py-3 text-right font-mono text-sm">{fmtEGP(s.opening_value)}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-violet-600">+{fmtEGP(s.purchases_value)}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-green-600">−{fmtEGP(s.closing_value)}</td>
-                      <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${cogsIsHigh ? "text-red-600" : "text-foreground"}`}>
-                        {fmtEGP(s.cogs)}
+                      <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${s.cogs < 0 ? "text-red-600" : cogsIsHigh ? "text-red-600" : "text-foreground"}`}>
+                        {fmtSignedEGP(s.cogs)}
                       </td>
                       <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.locked_by}</td>
                       <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.entry_date}</td>
@@ -2982,6 +2976,8 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     };
     const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
     const currentUserName = localStorage.getItem("user_name") ?? "System";
+    const currentUserRole = (localStorage.getItem("user_role") ?? "").toLowerCase();
+    const canClosePeriod = ["owner", "admin", "manager"].includes(currentUserRole);
     const [branchId, setBranchId] = useState<number>(0);
     const { workingPeriod } = useWorkingPeriod();
     const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
@@ -3155,14 +3151,14 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
 
     const closePreview = useMemo(() => {
     const period = closePeriodKey;
-    const opening = openingValueForPeriod(
+    const { value: opening, source: openingSource } = openingValueForPeriod(
       safeSnapshots,
       safeOpening,
       period
     );
       const purchasesValue = purchasesValueForPeriod(closePurchases, period);
       const closing = stats.rawValue + stats.fgValue;
-      return { period, opening, purchasesValue, closing, cogs: opening + purchasesValue - closing };
+      return { period, opening, openingSource, purchasesValue, closing, cogs: opening + purchasesValue - closing };
     }, [closePeriodKey, safeSnapshots,safeOpening, closePurchases, stats.rawValue, stats.fgValue]);
 
     const alerts = useMemo(() =>
@@ -3181,6 +3177,7 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     const WRITE_MODALS: ModalType[] = ["count", "adjustment", "waste", "transfer", "opening", "periodClose"];
 
     function openModal(type: ModalType) {
+      if (type === "periodClose" && !canClosePeriod) return;
       if (selectedPeriodClosed && type && WRITE_MODALS.includes(type)) return;
       setFormError(""); setModal(type);
       if (type === "transfer") setTransferForm(f => ({ ...f, from_branch_id: branchId }));
@@ -3367,6 +3364,7 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     }
 
     async function handlePeriodClose() {
+      if (!canClosePeriod) { setFormError("You don't have permission to close a period."); return; }
       if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
       if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
       if (closePurchState !== "ok") {
@@ -3746,6 +3744,20 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
               {closePurchState === "error" && (
                 <p className="text-[11px] text-red-600">Could not load purchases for {closePreview.period}. Saving is disabled.</p>
               )}
+              {closePreview.opening === 0 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-2 py-1.5">
+                  <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                  No opening inventory value found for this period. COGS will be calculated as if you started with EGP 0.00 —
+                  if this isn't your very first period, add an Opening Stock entry (dated before {closePreview.period}-01) before closing, or the resulting COGS will be wrong.
+                </p>
+              )}
+              {closePreview.opening > 0 && closePreview.cogs < 0 && (
+                <p className="text-[11px] text-red-600 dark:text-red-400 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1.5">
+                  <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                  Estimated COGS is negative ({fmtSignedEGP(closePreview.cogs)}) — closing inventory is higher than opening + purchases can account for.
+                  This usually means a stock count, transfer, or adjustment wasn't recorded correctly. Double-check before closing this period.
+                </p>
+              )}
             </div>
             <Field label={t("inv.modal.period.field.label")} hint={t("inv.modal.period.field.labelHint")}>
               <input type="text" className={inputClass} placeholder={t("inv.modal.period.field.labelPlaceholder")} value={periodForm.period_label} onChange={e => setPeriodForm({ ...periodForm, period_label: e.target.value })} />
@@ -3831,7 +3843,7 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
                 <ShoppingCart className="w-4 h-4 mr-1.5" /> {t("inv.generatePO")}
               </Button>
             )}
-            {branchId > 0 && (
+            {branchId > 0 && canClosePeriod && (
               <Button
                 variant="outline"
                 size="sm"
