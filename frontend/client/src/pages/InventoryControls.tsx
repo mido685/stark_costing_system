@@ -3795,18 +3795,18 @@ export default function InventoryControls() {
             </div>
             <Field label={t("inv.modal.period.field.label")} hint="The month you are locking.">
               <input
-              type="month"
-              className={inputClass}
-              value={periodForm.period_label}
-              onChange={e => {
-                const period_label = e.target.value;
-                setPeriodForm(f => ({ ...f, period_label, entry_date: lastDayOfPeriod(period_label) }));
-              }}
+                type="month"
+                className={inputClass}
+                value={periodForm.period_label}
+                onChange={e => {
+                  const period_label = e.target.value;
+                  setPeriodForm(f => ({ ...f, period_label, entry_date: lastDayOfPeriod(period_label) }));
+                }}
               />
-              </Field>
-              <input type="text" className={inputClass} placeholder={t("inv.modal.period.field.labelPlaceholder")} value={periodForm.period_label} onChange={e => setPeriodForm({ ...periodForm, period_label: e.target.value })} />
             </Field>
-            <><input type="date" className={inputClass} value={periodForm.entry_date} onChange={e => setPeriodForm({ ...periodForm, entry_date: e.target.value })} /></Field>
+            <Field label={t("inv.modal.period.field.date")} hint="The final date included in the period.">
+              <input type="date" className={inputClass} value={periodForm.entry_date} onChange={e => setPeriodForm({ ...periodForm, entry_date: e.target.value })} />
+            </Field>
             <Field label={t("inv.modal.period.field.notes")}><textarea className={inputClass} rows={2} placeholder={t("inv.modal.periodNotesPlaceholder")} value={periodForm.notes} onChange={e => setPeriodForm({ ...periodForm, notes: e.target.value })} /></Field>
             <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 flex items-start gap-2">
               <Lock className="w-3 h-3 mt-0.5 flex-shrink-0" />{t("inv.modal.period.warning")}
