@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { today } from "@/lib/format";
 import { getSystemLogs, type SystemLogRow } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -222,9 +223,11 @@ type Filters = {
 
 const PAGE_SIZE = 50;
 
+
+// ...
 export function SystemLogsTab({ branchId }: { branchId: number }) {
-  const currentUserRole = (localStorage.getItem("user_role") ?? "").toLowerCase();
-  const canViewLogs = ["owner", "admin", "manager"].includes(currentUserRole);
+  const { user } = useAuth();
+  const canViewLogs = ["owner", "admin", "manager"].includes((user?.role ?? "").toLowerCase());
   const [logs, setLogs]       = useState<SystemLogRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
