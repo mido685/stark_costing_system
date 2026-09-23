@@ -10,7 +10,8 @@ import {
   TrendingUp, ShoppingCart, History, Package, BadgeCheck,
   Ban, Eye, User, DollarSign,
 } from "lucide-react";
-import { apiCall, getItems } from "@/lib/api";
+import { apiCall, getItems, getBranches } from "@/lib/api";
+import type { Branch } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1229,8 +1230,15 @@ export default function Governance() {
   const { t, tf }      = useLanguage();
   const { workingPeriod, workingPeriodLabel } = useWorkingPeriod();
   const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
-  const branchId      = Number(localStorage.getItem("branch_id") ?? 0);
-  const todayStr      = new Date().toISOString().split("T")[0];
+  const currentUserRole = (localStorage.getItem("user_role") ?? "").toLowerCase();
+  useEffect(() => {
+  getBranches()
+    .then(rows => setBranches(Array.isArray(rows) ? rows : []))
+    .catch(() => setBranches([]));
+}, []);
+  const canApprove = ["owner", "admin", "manager"].includes(currentUserRole);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchId, setBranchId] = useState<number>(0);  const todayStr      = new Date().toISOString().split("T")[0];
   const selectedPeriodStart = `${workingPeriod}-01`;
   const selectedPeriodEnd = useMemo(() => {
     const [year, month] = workingPeriod.split("-").map(Number);
@@ -1369,7 +1377,8 @@ export default function Governance() {
   // ── Approve / Reject ──────────────────────────────────────────────────────
 
   const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
-    setConfirmAction(null);
+    if (!canApprove) return;
+      setConfirmAction(null);
     setLoadingIds((prev) => new Set(prev).add(id));
     const newStatus: ApprovalStatus = action === "approve" ? "approved" : "rejected";
     setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
@@ -1567,21 +1576,32 @@ export default function Governance() {
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">{t("gov.title")}</h1>
-            <p className="text-sm text-muted-foreground mt-1">{t("gov.subtitle")}</p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">{t("gov.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("gov.subtitle")}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            className="h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            value={branchId || ""}
+            onChange={e => setBranchId(Number(e.target.value))}
+          >
+            <option value="">Select branch...</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+
           {activeTab === "approvals" && (
-            <div className="flex items-center gap-2">
+            <>
               <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={approvalsLoading || approvals.length === 0} className="gov-btn-press text-xs">
                 <Download className="w-3.5 h-3.5 me-1.5" />{t("gov.action.export")}
               </Button>
               <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="gov-btn-press">
                 <RefreshCw className={`w-4 h-4 ${approvalsLoading ? "animate-spin" : ""}`} />
               </Button>
-            </div>
+            </>
           )}
         </div>
+      </div>
 
         {/* Tab bar */}
         <div className="flex items-center gap-1 border-b border-border">
@@ -1961,18 +1981,22 @@ export default function Governance() {
                             </p>
                           </div>
                           <div className="flex gap-2 flex-shrink-0">
-                            <EyeBtn onClick={(e?: any) => { e?.stopPropagation?.(); openApprovalHtml(a, t); }} />
-                            <Button size="sm" variant="outline" disabled={isLoading}
-                              onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "reject" }); }}
-                              className="gov-btn-press gov-ripple h-7 text-xs px-3 border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300">
-                              {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : t("gov.pending.reject")}
-                            </Button>
-                            <Button size="sm" disabled={isLoading}
-                              onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "approve" }); }}
-                              className="gov-btn-press gov-ripple h-7 text-xs px-3 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white">
-                              {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : t("gov.pending.approve")}
-                            </Button>
-                          </div>
+                          <EyeBtn onClick={(e?: any) => { e?.stopPropagation?.(); openApprovalHtml(a, t); }} />
+                          {canApprove && (
+                            <>
+                              <Button size="sm" variant="outline" disabled={isLoading}
+                                onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "reject" }); }}
+                                className="gov-btn-press gov-ripple h-7 text-xs px-3 border-red-300 text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300">
+                                {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : t("gov.pending.reject")}
+                              </Button>
+                              <Button size="sm" disabled={isLoading}
+                                onClick={(e) => { e.stopPropagation(); setConfirmAction({ id: a.id, action: "approve" }); }}
+                                className="gov-btn-press gov-ripple h-7 text-xs px-3 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white">
+                                {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : t("gov.pending.approve")}
+                              </Button>
+                            </>
+                          )}
+                        </div>
                         </div>
                       );
                     })}

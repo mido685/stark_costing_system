@@ -223,6 +223,8 @@ type Filters = {
 const PAGE_SIZE = 50;
 
 export function SystemLogsTab({ branchId }: { branchId: number }) {
+  const currentUserRole = (localStorage.getItem("user_role") ?? "").toLowerCase();
+  const canViewLogs = ["owner", "admin", "manager"].includes(currentUserRole);
   const [logs, setLogs]       = useState<SystemLogRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
@@ -251,11 +253,21 @@ export function SystemLogsTab({ branchId }: { branchId: number }) {
       setLoading(false);
     }
   }, [branchId]);
+    if (!canViewLogs) {
+    return (
+      <Card className="p-10 text-center">
+        <AlertCircle className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+        <p className="text-sm font-medium text-muted-foreground">You don't have access to system logs.</p>
+      </Card>
+    );
+  }
 
   useEffect(() => {
+    
+    if (!canViewLogs) return;
     fetchLogs(filters, 0);
     setOffset(0);
-  }, [filters, fetchLogs]);
+  }, [filters, fetchLogs, canViewLogs]);
 
   function applyFilters() { setFilters({ ...pending }); }
 

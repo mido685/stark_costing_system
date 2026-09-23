@@ -37,6 +37,14 @@ function SuperAdminRouter() {
     </Switch>
   );
 }
+function RequireRole({ roles, children }: { roles: string[]; children: React.ReactNode }) {
+  const { user } = useAuth();
+  const role = (user?.role ?? "").toLowerCase();
+  if (!roles.includes(role)) {
+    return <NotFound />;
+  }
+  return <>{children}</>;
+}
 
 function AppRouter() {
   const { logout } = useAuth();
@@ -54,7 +62,11 @@ function AppRouter() {
         <Route path="/governance"         component={Governance}        />
         <Route path="/report"             component={Report}            />
         <Route path="/user-management"    component={UserManagement}    />
-        <Route path="/system-logs"        component={SystemLogsPage} />
+        <Route path="/system-logs">
+        <RequireRole roles={["owner", "admin", "manager"]}>
+          <SystemLogsPage />
+        </RequireRole>
+      </Route>
         <Route                            component={NotFound}          />
       </Switch>
     </DashboardLayout>
