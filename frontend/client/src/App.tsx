@@ -61,7 +61,11 @@ function AppRouter() {
         <Route path="/finance"            component={Finance}           />
         <Route path="/governance"         component={Governance}        />
         <Route path="/report"             component={Report}            />
-        <Route path="/user-management"    component={UserManagement}    />
+        <Route path="/user-management">
+        <RequireRole roles={["owner", "admin"]}>
+          <UserManagement />
+        </RequireRole>
+      </Route>
         <Route path="/system-logs">
         <RequireRole roles={["owner", "admin", "manager"]}>
           <SystemLogsPage />
