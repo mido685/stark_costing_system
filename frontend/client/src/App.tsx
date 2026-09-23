@@ -24,6 +24,7 @@ import Register                  from "./pages/Register";
 import UserManagement            from "./pages/UserManagement";
 import SuperAdminPanel           from "./pages/Superadminpanel";
 import SystemOwnerLogin          from "./pages/SystemOwnerLogin";
+import { ShieldCheck }            from "lucide-react";
 
 // ─── Routers ──────────────────────────────────────────────────────────────────
 
@@ -41,11 +42,20 @@ function RequireRole({ roles, children }: { roles: string[]; children: React.Rea
   const { user } = useAuth();
   const role = (user?.role ?? "").toLowerCase();
   if (!roles.includes(role)) {
-    return <NotFound />;
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-24 text-center px-6">
+        <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/40 flex items-center justify-center mb-4">
+          <ShieldCheck className="w-7 h-7 text-amber-600 dark:text-amber-400" />
+        </div>
+        <h1 className="text-xl font-semibold text-foreground mb-1">Restricted page</h1>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          This page is only available to {roles.join(" and ")} accounts. Contact an administrator if you need access.
+        </p>
+      </div>
+    );
   }
   return <>{children}</>;
 }
-
 function AppRouter() {
   const { logout } = useAuth();
   return (
