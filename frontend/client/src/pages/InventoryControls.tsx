@@ -26,7 +26,7 @@ import {
   } from "@/lib/localization";
   import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
   import { PROCUREMENT_PO_EVENT } from "./Governance";
-
+  import { useAuth } from "@/contexts/AuthContext";
   // ─── Types ────────────────────────────────────────────────────────────────────
 
   // Added "periodStatus" to ModalType
@@ -1098,6 +1098,10 @@ function openingValueForPeriod(
     }, [branchId, period, reloadKey]);
 
     const totalCurrentValue   = balances.reduce((s, b) => s + assetValue(b), 0);
+    const visibleSnapshots = useMemo(
+      () => snapshots.filter(s => s.period_label === period),
+      [snapshots, period]
+    );
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
     const { value: openingValue, source: openingSource } = openingValueForPeriod(snapshots, openingStock, period);
     const estimatedCOGS = openingValue + totalPurchasesValue - totalCurrentValue;
@@ -1205,7 +1209,14 @@ function openingValueForPeriod(
                 </tr>
               </thead>
               <tbody>
-                {snapshots.map(s => {
+              {visibleSnapshots.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No locked snapshot for {period} yet.
+                  </td>
+                </tr>
+              ) : (
+                visibleSnapshots.map(s => {
                   const available = n(s.opening_value) + n(s.purchases_value);
                   const cogsIsHigh = available > 0 && n(s.cogs) > available * 0.8;
                   return (
@@ -1226,8 +1237,9 @@ function openingValueForPeriod(
                       <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.entry_date}</td>
                     </tr>
                   );
-                })}
-              </tbody>
+                })
+              )}
+            </tbody>
             </table>
           </div>
         </Card>
@@ -1550,7 +1562,7 @@ function openingValueForPeriod(
   }
 
   function POGeneratorModal({
-  balances, branches, onClose, t, branchId, onPurchasesCreated,
+  balances, branches, onClose, t, branchId, onPurchasesCreated,currentUserId
 }: {
   balances: StockBalance[];
   branches: Branch[];
@@ -1558,6 +1570,7 @@ function openingValueForPeriod(
   t: (k: string) => string;
   branchId: number;
   onPurchasesCreated?: () => void;
+  currentUserId: number;
 }) {
   const alertItems = useMemo(
     () => balances
@@ -1653,7 +1666,7 @@ function openingValueForPeriod(
         tax_amount: form.tax_amount,
         payable_amount: payable,
         notes: form.notes,
-        user_id: Number(localStorage.getItem("user_id") ?? 1),
+        user_id: currentUserId,
       });
       if (!saved) throw new Error("Purchase was not saved");
 
@@ -2597,11 +2610,13 @@ async function updateTransfer(
   await apiCall(`/api/transfers/${id}`, { method: "PUT", body: JSON.stringify(payload) });
 }
 
-function EditTransferModal({ row, branches, onClose, onSaved }: {
+function EditTransferModal({ row, branches, onClose, onSaved ,currentUserId}: {
   row: TransferRow;
   branches: Branch[];
   onClose: () => void;
   onSaved: () => void;
+  currentUserId?: number; 
+  
 }) {
   const [form, setForm] = useState({
     to_branch_id: row.to_branch_id,
@@ -2666,7 +2681,7 @@ function EditTransferModal({ row, branches, onClose, onSaved }: {
         entry_date: form.entry_date,
         quantity: form.quantity,
         notes: form.notes,
-        user_id: Number(localStorage.getItem("user_id") ?? 1),
+        user_id: currentUserId || 0,
       });
       onSaved();
       onClose();
@@ -2740,12 +2755,13 @@ function EditTransferModal({ row, branches, onClose, onSaved }: {
   );
 }
 
-function TransfersHistory({ transfers, loading, branches, branchId, onChanged }: {
+function TransfersHistory({ transfers, loading, branches, branchId, onChanged, currentUserId}: {
   transfers: any[];
   loading: boolean;
   branches: Branch[];
   branchId: number;
   onChanged: () => void;
+  currentUserId: number;
 }) {
   const PAGE_SIZE = 20;
   const [search, setSearch] = useState("");
@@ -2820,6 +2836,8 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
           branches={branches}
           onClose={() => setEditing(null)}
           onSaved={onChanged}
+          currentUserId={currentUserId}
+
         />
       )}
 
@@ -2966,18 +2984,17 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
     </div>
   );
 }
-
-  export default function InventoryControls() {
-    const { t } = useLanguage();
-    // Falls back to readable text if a translation key is missing
-    const tr = (key: string, fallback: string) => {
-      const v = t(key);
-      return v === key ? fallback : v;
+export default function InventoryControls() {
+  const { t } = useLanguage();
+  // Falls back to readable text if a translation key is missing
+  const tr = (key: string, fallback: string) => {
+    const v = t(key);
+    return v === key ? fallback : v;
     };
-    const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
-    const currentUserName = localStorage.getItem("user_name") ?? "System";
-    const currentUserRole = (localStorage.getItem("user_role") ?? "").toLowerCase();
-    const canClosePeriod = ["owner", "admin", "manager"].includes(currentUserRole);
+    const { user } = useAuth();
+    const currentUserId = user?.id ?? 1;
+    const currentUserName = user?.display_name ?? "System";
+    const canClosePeriod = ["owner", "admin", "manager"].includes((user?.role ?? "").toLowerCase());
     const [branchId, setBranchId] = useState<number>(0);
     const { workingPeriod } = useWorkingPeriod();
     const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
@@ -3823,6 +3840,8 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
             t={t}
             branchId={branchId}
             onPurchasesCreated={refetchAll}
+            currentUserId={currentUserId}
+
           />
         )}
         {/* ── Page Header ── */}
@@ -4197,6 +4216,8 @@ function TransfersHistory({ transfers, loading, branches, branchId, onChanged }:
             branches={branches ?? []}
             branchId={branchId}
             onChanged={refetchAll}
+            currentUserId={currentUserId}
+
           />
         )}
       </div>
