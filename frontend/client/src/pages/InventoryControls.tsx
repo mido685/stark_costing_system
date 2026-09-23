@@ -1086,6 +1086,192 @@ function openingValueForPeriod(
     );
   }
 
+  // ─── Consumption by item ──────────────────────────────────────────────────────
+
+interface ConsumptionRow {
+  id: number; name: string; unit: string;
+  openQty: number; purchQty: number; tIn: number; tOut: number; closeQty: number;
+  usedQty: number; unitCost: number; usedValue: number;
+}
+
+function ConsumptionByItem({ branchId, period }: { branchId: number; period: string }) {
+  const [rows, setRows] = useState<ConsumptionRow[]>([]);
+  const [state, setState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [search, setSearch] = useState("");
+  const [hideZero, setHideZero] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!branchId || !period) { setRows([]); setState("idle"); return; }
+    let cancelled = false;
+    setState("loading");
+
+    const [y, m] = period.split("-").map(Number);
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const start = `${period}-01`;
+    const end = fmt(new Date(y, m, 0));            // last day of the period
+    const dayBefore = fmt(new Date(y, m - 1, 0));  // last day of the previous month
+
+    Promise.all([
+      apiCall<any[]>(`/api/stock/${branchId}?as_of=${dayBefore}`),
+      apiCall<any[]>(`/api/stock/${branchId}?as_of=${end}`),
+      fetchPurchasesForPeriod(branchId, period),
+      apiCall<any[]>(`/api/transfers/by-branch?branch_id=${branchId}`),
+    ])
+      .then(([openRaw, closeRaw, purchases, transfers]) => {
+        if (cancelled) return;
+        const opening = asList(openRaw).map(normalizeBalance);
+        const closing = asList(closeRaw).map(normalizeBalance);
+
+        type Acc = { name: string; unit: string; openQty: number; openVal: number; closeQty: number;
+                     closeVal: number; purchQty: number; purchVal: number; tIn: number; tOut: number };
+        const map = new Map<number, Acc>();
+        const get = (id: number, name = "", unit = ""): Acc => {
+          let a = map.get(id);
+          if (!a) {
+            a = { name, unit, openQty: 0, openVal: 0, closeQty: 0, closeVal: 0, purchQty: 0, purchVal: 0, tIn: 0, tOut: 0 };
+            map.set(id, a);
+          }
+          if (!a.name && name) a.name = name;
+          if (!a.unit && unit) a.unit = unit;
+          return a;
+        };
+
+        opening.forEach(b => {
+          const a = get(Number(b.ingredient_id), b.name, b.unit);
+          a.openQty = b.balance_qty; a.openVal = assetValue(b);
+        });
+        closing.forEach(b => {
+          const a = get(Number(b.ingredient_id), b.name, b.unit);
+          a.closeQty = b.balance_qty; a.closeVal = assetValue(b);
+        });
+        purchases.forEach(p => {
+          const a = get(Number(p.ingredient_id), p.ingredient_name ?? p.name ?? "");
+          a.purchQty += n(p.quantity);
+          a.purchVal += n(p.payable_amount ?? p.gross_amount);
+        });
+        transfers.forEach(t => {
+          const d = String(t.entry_date ?? "").slice(0, 10);
+          if (d < start || d > end) return;
+          const a = get(Number(t.ingredient_id), t.ingredient_name ?? t.name ?? "", t.unit ?? "");
+          if (Number(t.to_branch_id) === branchId) a.tIn += n(t.quantity);
+          else if (Number(t.from_branch_id) === branchId) a.tOut += n(t.quantity);
+        });
+
+        const out: ConsumptionRow[] = [...map.entries()].map(([id, a]) => {
+          const usedQty = a.openQty + a.purchQty + a.tIn - a.tOut - a.closeQty;
+          const inQty = a.openQty + a.purchQty;
+          // weighted average cost of what was available during the period
+          const unitCost = inQty > 0 ? (a.openVal + a.purchVal) / inQty
+                         : a.closeQty > 0 ? a.closeVal / a.closeQty : 0;
+          return {
+            id, name: a.name || `Item #${id}`, unit: a.unit,
+            openQty: a.openQty, purchQty: a.purchQty, tIn: a.tIn, tOut: a.tOut, closeQty: a.closeQty,
+            usedQty, unitCost, usedValue: usedQty * unitCost,
+          };
+        }).sort((a, b) => Math.abs(b.usedValue) - Math.abs(a.usedValue));
+
+        setRows(out);
+        setState("ok");
+      })
+      .catch(e => { console.error("[consumption] item load failed", e); if (!cancelled) setState("error"); });
+
+    return () => { cancelled = true; };
+  }, [branchId, period, reloadKey]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (q && !r.name.toLowerCase().includes(q)) return false;
+      if (hideZero && Math.abs(r.usedQty) < 0.0005 && r.openQty === 0 && r.purchQty === 0 && r.closeQty === 0) return false;
+      return true;
+    });
+  }, [rows, search, hideZero]);
+
+  const totalValue = visible.reduce((s, r) => s + r.usedValue, 0);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-border bg-secondary/20 px-6 py-4 flex items-center justify-between gap-3 flex-wrap">
+        <h3 className="text-sm font-semibold text-foreground">Consumption by Item — {period}</h3>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <input className="pl-8 pr-3 py-1.5 rounded-lg border border-input bg-background text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Search item..." value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={hideZero} onChange={e => setHideZero(e.target.checked)} />
+            Hide empty
+          </label>
+        </div>
+      </div>
+
+      {!branchId ? (
+        <p className="p-8 text-center text-sm text-muted-foreground">Select a branch to see item consumption.</p>
+      ) : state === "loading" ? (
+        <div className="p-6 space-y-2">{[1, 2, 3, 4].map(i => <div key={i} className="h-10 bg-secondary/40 rounded animate-pulse" />)}</div>
+      ) : state === "error" ? (
+        <div className="p-8 text-center">
+          <p className="text-sm text-red-600">Could not load item data. Nothing is shown rather than a wrong figure.</p>
+          <Button size="sm" variant="outline" className="mt-3" onClick={() => setReloadKey(k => k + 1)}>
+            <RefreshCw className="w-3 h-3 mr-1" /> Retry
+          </Button>
+        </div>
+      ) : !visible.length ? (
+        <p className="p-8 text-center text-sm text-muted-foreground">No item movement in this period.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-secondary/50 border-b border-border text-xs font-semibold text-foreground">
+                <th className="px-4 py-3 text-left">Item</th>
+                <th className="px-4 py-3 text-right">Opening</th>
+                <th className="px-4 py-3 text-right">+ Purchases</th>
+                <th className="px-4 py-3 text-right">+ Transfer In</th>
+                <th className="px-4 py-3 text-right">− Transfer Out</th>
+                <th className="px-4 py-3 text-right">− Closing</th>
+                <th className="px-4 py-3 text-right">Consumed Qty</th>
+                <th className="px-4 py-3 text-right">Unit Cost</th>
+                <th className="px-4 py-3 text-right">Consumed Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(r => (
+                <tr key={r.id} className="border-b border-border hover:bg-secondary/30">
+                  <td className="px-4 py-3 font-medium text-foreground">{r.name}<span className="ml-1 text-xs text-muted-foreground">{r.unit}</span></td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{r.openQty.toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-violet-600">{r.purchQty.toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-green-600">{r.tIn.toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-orange-600">{r.tOut.toFixed(3)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{r.closeQty.toFixed(3)}</td>
+                  <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${r.usedQty < -0.0005 ? "text-red-600" : "text-foreground"}`}>
+                    {r.usedQty.toFixed(3)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-muted-foreground">{r.unitCost.toFixed(2)}</td>
+                  <td className={`px-4 py-3 text-right font-mono text-sm font-semibold ${r.usedValue < 0 ? "text-red-600" : ""}`}>
+                    {fmtSignedEGP(r.usedValue)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-amber-50 dark:bg-amber-950/30 border-t border-border">
+                <td colSpan={8} className="px-4 py-3 text-sm font-bold text-foreground">Total consumed value</td>
+                <td className="px-4 py-3 text-right font-mono text-sm font-bold text-amber-600">{fmtSignedEGP(totalValue)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <p className="px-6 py-3 border-t border-border text-[11px] text-muted-foreground">
+        Consumed = Opening + Purchases + Transfer In − Transfer Out − Closing. Opening is the stock on the last day of the previous month.
+        Waste, production issues and count adjustments are inside this figure. A red (negative) row means stock rose without a recorded purchase or transfer.
+      </p>
+    </Card>
+  );
+}
   // ─── COGS Panel ───────────────────────────────────────────────────────────────
 
   function CogsPanel({ snapshots, balances, purchases, openingStock, branchId, t }: {
@@ -1235,7 +1421,7 @@ function openingValueForPeriod(
             <Card className="border-green-200 bg-green-50/60 p-4 dark:border-green-800 dark:bg-green-950/20"><p className="flex items-start gap-2 text-xs leading-relaxed text-green-700 dark:text-green-400"><Zap className="mt-0.5 h-4 w-4 shrink-0" /> Tip: Make sure all purchases, adjustments, and wastes are recorded before closing the period to get an accurate consumption figure.</p></Card>
           </div>
         </div>
-
+        <ConsumptionByItem branchId={branchId} period={period} />
         <Card className="overflow-hidden">
           <div className="border-b border-border bg-secondary/20 px-6 py-4"><h3 className="text-sm font-semibold text-foreground">Consumption History (Closed Periods)</h3></div>
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border bg-secondary/50"><th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Period</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Opening Inventory</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Purchases</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Closing Inventory</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Consumption</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked By</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked Date</th><th className="px-4 py-3 text-center text-xs font-semibold text-foreground">Status</th></tr></thead>
