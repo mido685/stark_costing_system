@@ -1,7 +1,7 @@
-  import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
   import { Card } from "@/components/ui/card";
   import { Button } from "@/components/ui/button";
-import {
+  import {
   AlertTriangle, X, Loader2, AlertCircle, RefreshCw, Search,
   ChevronUp, ChevronDown, ChevronsUpDown, Package, Layers, Filter,
   Printer, Download, ClipboardList, History, TrendingDown, TrendingUp,
@@ -355,6 +355,12 @@ import {
   };
 
   const periodOf = (date?: string) => (date ?? "").slice(0, 7); // "YYYY-MM"
+  function lastDayOfPeriod(period: string): string {
+  const [y, m] = (period || "").split("-").map(Number);
+  if (!y || !m) return today();
+  const last = new Date(y, m, 0).getDate();
+  return `${period}-${String(last).padStart(2, "0")}`;
+  }
 
   function purchasesValueForPeriod(purchases: any[], period: string): number {
     return purchases
@@ -1118,62 +1124,6 @@ function openingValueForPeriod(
         </Card>
       );
     }
-
-    if (!snapshots.length) {
-      return (
-        <div className="space-y-6">
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <Calendar className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm font-medium text-muted-foreground">{t("inv.cogs.period")}</span>
-              <input type="month" className={inputClass + " w-auto"} value={period} onChange={e => setPeriod(e.target.value)} />
-              <span className="text-xs text-muted-foreground ml-2">{t("inv.cogs.showing").replace("{period}", period)}</span>
-            </div>
-          </Card>
-
-          <Card className="p-5 border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t("inv.cogs.noSnapshots")}</p>
-                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{t("inv.cogs.noSnapshotsSub")}</p>
-                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{t("inv.cogs.formula")}</p>
-              </div>
-            </div>
-          </Card>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <KpiCard label={t("inv.cogs.currentInv")}              value={fmtEGP(totalCurrentValue)}          color="text-blue-600"   icon={<Package className="w-5 h-5 text-blue-600" />} />
-            <KpiCard label={t("inv.cogs.purchases").replace("{period}", period)} value={fmtEGP(totalPurchasesValue)}        color="text-violet-600" icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
-            <KpiCard label={t("inv.cogs.estimated")}               value={fmtEGP(Math.max(0, estimatedCOGS))} color="text-amber-600"  icon={<BarChart2 className="w-5 h-5 text-amber-600" />} sub={t("inv.cogs.estimatedSub")} />
-          </div>
-
-          <Card className="p-5">
-            <h3 className="font-semibold text-sm text-foreground mb-4 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-muted-foreground" />
-              {t("inv.cogs.calcTitle").replace("{period}", period)}
-            </h3>
-            <div className="space-y-3">
-              {[
-                { label: t("inv.cogs.opening"),      value: openingValue > 0 ? fmtEGP(openingValue) : "—",                                    note: openingValue > 0 ? t("inv.cogs.openingNote") : t("inv.cogs.openingNone"), color: "text-blue-600",   bold: false },
-                { label: t("inv.cogs.plusPurchases"), value: fmtEGP(totalPurchasesValue),                                                       note: t("inv.cogs.purchasesNote").replace("{n}", String(filteredPurchases.length)).replace("{period}", period), color: "text-violet-600", bold: false },
-                { label: t("inv.cogs.minusClosing"),  value: fmtEGP(totalCurrentValue),                                                         note: t("inv.cogs.closingNote"),                                                color: "text-green-600",  bold: false },
-                { label: t("inv.cogs.result"),        value: openingValue > 0 ? fmtEGP(Math.max(0, estimatedCOGS)) : "—",                      note: openingValue > 0 ? t("inv.cogs.resultNote") : t("inv.cogs.resultNone"),  color: "text-amber-600",  bold: true  },
-              ].map(item => (
-                <div key={item.label} className={`flex items-center justify-between py-2.5 px-4 rounded-lg ${item.bold ? "bg-secondary/60 border border-border" : "bg-secondary/20"}`}>
-                  <div>
-                    <span className={`text-sm ${item.bold ? "font-bold" : "font-medium"} text-foreground`}>{item.label}</span>
-                    <span className="text-xs text-muted-foreground ml-2">{item.note}</span>
-                  </div>
-                  <span className={`text-sm font-bold font-mono ${item.color}`}>{item.value}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      );
-    }
-
     return (
       <div className="space-y-5">
         <Card className="p-4">
@@ -1183,14 +1133,20 @@ function openingValueForPeriod(
             <input type="month" className={inputClass + " w-auto"} value={period} onChange={e => setPeriod(e.target.value)} />
           </div>
         </Card>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <KpiCard label={t("inv.cogs.currentInv2")}                                       value={fmtEGP(totalCurrentValue)}          color="text-blue-600"   icon={<Package className="w-5 h-5 text-blue-600" />} />
-          <KpiCard label={t("inv.cogs.purchases").replace("{period}", period)}              value={fmtEGP(totalPurchasesValue)}        color="text-violet-600" icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
-          <KpiCard label={t("inv.cogs.estThisPeriod")}                                     value={openingValue > 0 ? fmtEGP(Math.max(0, estimatedCOGS)) : "—"} color="text-amber-600"  icon={<BarChart2 className="w-5 h-5 text-amber-600" />} sub={openingValue > 0 ? undefined : "No prior closing snapshot for this period"} />
-          <KpiCard label={t("inv.cogs.lockedPeriods")}                                     value={String(snapshots.length)}           color="text-green-600"  icon={<Lock className="w-5 h-5 text-green-600" />} />
-        </div>
-
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <KpiCard label="Current Inventory Value" value={fmtEGP(totalCurrentValue)}
+              sub="Value of stock on hand (as of today)" color="text-blue-600"
+              icon={<Package className="w-5 h-5 text-blue-600" />} />
+            <KpiCard label={`Purchases (${period})`} value={fmtEGP(totalPurchasesValue)}
+              sub="Total purchases in this period" color="text-violet-600"
+              icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
+            <KpiCard label="Estimated COGS" value={fmtEGP(Math.max(0, estimatedCOGS))}
+              sub="Opening + Purchases − Closing" color="text-amber-600"
+              icon={<BarChart2 className="w-5 h-5 text-amber-600" />} />
+            <KpiCard label="Locked Periods" value={String(snapshots.length)}
+              sub="Number of closed periods" color="text-green-600"
+              icon={<Lock className="w-5 h-5 text-green-600" />} />
+          </div>
         <Card className="overflow-hidden">
           <div className="px-6 py-4 border-b border-border bg-secondary/20">
             <h3 className="font-semibold text-sm text-foreground">{t("inv.cogs.history")}</h3>
@@ -3047,7 +3003,14 @@ export default function InventoryControls() {
     const selectedPeriodState    = companyPeriodStatus?.status ?? branchPeriodStatus?.status ?? "open";
     const selectedPeriodClosed   = selectedPeriodState === "closed" || selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_closed);
     const selectedPeriodLocked   = selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_locked);
-
+    const periodLabelDisplay = period
+      ? new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      : "—";
+    const closedSnapshot = useMemo(
+      () => snapshots.find(s => s.period_label === period),
+      [snapshots, period]
+    );
+    const isPeriodClosed = Boolean(closedSnapshot);
     const [countForm,    setCountForm]    = useState({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" });
     const [adjForm,      setAdjForm]      = useState({ ingredient_id: 0, entry_date: today(), quantity_delta: 0, reason: "", notes: "", requires_approval: false });
     const [wasteForm,    setWasteForm]    = useState({ ingredient_id: 0, entry_date: today(), quantity: 0, waste_reason: "other", notes: "" });
@@ -3136,7 +3099,7 @@ export default function InventoryControls() {
       };
     }, [safeBalances, safeFG, safePurchases]);
     // Single source of truth for the period-close modal and the saved snapshot
-    const closePeriodKey = periodOf(periodForm.entry_date);
+    const closePeriodKey = periodForm.period_label || periodOf(periodForm.entry_date);
     const [closePurchases, setClosePurchases] = useState<any[]>([]);
     const [closePurchState, setClosePurchState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
@@ -3173,6 +3136,21 @@ export default function InventoryControls() {
       safeOpening,
       period
     );
+    const closePeriodExistingSnapshots = useMemo(
+  () => safeSnapshots.filter(s => s.period_label === closePeriodKey),
+  [safeSnapshots, closePeriodKey]
+);
+
+      const [closePeriodBlocked, setClosePeriodBlocked] = useState<string | null>(null);
+
+      useEffect(() => {
+        if (modal !== "periodClose" || !closePeriodKey) { setClosePeriodBlocked(null); return; }
+        let cancelled = false;
+        checkDateOpen(branchId, lastDayOfPeriod(closePeriodKey)).then(msg => {
+          if (!cancelled) setClosePeriodBlocked(msg ?? null);
+        });
+        return () => { cancelled = true; };
+      }, [modal, branchId, closePeriodKey]);
       const purchasesValue = purchasesValueForPeriod(closePurchases, period);
       const closing = stats.rawValue + stats.fgValue;
       return { period, opening, openingSource, purchasesValue, closing, cogs: opening + purchasesValue - closing };
@@ -3384,12 +3362,11 @@ export default function InventoryControls() {
       if (!canClosePeriod) { setFormError("You don't have permission to close a period."); return; }
       if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
       if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
-      if (closePurchState !== "ok") {
-        setFormError(closePurchState === "loading"
-          ? "Still loading this period's purchases. Try again in a moment."
-          : "Could not load this period's purchases, so the closing numbers would be wrong. Change the date and back, or reopen this dialog.");
-        return;
-      }
+      if (closePeriodBlocked) { setFormError(closePeriodBlocked); return; }
+      if (closePeriodExistingSnapshots.length > 0) {
+        setFormError(`${closePeriodKey} already has a locked snapshot. Reopen or delete it first before closing it again.`);
+            return;
+          }
       if (financeDataFailed) {
         setFormError("Purchases or previous snapshots failed to load, so the closing numbers would be wrong. Close this dialog, click Retry, and try again.");
         return;
@@ -3533,6 +3510,17 @@ export default function InventoryControls() {
           t={t} 
         />
       )}
+      {closePeriodExistingSnapshots.length > 0 && (
+      <p className="text-[11px] text-red-600 dark:text-red-400 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1.5">
+        <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+        {closePeriodKey} is already locked. Closing again would create a duplicate record for the same month.
+      </p>
+    )}
+    {closePeriodBlocked && (
+      <p className="text-[11px] text-red-600 dark:text-red-400 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1.5">
+        <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />{closePeriodBlocked}
+      </p>
+    )}
 
       <p className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2">{t("inv.modal.count.hint")}</p>
     </Modal>
@@ -3776,10 +3764,20 @@ export default function InventoryControls() {
                 </p>
               )}
             </div>
-            <Field label={t("inv.modal.period.field.label")} hint={t("inv.modal.period.field.labelHint")}>
+            <Field label={t("inv.modal.period.field.label")} hint="The month you are locking.">
+              <input
+              type="month"
+              className={inputClass}
+              value={periodForm.period_label}
+              onChange={e => {
+                const period_label = e.target.value;
+                setPeriodForm(f => ({ ...f, period_label, entry_date: lastDayOfPeriod(period_label) }));
+              }}
+              />
+              </Field>
               <input type="text" className={inputClass} placeholder={t("inv.modal.period.field.labelPlaceholder")} value={periodForm.period_label} onChange={e => setPeriodForm({ ...periodForm, period_label: e.target.value })} />
             </Field>
-            <Field label={t("inv.modal.period.field.date")}><input type="date" className={inputClass} value={periodForm.entry_date} onChange={e => setPeriodForm({ ...periodForm, entry_date: e.target.value })} /></Field>
+            <><input type="date" className={inputClass} value={periodForm.entry_date} onChange={e => setPeriodForm({ ...periodForm, entry_date: e.target.value })} /></Field>
             <Field label={t("inv.modal.period.field.notes")}><textarea className={inputClass} rows={2} placeholder={t("inv.modal.periodNotesPlaceholder")} value={periodForm.notes} onChange={e => setPeriodForm({ ...periodForm, notes: e.target.value })} /></Field>
             <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 flex items-start gap-2">
               <Lock className="w-3 h-3 mt-0.5 flex-shrink-0" />{t("inv.modal.period.warning")}
@@ -4076,87 +4074,111 @@ export default function InventoryControls() {
             {/* ── Recent Waste ── */}
             {branchId > 0 && (
               <Card className="overflow-hidden">
-                <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-                  <div>
-                    <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Recent Waste</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">Latest waste records for the selected branch</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openModal("waste")}
-                    disabled={selectedPeriodClosed}
-                  >
-                    <Plus className="w-3 h-3 mr-1" /> Record Waste
-                  </Button>
+                <div className="px-6 py-4 border-b border-border bg-secondary/20">
+                  <h3 className="font-semibold text-sm text-foreground">COGS History (Closed Periods)</h3>
                 </div>
-
-                {safeWaste.length === 0 ? (
-                  <div className="py-10 text-center">
-                    <TrendingDown className="w-9 h-9 text-muted-foreground/20 mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No waste recorded for this branch.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-secondary/50 border-b border-border">
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Date</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Ingredient</th>
-                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-foreground">Quantity</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Reason</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-foreground">Recorded By</th>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-secondary/50 border-b border-border">
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Period</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Opening Inventory</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Purchases</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Closing Inventory</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">COGS</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked By</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked Date</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedSnapshots.length === 0 ? (
+                        <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">No locked periods yet.</td></tr>
+                      ) : sortedSnapshots.map(s => (
+                        <tr key={s.id} className="border-b border-border hover:bg-secondary/30">
+                          <td className="px-4 py-3 font-medium text-foreground">{s.period_label}</td>
+                          <td className="px-4 py-3 text-right font-mono text-sm">{fmtEGP(s.opening_value)}</td>
+                          <td className="px-4 py-3 text-right font-mono text-sm text-violet-600">+{fmtEGP(s.purchases_value)}</td>
+                          <td className="px-4 py-3 text-right font-mono text-sm text-green-600">−{fmtEGP(s.closing_value)}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${s.cogs < 0 ? "text-red-600" : "text-foreground"}`}>
+                            {fmtSignedEGP(s.cogs)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.locked_by}</td>
+                          <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.entry_date}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-semibold">
+                              Closed
+                            </span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {safeWaste.slice(0, 10).map(w => (
-                          <tr key={w.id} className="border-b border-border last:border-0 hover:bg-secondary/30">
-                            <td className="px-4 py-3 text-xs text-muted-foreground">{w.entry_date}</td>
-                            <td className="px-4 py-3 font-medium text-foreground">{w.ingredient_name}</td>
-                            <td className="px-4 py-3 text-right font-mono text-red-600 font-semibold">
-                              -{Number(w.quantity).toFixed(3)}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
-                                {w.waste_reason}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground">{w.wasted_by ?? "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </Card>
-            )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card> )}
 
             {/* ── Period History Mini ── */}
             {safeSnapshots.length > 0 && (
-              <Card className="p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{t("inv.snapshots.title")}</h2>
-                  <Button size="sm" variant="outline" onClick={() => setActiveTab("cogs")}>
-                    <Eye className="w-3 h-3 mr-1" /> {t("inv.snapshots.fullCogs")}
-                  </Button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {safeSnapshots.slice(0, 3).map(s => (
-                    <div key={s.id} className="bg-secondary/40 rounded-xl p-4 border border-border">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span className="font-semibold text-sm text-foreground">{s.period_label}</span>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <Card className="lg:col-span-2 p-5">
+                  <h3 className="font-semibold text-sm text-foreground mb-4 flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-muted-foreground" />
+                    COGS Calculation — {periodLabelDisplay}
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Opening Inventory</span>
+                        <p className="text-xs text-muted-foreground">
+                          {openingValue > 0
+                            ? `From ${openingSource === "snapshot" ? "previous month's closing snapshot" : "manual opening stock entries"}`
+                            : "No prior closing snapshot for this period"}
+                        </p>
                       </div>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between"><span className="text-muted-foreground">{t("inv.snapshots.cogs")}</span><span className="font-bold text-amber-600">{fmtEGP(s.cogs)}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">{t("inv.snapshots.closing")}</span><span className="font-mono">{fmtEGP(s.closing_value)}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">{t("inv.snapshots.lockedBy")}</span><span>{s.locked_by}</span></div>
-                      </div>
+                      <span className="text-sm font-bold font-mono text-blue-600">{fmtEGP(openingValue)}</span>
                     </div>
-                  ))}
+                    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
+                      <div>
+                        <span className="text-sm font-medium text-foreground">+ Purchases</span>
+                        <p className="text-xs text-muted-foreground">{filteredPurchases.length} purchase transactions in {periodLabelDisplay}</p>
+                      </div>
+                      <span className="text-sm font-bold font-mono text-violet-600">{fmtEGP(totalPurchasesValue)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
+                      <div>
+                        <span className="text-sm font-medium text-foreground">− Closing Inventory</span>
+                        <p className="text-xs text-muted-foreground">Current inventory value (as of today)</p>
+                      </div>
+                      <span className="text-sm font-bold font-mono text-green-600">{fmtEGP(totalCurrentValue)}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                      <span className="text-sm font-bold text-foreground">= Estimated COGS</span>
+                      <span className="text-base font-bold font-mono text-amber-600">{fmtSignedEGP(estimatedCOGS)}</span>
+                    </div>
+                  </div>
+                </Card>
+
+                <div className="space-y-4">
+                  <Card className="p-4 border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2 mb-2">
+                      <AlertCircle className="w-4 h-4" /> How COGS is calculated?
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 font-mono mb-3">
+                      COGS = Opening Inventory + Purchases − Closing Inventory
+                    </p>
+                    <div className="space-y-2 text-xs text-amber-700 dark:text-amber-400">
+                      <p><strong>Opening Inventory</strong> — for the first period, comes from initial stock. For others, from the previous period's closing snapshot.</p>
+                      <p><strong>Purchases</strong> — total value of all purchase/receiving transactions in this period.</p>
+                      <p><strong>Closing Inventory</strong> — current inventory value at the end of the period. Closing this period saves these values in a snapshot, and they won't change.</p>
+                    </div>
+                  </Card>
+                  <Card className="p-4 border-green-200 dark:border-green-800 bg-green-50/60 dark:bg-green-950/20">
+                    <p className="text-xs text-green-700 dark:text-green-400">
+                      Tip: Make sure all purchases, adjustments, and wastes are recorded before closing the period to get an accurate COGS.
+                    </p>
+                  </Card>
                 </div>
-              </Card>
-            )}
+              </div>            )}
           </div>
         )}
 
