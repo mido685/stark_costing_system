@@ -1119,7 +1119,10 @@ function openingValueForPeriod(
     const periodLabel = new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
     const { value: openingValue, source: openingSource } = openingValueForPeriod(snapshots, openingStock, period);
-    const selectedSnapshot = snapshots.find(s => s.period_label === period);
+    const selectedSnapshot = useMemo(
+      () => snapshots.find(s => s.period_label === closePeriodKey),
+      [snapshots, closePeriodKey]
+    );
     const [historicalClosingValue, setHistoricalClosingValue] = useState<number | null>(null);
     const [historicalClosingState, setHistoricalClosingState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
@@ -3032,12 +3035,12 @@ export default function InventoryControls() {
     const selectedPeriodState    = companyPeriodStatus?.status ?? branchPeriodStatus?.status ?? "open";
     const selectedPeriodClosed   = selectedPeriodState === "closed" || selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_closed);
     const selectedPeriodLocked   = selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_locked);
-    const periodLabelDisplay = period
-      ? new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })
-      : "—";
+    const periodLabelDisplay = workingPeriod
+    ? new Date(`${workingPeriod}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+    : "";
     const closedSnapshot = useMemo(
-      () => snapshots.find(s => s.period_label === period),
-      [snapshots, period]
+      () => (periodSnapshots ?? []).find(s => s.period_label === workingPeriod),
+      [periodSnapshots, workingPeriod]
     );
     const isPeriodClosed = Boolean(closedSnapshot);
     const [countForm,    setCountForm]    = useState({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" });
