@@ -1120,8 +1120,8 @@ function openingValueForPeriod(
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
     const { value: openingValue, source: openingSource } = openingValueForPeriod(snapshots, openingStock, period);
     const selectedSnapshot = useMemo(
-      () => snapshots.find(s => s.period_label === closePeriodKey),
-      [snapshots, closePeriodKey]
+      () => snapshots.find(s => s.period_label === period),
+      [snapshots, period]
     );
     const [historicalClosingValue, setHistoricalClosingValue] = useState<number | null>(null);
     const [historicalClosingState, setHistoricalClosingState] = useState<"idle" | "loading" | "ok" | "error">("idle");
@@ -3042,7 +3042,7 @@ export default function InventoryControls() {
       () => (periodSnapshots ?? []).find(s => s.period_label === workingPeriod),
       [periodSnapshots, workingPeriod]
     );
-    const isPeriodClosed = Boolean(closedSnapshot);
+    
     const [countForm,    setCountForm]    = useState({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" });
     const [adjForm,      setAdjForm]      = useState({ ingredient_id: 0, entry_date: today(), quantity_delta: 0, reason: "", notes: "", requires_approval: false });
     const [wasteForm,    setWasteForm]    = useState({ ingredient_id: 0, entry_date: today(), quantity: 0, waste_reason: "other", notes: "" });
@@ -3132,61 +3132,41 @@ export default function InventoryControls() {
     }, [safeBalances, safeFG, safePurchases]);
     // Single source of truth for the period-close modal and the saved snapshot
     const closePeriodKey = periodForm.period_label || periodOf(periodForm.entry_date);
-    const [closePurchases, setClosePurchases] = useState<any[]>([]);
-    const [closePurchState, setClosePurchState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+const [closePurchases, setClosePurchases] = useState<any[]>([]);
+const [closePurchState, setClosePurchState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+const [closePeriodBlocked, setClosePeriodBlocked] = useState<string | null>(null);
 
-    useEffect(() => {
-      if (modal !== "periodClose" || !closePeriodKey) {
-        setClosePurchState("idle");
-        return;
-      }
-
+useEffect(() => {
+  if (modal !== "periodClose" || !closePeriodKey) { setClosePurchState("idle"); return; }
   let cancelled = false;
   setClosePurchState("loading");
-
-  Promise.all([
-    fetchPurchasesForPeriod(branchId || undefined, closePeriodKey),
-    getOpeningStockByBranch(branchId || undefined),
-  ])
-    .then(rows => {
-        if (!cancelled) {
-          setClosePurchases(rows);
-          setClosePurchState("ok");
-        }
-      })    .catch(e => {
-      console.error("[period close] finance data load failed", e);
-      if (!cancelled) setClosePurchState("error");
-    });
-
+  fetchPurchasesForPeriod(branchId || undefined, closePeriodKey)
+    .then(rows => { if (!cancelled) { setClosePurchases(rows); setClosePurchState("ok"); } })
+    .catch(e => { console.error("[period close] purchases load failed", e); if (!cancelled) setClosePurchState("error"); });
   return () => { cancelled = true; };
 }, [modal, branchId, closePeriodKey]);
 
-    const closePreview = useMemo(() => {
-    const period = closePeriodKey;
-    const { value: opening, source: openingSource } = openingValueForPeriod(
-      safeSnapshots,
-      safeOpening,
-      period
-    );
-    const closePeriodExistingSnapshots = useMemo(
+useEffect(() => {
+  if (modal !== "periodClose" || !closePeriodKey) { setClosePeriodBlocked(null); return; }
+  let cancelled = false;
+  checkDateOpen(branchId, lastDayOfPeriod(closePeriodKey)).then(msg => {
+    if (!cancelled) setClosePeriodBlocked(msg ?? null);
+  });
+  return () => { cancelled = true; };
+}, [modal, branchId, closePeriodKey]);
+
+const closePeriodExistingSnapshots = useMemo(
   () => safeSnapshots.filter(s => s.period_label === closePeriodKey),
   [safeSnapshots, closePeriodKey]
 );
 
-      const [closePeriodBlocked, setClosePeriodBlocked] = useState<string | null>(null);
-
-      useEffect(() => {
-        if (modal !== "periodClose" || !closePeriodKey) { setClosePeriodBlocked(null); return; }
-        let cancelled = false;
-        checkDateOpen(branchId, lastDayOfPeriod(closePeriodKey)).then(msg => {
-          if (!cancelled) setClosePeriodBlocked(msg ?? null);
-        });
-        return () => { cancelled = true; };
-      }, [modal, branchId, closePeriodKey]);
-      const purchasesValue = purchasesValueForPeriod(closePurchases, period);
-      const closing = stats.rawValue + stats.fgValue;
-      return { period, opening, openingSource, purchasesValue, closing, cogs: opening + purchasesValue - closing };
-    }, [closePeriodKey, safeSnapshots,safeOpening, closePurchases, stats.rawValue, stats.fgValue]);
+const closePreview = useMemo(() => {
+  const period = closePeriodKey;
+  const { value: opening, source: openingSource } = openingValueForPeriod(safeSnapshots, safeOpening, period);
+  const purchasesValue = purchasesValueForPeriod(closePurchases, period);
+  const closing = stats.rawValue + stats.fgValue;
+  return { period, opening, openingSource, purchasesValue, closing, cogs: opening + purchasesValue - closing };
+}, [closePeriodKey, safeSnapshots, safeOpening, closePurchases, stats.rawValue, stats.fgValue]);
 
     const alerts = useMemo(() =>
       safeBalances.filter(b => b.negative_alert || b.reorder_alert)
@@ -3401,6 +3381,10 @@ export default function InventoryControls() {
           }
       if (financeDataFailed) {
         setFormError("Purchases or previous snapshots failed to load, so the closing numbers would be wrong. Close this dialog, click Retry, and try again.");
+        return;
+      }
+      if (closePurchState !== "ok") {
+        setFormError("Purchases for this period haven't loaded yet. Wait a moment and try again.");
         return;
       }
       setSaving(true); setFormError("");
@@ -3796,6 +3780,18 @@ export default function InventoryControls() {
                 </p>
               )}
             </div>
+                  {closePeriodExistingSnapshots.length > 0 && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1.5">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    {closePeriodKey} is already locked. Closing again would create a duplicate record for the same month.
+                  </p>
+                )}
+                {closePeriodBlocked && (
+                  <p className="text-[11px] text-red-600 dark:text-red-400 flex items-start gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-2 py-1.5">
+                    <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />{closePeriodBlocked}
+                  </p>
+                )}
+
             <Field label={t("inv.modal.period.field.label")} hint="The month you are locking.">
               <input
                 type="month"
@@ -4102,115 +4098,43 @@ export default function InventoryControls() {
                 ))}
               </Card>
             </div>
-
             {/* ── Recent Waste ── */}
-            {branchId > 0 && (
-              <Card className="overflow-hidden">
-                <div className="px-6 py-4 border-b border-border bg-secondary/20">
-                  <h3 className="font-semibold text-sm text-foreground">COGS History (Closed Periods)</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-secondary/50 border-b border-border">
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Period</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Opening Inventory</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Purchases</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Closing Inventory</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">COGS</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked By</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked Date</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-foreground">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedSnapshots.length === 0 ? (
-                        <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">No locked periods yet.</td></tr>
-                      ) : sortedSnapshots.map(s => (
-                        <tr key={s.id} className="border-b border-border hover:bg-secondary/30">
-                          <td className="px-4 py-3 font-medium text-foreground">{s.period_label}</td>
-                          <td className="px-4 py-3 text-right font-mono text-sm">{fmtEGP(s.opening_value)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-sm text-violet-600">+{fmtEGP(s.purchases_value)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-sm text-green-600">−{fmtEGP(s.closing_value)}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${s.cogs < 0 ? "text-red-600" : "text-foreground"}`}>
-                            {fmtSignedEGP(s.cogs)}
-                          </td>
-                          <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.locked_by}</td>
-                          <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.entry_date}</td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-semibold">
-                              Closed
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card> )}
-
-            {/* ── Period History Mini ── */}
-            {safeSnapshots.length > 0 && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                <Card className="lg:col-span-2 p-5">
-                  <h3 className="font-semibold text-sm text-foreground mb-4 flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-muted-foreground" />
-                    COGS Calculation — {periodLabelDisplay}
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
-                      <div>
-                        <span className="text-sm font-medium text-foreground">Opening Inventory</span>
-                        <p className="text-xs text-muted-foreground">
-                            {closePreview.opening > 0
-                            ? "Opening inventory carried from the previous period or opening stock"
-                            : "No prior closing snapshot for this period"}                       
-                        </p>
-                      </div>
-                      <span className="text-sm font-bold font-mono text-blue-600">{fmtEGP(closePreview.opening)}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
-                      <div>
-                        <span className="text-sm font-medium text-foreground">+ Purchases</span>
-                        <p className="text-xs text-muted-foreground">{filteredPurchases.length} purchase transactions in {periodLabelDisplay}</p>
-                      </div>
-                      <span className="text-sm font-bold font-mono text-violet-600">{fmtEGP(totalPurchasesValue)}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
-                      <div>
-                        <span className="text-sm font-medium text-foreground">− Closing Inventory</span>
-                        <p className="text-xs text-muted-foreground">Current inventory value (as of today)</p>
-                      </div>
-                      <span className="text-sm font-bold font-mono text-green-600">{fmtEGP(totalCurrentValue)}</span>
-                    </div>
-                    <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                      <span className="text-sm font-bold text-foreground">= Estimated COGS</span>
-                      <span className="text-base font-bold font-mono text-amber-600">{fmtSignedEGP(estimatedCOGS)}</span>
-                    </div>
-                  </div>
-                </Card>
-
-                <div className="space-y-4">
-                  <Card className="p-4 border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20">
-                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2 mb-2">
-                      <AlertCircle className="w-4 h-4" /> How COGS is calculated?
-                    </p>
-                    <p className="text-xs text-amber-700 dark:text-amber-400 font-mono mb-3">
-                      COGS = Opening Inventory + Purchases − Closing Inventory
-                    </p>
-                    <div className="space-y-2 text-xs text-amber-700 dark:text-amber-400">
-                      <p><strong>Opening Inventory</strong> — for the first period, comes from initial stock. For others, from the previous period's closing snapshot.</p>
-                      <p><strong>Purchases</strong> — total value of all purchase/receiving transactions in this period.</p>
-                      <p><strong>Closing Inventory</strong> — current inventory value at the end of the period. Closing this period saves these values in a snapshot, and they won't change.</p>
-                    </div>
-                  </Card>
-                  <Card className="p-4 border-green-200 dark:border-green-800 bg-green-50/60 dark:bg-green-950/20">
-                    <p className="text-xs text-green-700 dark:text-green-400">
-                      Tip: Make sure all purchases, adjustments, and wastes are recorded before closing the period to get an accurate COGS.
-                    </p>
-                  </Card>
-                </div>
-              </div>            )}
+{branchId > 0 && (
+  <Card className="overflow-hidden">
+    <div className="px-6 py-4 border-b border-border bg-secondary/20">
+      <h3 className="font-semibold text-sm text-foreground">Recent Waste</h3>
+    </div>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-secondary/50 border-b border-border">
+            <th className="px-4 py-3 text-left text-xs font-semibold">Date</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold">Ingredient</th>
+            <th className="px-4 py-3 text-right text-xs font-semibold">Quantity</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold">Reason</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {safeWaste.length === 0 ? (
+            <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">No waste recorded.</td></tr>
+          ) : [...safeWaste]
+              .sort((a, b) => String(b.entry_date).localeCompare(String(a.entry_date)))
+              .slice(0, 10)
+              .map(w => (
+            <tr key={w.id} className="border-b border-border hover:bg-secondary/30">
+              <td className="px-4 py-3 text-xs text-muted-foreground">{String(w.entry_date).slice(0, 10)}</td>
+              <td className="px-4 py-3 font-medium">{w.ingredient_name}</td>
+              <td className="px-4 py-3 text-right font-mono text-red-600">-{Math.abs(Number(w.quantity)).toFixed(3)}</td>
+              <td className="px-4 py-3 text-xs capitalize">{String(w.waste_reason).replace(/_/g, " ")}</td>
+              <td className="px-4 py-3 text-xs text-muted-foreground max-w-[220px] truncate" dir="auto">{w.notes || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </Card>
+)}
           </div>
         )}
 
