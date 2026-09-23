@@ -4162,12 +4162,12 @@ export default function InventoryControls() {
                       <div>
                         <span className="text-sm font-medium text-foreground">Opening Inventory</span>
                         <p className="text-xs text-muted-foreground">
-                          {openingValue > 0
-                            ? `From ${openingSource === "snapshot" ? "previous month's closing snapshot" : "manual opening stock entries"}`
-                            : "No prior closing snapshot for this period"}
+                            {closePreview.opening > 0
+                            ? "Opening inventory carried from the previous period or opening stock"
+                            : "No prior closing snapshot for this period"}                       
                         </p>
                       </div>
-                      <span className="text-sm font-bold font-mono text-blue-600">{fmtEGP(openingValue)}</span>
+                      <span className="text-sm font-bold font-mono text-blue-600">{fmtEGP(closePreview.opening)}</span>
                     </div>
                     <div className="flex items-center justify-between py-2.5 px-4 rounded-lg bg-secondary/20">
                       <div>
