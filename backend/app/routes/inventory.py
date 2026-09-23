@@ -88,7 +88,7 @@ def list_grns(
 @router.get("/stock-counts/with-purchases")
 def stock_counts_with_purchases(
     branch_id: int | None = Query(None),
-    limit: int = Query(200),
+    limit: int = Query(limit=20000),
     current_user: dict = Depends(get_current_user),
 ):
     # FIX: uses a dedicated DB function that joins purchase data,
@@ -176,7 +176,7 @@ def create_stock_issue(
 @router.get("/stock-adjustments/by-branch")
 def adjustments_by_branch(
     branch_id: int | None = Query(None),
-    limit: int = Query(200),
+    limit: int = Query(2000),
     current_user: dict = Depends(get_current_user),
 ):
     # FIX: uses a dedicated DB function that groups/aggregates by branch,
@@ -259,7 +259,7 @@ def approve_adjustment(
 @router.get("/opening-stock/by-branch")
 def opening_stock_by_branch(
     branch_id: int | None = Query(None),
-    limit: int = Query(200),
+    limit: int = Query(20000),
     current_user: dict = Depends(get_current_user),
 ):
     # FIX: uses a dedicated DB function that groups by branch,

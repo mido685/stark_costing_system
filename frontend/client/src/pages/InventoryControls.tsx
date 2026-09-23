@@ -1116,10 +1116,9 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
     Promise.all([
       apiCall<any[]>(`/api/stock/${branchId}?as_of=${dayBefore}`),
       apiCall<any[]>(`/api/stock/${branchId}?as_of=${end}`),
-      fetchPurchasesForPeriod(branchId, period),
-      apiCall<any[]>(`/api/transfers/by-branch?branch_id=${branchId}`),
+      apiCall<any[]>(`/api/inventory-movements/by-branch?branch_id=${branchId}&limit=20000`),
     ])
-      .then(([openRaw, closeRaw, purchases, transfers]) => {
+      .then(([openRaw, closeRaw, moves]) => {
         if (cancelled) return;
         const opening = asList(openRaw).map(normalizeBalance);
         const closing = asList(closeRaw).map(normalizeBalance);
@@ -1146,17 +1145,18 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
           const a = get(Number(b.ingredient_id), b.name, b.unit);
           a.closeQty = b.balance_qty; a.closeVal = assetValue(b);
         });
-        purchases.forEach(p => {
-          const a = get(Number(p.ingredient_id), p.ingredient_name ?? p.name ?? "");
-          a.purchQty += n(p.quantity);
-          a.purchVal += n(p.payable_amount ?? p.gross_amount);
-        });
-        transfers.forEach(t => {
-          const d = String(t.entry_date ?? "").slice(0, 10);
+                asList(moves).forEach(mv => {
+          const d = String(mv.entry_date ?? "").slice(0, 10);
           if (d < start || d > end) return;
-          const a = get(Number(t.ingredient_id), t.ingredient_name ?? t.name ?? "", t.unit ?? "");
-          if (Number(t.to_branch_id) === branchId) a.tIn += n(t.quantity);
-          else if (Number(t.from_branch_id) === branchId) a.tOut += n(t.quantity);
+          const a = get(Number(mv.ingredient_id), mv.ingredient_name ?? "", mv.unit ?? "");
+          const q = n(mv.quantity_delta);
+          const cost = n(mv.unit_cost);
+          switch (mv.movement_type) {
+            case "opening_stock": a.openQty += q; a.openVal += q * cost; break; // opening stock dated inside the month still counts as opening
+            case "grn":           a.purchQty += q; a.purchVal += q * cost; break; // goods actually received
+            case "transfer_in":   a.tIn += q; break;
+            case "transfer_out":  a.tOut += Math.abs(q); break;
+          }
         });
 
         const out: ConsumptionRow[] = [...map.entries()].map(([id, a]) => {

@@ -466,10 +466,16 @@ def add_stock_count(
     try:
         _verify_branch(cur, branch_id, company_id)
         cur.execute(
-            "SELECT COALESCE(SUM(quantity_delta), 0) AS bal FROM inventory_movements "
-            "WHERE ingredient_id = %s AND branch_id = %s",
-            (ingredient_id, branch_id),
+            """
+            SELECT COALESCE(SUM(quantity_delta), 0) AS bal
+            FROM inventory_movements
+            WHERE ingredient_id = %s
+            AND branch_id = %s
+            AND entry_date <= %s
+            """,
+            (ingredient_id, branch_id, entry_date),
         )
+
         system_qty = float(cur.fetchone()["bal"])
         delta = counted_qty - system_qty
         cur.execute(
