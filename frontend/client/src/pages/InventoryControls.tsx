@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
+  import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
   import { Card } from "@/components/ui/card";
   import { Button } from "@/components/ui/button";
   import {
@@ -437,6 +437,18 @@ function openingValueForPeriod(
   async function fetchBalances(branchId: number): Promise<StockBalance[]> {
     const rows = await getStockBalances(branchId);
     return (Array.isArray(rows) ? rows : []).map(normalizeBalance);
+  }
+  async function fetchHistoricalClosingValue(branchId: number, period: string): Promise<number> {
+    const [year, month] = period.split("-").map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    const asOf = `${period}-${String(lastDay).padStart(2, "0")}`;
+    const [rawIngredients, rawFinishedGoods] = await Promise.all([
+      apiCall<any[]>(`/api/stock/${branchId}?as_of=${asOf}`),
+      apiCall<any[]>(`/api/stock/finished-goods/${branchId}?as_of=${asOf}`),
+    ]);
+    return [...asList(rawIngredients), ...asList(rawFinishedGoods)]
+      .map(normalizeBalance)
+      .reduce((sum, balance) => sum + assetValue(balance), 0);
   }
   async function fetchFGBalances(branchId: number): Promise<StockBalance[]> {
     const rows = await getFinishedGoodsBalances(branchId);
@@ -1103,20 +1115,44 @@ function openingValueForPeriod(
       return () => { cancelled = true; };
     }, [branchId, period, reloadKey]);
 
-    const totalCurrentValue   = balances.reduce((s, b) => s + assetValue(b), 0);
-    const visibleSnapshots = useMemo(
-      () => snapshots.filter(s => s.period_label === period),
-      [snapshots, period]
-    );
+    const totalCurrentValue = balances.reduce((s, b) => s + assetValue(b), 0);
+    const periodLabel = new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
     const totalPurchasesValue = filteredPurchases.reduce((s, p) => s + Number(p.payable_amount ?? p.gross_amount ?? 0), 0);
     const { value: openingValue, source: openingSource } = openingValueForPeriod(snapshots, openingStock, period);
-    const estimatedCOGS = openingValue + totalPurchasesValue - totalCurrentValue;
+    const selectedSnapshot = snapshots.find(s => s.period_label === period);
+    const [historicalClosingValue, setHistoricalClosingValue] = useState<number | null>(null);
+    const [historicalClosingState, setHistoricalClosingState] = useState<"idle" | "loading" | "ok" | "error">("idle");
+
+    useEffect(() => {
+      if (selectedSnapshot || !branchId || !period) {
+        setHistoricalClosingValue(null);
+        setHistoricalClosingState("idle");
+        return;
+      }
+      let cancelled = false;
+      setHistoricalClosingState("loading");
+      fetchHistoricalClosingValue(branchId, period)
+        .then(value => { if (!cancelled) { setHistoricalClosingValue(value); setHistoricalClosingState("ok"); } })
+        .catch(error => { console.error("[cogs] historical closing inventory load failed", error); if (!cancelled) setHistoricalClosingState("error"); });
+      return () => { cancelled = true; };
+    }, [branchId, period, selectedSnapshot]);
+
+    const closingValue = selectedSnapshot
+      ? n(selectedSnapshot.closing_value)
+      : historicalClosingValue ?? totalCurrentValue;
+    const historicalClosingUnavailable = !selectedSnapshot && historicalClosingState !== "ok";
+    const estimatedCOGS = openingValue + totalPurchasesValue - closingValue;
+    const history = useMemo(
+      () => [...snapshots].sort((a, b) => String(b.period_label).localeCompare(String(a.period_label))),
+      [snapshots]
+    );
+    const isClosed = Boolean(selectedSnapshot);
 
     if (purchState === "error") {
       return (
         <Card className="p-10 text-center">
           <AlertCircle className="w-10 h-10 text-red-500/40 mx-auto mb-3" />
-          <p className="text-sm font-medium text-foreground">Could not load purchases for {period}</p>
+          <p className="text-sm font-medium text-foreground">Could not load purchases for {periodLabel}</p>
           <p className="text-xs text-muted-foreground mt-1">COGS would be wrong without them.</p>
           <Button size="sm" variant="outline" className="mt-4" onClick={() => setReloadKey(k => k + 1)}>
             <RefreshCw className="w-3 h-3 mr-1" /> Retry
@@ -1124,80 +1160,73 @@ function openingValueForPeriod(
         </Card>
       );
     }
+
     return (
       <div className="space-y-5">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <Calendar className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium text-muted-foreground">{t("inv.cogs.period")}</span>
-            <input type="month" className={inputClass + " w-auto"} value={period} onChange={e => setPeriod(e.target.value)} />
+        <Card className="px-5 py-4 border-border bg-card/80">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Calendar className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Period</span>
+              <input aria-label="COGS period" type="month" className={inputClass + " w-auto"} value={period} onChange={e => setPeriod(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${isClosed ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isClosed ? "bg-green-500" : "bg-amber-500"}`} />
+                {isClosed ? "Closed" : "Open"}
+              </span>
+              <span>Showing data for {periodLabel}</span>
+            </div>
           </div>
         </Card>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <KpiCard label="Current Inventory Value" value={fmtEGP(totalCurrentValue)}
-              sub="Value of stock on hand (as of today)" color="text-blue-600"
-              icon={<Package className="w-5 h-5 text-blue-600" />} />
-            <KpiCard label={`Purchases (${period})`} value={fmtEGP(totalPurchasesValue)}
-              sub="Total purchases in this period" color="text-violet-600"
-              icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
-            <KpiCard label="Estimated COGS" value={fmtEGP(Math.max(0, estimatedCOGS))}
-              sub="Opening + Purchases − Closing" color="text-amber-600"
-              icon={<BarChart2 className="w-5 h-5 text-amber-600" />} />
-            <KpiCard label="Locked Periods" value={String(snapshots.length)}
-              sub="Number of closed periods" color="text-green-600"
-              icon={<Lock className="w-5 h-5 text-green-600" />} />
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard label="Closing Inventory" value={fmtEGP(closingValue)} sub={isClosed ? "Saved at end of selected period" : "Current inventory value (as of today)"} color="text-blue-600" icon={<Package className="w-5 h-5 text-blue-600" />} />
+          <KpiCard label={`Purchases (${period})`} value={fmtEGP(totalPurchasesValue)} sub="Total purchases in this period" color="text-violet-600" icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
+          <KpiCard label="Estimated COGS" value={historicalClosingUnavailable ? "—" : fmtSignedEGP(estimatedCOGS)} sub="Opening + Purchases − Closing" color="text-amber-600" icon={<BarChart2 className="w-5 h-5 text-amber-600" />} />
+          <KpiCard label="Locked Periods" value={String(snapshots.length)} sub="Number of closed periods" color="text-green-600" icon={<Lock className="w-5 h-5 text-green-600" />} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
+          <Card className="overflow-hidden xl:col-span-3">
+            <div className="border-b border-border bg-secondary/20 px-6 py-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><BookOpen className="h-4 w-4 text-blue-600" /> COGS Calculation — {periodLabel}</h3>
+            </div>
+            <div className="space-y-3 p-5">
+              <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3 dark:border-blue-900 dark:bg-blue-950/20">
+                <div><p className="text-sm font-medium text-blue-800 dark:text-blue-300">Opening Inventory</p><p className="text-xs text-muted-foreground">{openingValue > 0 ? `From ${openingSource === "snapshot" ? "previous month's closing snapshot" : "manual opening stock entries"}` : "No prior closing snapshot for this period"}</p></div>
+                <span className="font-mono text-sm font-bold text-blue-600">{fmtEGP(openingValue)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-violet-200 bg-violet-50/60 px-4 py-3 dark:border-violet-900 dark:bg-violet-950/20">
+                <div><p className="text-sm font-medium text-violet-800 dark:text-violet-300">+ Purchases</p><p className="text-xs text-muted-foreground">{filteredPurchases.length} purchase transactions in {periodLabel}</p></div>
+                <span className="font-mono text-sm font-bold text-violet-600">{fmtEGP(totalPurchasesValue)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-900 dark:bg-green-950/20">
+                <div><p className="text-sm font-medium text-green-800 dark:text-green-300">− Closing Inventory</p><p className="text-xs text-muted-foreground">{isClosed ? "Inventory at end of selected period" : historicalClosingState === "loading" ? "Loading period-end inventory…" : historicalClosingState === "error" ? "Could not load period-end inventory" : "Inventory at end of selected period"}</p></div>
+                <span className="font-mono text-sm font-bold text-green-600">{historicalClosingUnavailable ? "—" : fmtEGP(closingValue)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+                <span className="text-sm font-bold text-amber-900 dark:text-amber-200">= Estimated COGS</span>
+                <span className="font-mono text-base font-bold text-amber-600">{historicalClosingUnavailable ? "—" : fmtSignedEGP(estimatedCOGS)}</span>
+              </div>
+            </div>
+          </Card>
+
+          <div className="space-y-4 xl:col-span-2">
+            <Card className="border-amber-200 bg-amber-50/60 p-5 dark:border-amber-800 dark:bg-amber-950/20">
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300"><AlertCircle className="h-4 w-4" /> How COGS is calculated?</p>
+              <p className="mb-3 font-mono text-xs text-amber-700 dark:text-amber-400">COGS = Opening Inventory + Purchases − Closing Inventory</p>
+              <div className="space-y-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400"><p><strong>Opening Inventory</strong> — for the first period, comes from initial stock. For others, from the previous period's closing snapshot.</p><p><strong>Purchases</strong> — total value of all purchase and receiving transactions in this period.</p><p><strong>Closing Inventory</strong> — current inventory value at the end of the period. Closing this period saves these values in a snapshot, and they will not change.</p></div>
+            </Card>
+            <Card className="border-green-200 bg-green-50/60 p-4 dark:border-green-800 dark:bg-green-950/20"><p className="flex items-start gap-2 text-xs leading-relaxed text-green-700 dark:text-green-400"><Zap className="mt-0.5 h-4 w-4 shrink-0" /> Tip: Make sure all purchases, adjustments, and wastes are recorded before closing the period to get an accurate COGS.</p></Card>
           </div>
+        </div>
+
         <Card className="overflow-hidden">
-          <div className="px-6 py-4 border-b border-border bg-secondary/20">
-            <h3 className="font-semibold text-sm text-foreground">{t("inv.cogs.history")}</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-secondary/50 border-b border-border">
-                  <th className="px-4 py-3 text-left  text-xs font-semibold text-foreground">{t("inv.cogs.col.period")}</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">{t("inv.cogs.col.openingInv")}</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">{t("inv.cogs.col.purchases")}</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">{t("inv.cogs.col.closingInv")}</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">{t("inv.cogs.col.cogs")}</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">{t("inv.cogs.col.lockedBy")}</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-foreground">{t("inv.cogs.col.date")}</th>
-                </tr>
-              </thead>
-              <tbody>
-              {visibleSnapshots.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                    No locked snapshot for {period} yet.
-                  </td>
-                </tr>
-              ) : (
-                visibleSnapshots.map(s => {
-                  const available = n(s.opening_value) + n(s.purchases_value);
-                  const cogsIsHigh = available > 0 && n(s.cogs) > available * 0.8;
-                  return (
-                    <tr key={s.id} className="border-b border-border hover:bg-secondary/30">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Lock className="w-3 h-3 text-muted-foreground" />
-                          <span className="font-medium text-foreground">{s.period_label}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-sm">{fmtEGP(s.opening_value)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-sm text-violet-600">+{fmtEGP(s.purchases_value)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-sm text-green-600">−{fmtEGP(s.closing_value)}</td>
-                      <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${s.cogs < 0 ? "text-red-600" : cogsIsHigh ? "text-red-600" : "text-foreground"}`}>
-                        {fmtSignedEGP(s.cogs)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.locked_by}</td>
-                      <td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.entry_date}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-            </table>
-          </div>
+          <div className="border-b border-border bg-secondary/20 px-6 py-4"><h3 className="text-sm font-semibold text-foreground">COGS History (Closed Periods)</h3></div>
+          <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border bg-secondary/50"><th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Period</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Opening Inventory</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Purchases</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Closing Inventory</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">COGS</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked By</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked Date</th><th className="px-4 py-3 text-center text-xs font-semibold text-foreground">Status</th></tr></thead>
+            <tbody>{history.length === 0 ? <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">No locked periods yet.</td></tr> : history.map(s => <tr key={s.id} className="border-b border-border hover:bg-secondary/30"><td className="px-4 py-3 font-medium text-foreground">{s.period_label}</td><td className="px-4 py-3 text-right font-mono text-sm">{fmtEGP(s.opening_value)}</td><td className="px-4 py-3 text-right font-mono text-sm text-violet-600">+{fmtEGP(s.purchases_value)}</td><td className="px-4 py-3 text-right font-mono text-sm text-green-600">−{fmtEGP(s.closing_value)}</td><td className={`px-4 py-3 text-right font-mono text-sm font-bold ${s.cogs < 0 ? "text-red-600" : "text-foreground"}`}>{fmtSignedEGP(s.cogs)}</td><td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.locked_by}</td><td className="px-4 py-3 text-right text-xs text-muted-foreground">{s.entry_date}</td><td className="px-4 py-3 text-center"><span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-300">Closed</span></td></tr>)}</tbody>
+          </table></div>
         </Card>
       </div>
     );

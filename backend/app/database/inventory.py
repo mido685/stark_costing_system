@@ -66,7 +66,7 @@ def _ingredient_weighted_avg_cost(cur, ingredient_id: int, branch_id: int) -> fl
 # Stock balances  (read-only — no logging needed)
 # ---------------------------------------------------------------------------
 
-def get_branch_stock_balances(company_id: int, branch_id: int) -> list[dict[str, Any]]:
+def get_branch_stock_balances(company_id: int, branch_id: int, as_of: str | None = None) -> list[dict[str, Any]]:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
@@ -88,12 +88,14 @@ def get_branch_stock_balances(company_id: int, branch_id: int) -> list[dict[str,
                 END AS avg_unit_cost
             FROM ingredients i
             LEFT JOIN inventory_movements im
-                ON im.ingredient_id = i.id AND im.branch_id = %s
+                ON im.ingredient_id = i.id
+               AND im.branch_id = %s
+               AND (%s IS NULL OR im.entry_date <= %s)
             WHERE i.company_id = %s AND i.is_active = TRUE
             GROUP BY i.id, i.name, i.unit, i.reorder_level, i.cost_per_unit
             ORDER BY i.name
             """,
-            (branch_id, company_id),
+            (branch_id, as_of, as_of, company_id),
         )
         rows = [_row(dict(r)) for r in cur.fetchall()]
         for row in rows:
@@ -109,7 +111,7 @@ def get_branch_stock_balances(company_id: int, branch_id: int) -> list[dict[str,
         conn.close()
 
 
-def get_finished_goods_balances(company_id: int, branch_id: int) -> list[dict[str, Any]]:
+def get_finished_goods_balances(company_id: int, branch_id: int, as_of: str | None = None) -> list[dict[str, Any]]:
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
@@ -130,12 +132,14 @@ def get_finished_goods_balances(company_id: int, branch_id: int) -> list[dict[st
                 END AS avg_unit_cost
             FROM products p
             LEFT JOIN finished_goods_movements fgm
-                ON fgm.product_id = p.id AND fgm.branch_id = %s
+                ON fgm.product_id = p.id
+               AND fgm.branch_id = %s
+               AND (%s IS NULL OR fgm.entry_date <= %s)
             WHERE p.company_id = %s AND p.is_active = TRUE
             GROUP BY p.id, p.name, p.unit, p.sale_price
             ORDER BY p.name
             """,
-            (branch_id, company_id),
+            (branch_id, as_of, as_of, company_id),
         )
         rows = [_row(dict(r)) for r in cur.fetchall()]
         for row in rows:

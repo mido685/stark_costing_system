@@ -22,14 +22,22 @@ router = APIRouter(tags=["inventory"])
 # ---------------------------------------------------------------------------
 
 @router.get("/stock/finished-goods/{branch_id}")
-def finished_goods_stock(branch_id: int, current_user: dict = Depends(get_current_user)):
-    rows = inventory_db.get_finished_goods_balances(current_user["company_id"], branch_id)
+def finished_goods_stock(
+    branch_id: int,
+    as_of: str | None = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = inventory_db.get_finished_goods_balances(current_user["company_id"], branch_id, as_of=as_of)
     return success("Finished goods stock retrieved", stock=rows)
 
 
 @router.get("/stock/{branch_id}")
-def stock_balances(branch_id: int, current_user: dict = Depends(get_current_user)):
-    rows = inventory_db.get_branch_stock_balances(current_user["company_id"], branch_id)
+def stock_balances(
+    branch_id: int,
+    as_of: str | None = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = inventory_db.get_branch_stock_balances(current_user["company_id"], branch_id, as_of=as_of)
     return success("Stock balances retrieved", stock=rows)
 
 
