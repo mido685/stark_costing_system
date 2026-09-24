@@ -35,21 +35,25 @@ export function useApi<T>(
   // Always call the latest fetchFn without it being a dep of fetchData.
   const fetchFnRef = useRef(fetchFn);
   fetchFnRef.current = fetchFn;
+  const reqIdRef = useRef(0);
 
   // Stable fetch function — identity never changes, safe to put in deps.
   const fetchData = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const result = await fetchFnRef.current();
-      setState({ data: result, loading: false, error: null });
-    } catch (err) {
-      setState({
-        data: null,
-        loading: false,
-        error: err instanceof Error ? err.message : 'An error occurred',
-      });
-    }
-  }, []); // intentionally empty — fetchFnRef is stable
+  const myId = ++reqIdRef.current;
+  setState((prev) => ({ ...prev, loading: true, error: null }));
+  try {
+    const result = await fetchFnRef.current();
+    if (myId !== reqIdRef.current) return; // a newer request replaced this one
+    setState({ data: result, loading: false, error: null });
+  } catch (err) {
+    if (myId !== reqIdRef.current) return;
+    setState({
+      data: null,
+      loading: false,
+      error: err instanceof Error ? err.message : 'An error occurred',
+    });
+  }
+}, []);
 
   // Stable key for dep comparison — avoids array identity false-positives.
   const depsKey = JSON.stringify(deps ?? []);

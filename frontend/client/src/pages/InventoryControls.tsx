@@ -3210,6 +3210,7 @@ export default function InventoryControls() {
 
     // ── Period status form state (mirrors Finance component) ──────────────────
     const [periodStatusForm, setPeriodStatusForm] = useState<{ status: PeriodStatusValue; notes: string }>({ status: "closed", notes: "" });
+    const [statusOverride, setStatusOverride] = useState<{ period: string; row: PeriodStatusRow } | null>(null);
 
     const { data: branches } = useApi<Branch[]>(getBranches);
     const { data: balances,              loading: balancesLoading, refetch: refetchBalances   } = useApi<StockBalance[]>(() => branchId ? fetchBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
@@ -3229,9 +3230,9 @@ export default function InventoryControls() {
     // ── Branch-level period closure check ────────────────────────────────────
     const { data: branchPeriodStatus, refetch: refetchBranchPeriodStatus } =
       useApi<{ is_closed: boolean; is_locked?: boolean; status?: PeriodStatusValue }>(
-        () => branchId ? isPeriodClosed(branchId, today()) : Promise.resolve({ is_closed: false }),
-        { deps: [branchId] }
-      );
+        () => branchId ? isPeriodClosed(branchId, lastDayOfPeriod(workingPeriod)) : Promise.resolve({ is_closed: false }),
+        { deps: [branchId, workingPeriod] }
+    );
     const { data: productionMovements, refetch: refetchProductionMovements } =
       useApi<any[]>(() => getInventoryMovements(branchId || undefined, "issue"), { deps: [branchId] });
     
@@ -3248,16 +3249,17 @@ export default function InventoryControls() {
 
     const safeProductionMovements = productionMovements ?? [];
     // Derived period state (company-wide wins over branch-level)
-    const selectedPeriodState    = companyPeriodStatus?.status ?? branchPeriodStatus?.status ?? "open";
-    const selectedPeriodClosed   = selectedPeriodState === "closed" || selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_closed);
-    const selectedPeriodLocked   = selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_locked);
-    const periodLabelDisplay = workingPeriod
-    ? new Date(`${workingPeriod}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })
-    : "";
     const closedSnapshot = useMemo(
       () => (periodSnapshots ?? []).find(s => s.period_label === workingPeriod),
       [periodSnapshots, workingPeriod]
     );
+    const liveCompanyStatus      = statusOverride?.period === workingPeriod ? statusOverride.row : companyPeriodStatus;
+    const selectedPeriodState    = liveCompanyStatus?.status ?? branchPeriodStatus?.status ?? "open";
+    const selectedPeriodClosed   = selectedPeriodState === "closed" || selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_closed) || Boolean(closedSnapshot);
+    const selectedPeriodLocked   = selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_locked);
+    const periodLabelDisplay = workingPeriod
+      ? new Date(`${workingPeriod}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      : "";
     
     const [countForm,    setCountForm]    = useState({ ingredient_id: 0, entry_date: today(), counted_quantity: 0, notes: "" });
     const [adjForm,      setAdjForm]      = useState({ ingredient_id: 0, entry_date: today(), quantity_delta: 0, reason: "", notes: "", requires_approval: false });
@@ -3419,11 +3421,11 @@ const closePreview = useMemo(() => {
       setFormError(""); setModal(type);
       if (type === "transfer") setTransferForm(f => ({ ...f, from_branch_id: branchId }));
       if (type === "periodStatus") {
-        setPeriodStatusForm({
-          status: selectedPeriodState === "open" ? "closed" : selectedPeriodState,
-          notes: "",
-        });
-      }
+  setPeriodStatusForm({
+    status: selectedPeriodState === "open" ? "closed" : selectedPeriodState,
+    notes: "",
+  });
+}
     }
     
     async function handleSaveCount() {
@@ -3631,21 +3633,22 @@ const closePreview = useMemo(() => {
 
     // ── NEW: Company-wide period status handler (identical to Finance) ─────────
     async function handleSavePeriodStatus() {
-      setSaving(true); setFormError("");
-      try {
-        await setPeriodStatus({
-          period: workingPeriod,
-          status: periodStatusForm.status,
-          notes: periodStatusForm.notes,
-        });
-        setModal(null);
-        refetchAll();
-      } catch {
-        setFormError("Could not update period status");
-      }
-      setSaving(false);
-    }
-
+  setSaving(true); setFormError("");
+  try {
+    const updated = await setPeriodStatus({
+      period: workingPeriod,
+      status: periodStatusForm.status,
+      notes: periodStatusForm.notes,
+    });
+    setStatusOverride({ period: workingPeriod, row: updated }); // UI updates instantly
+    setModal(null);
+    refetchAll();
+  } catch (e) {
+    setFormError(e instanceof Error && e.message ? e.message : "Could not update period status");
+  } finally {
+    setSaving(false);
+  }
+}
     async function handleApprove(id: number, notes: string) {
       try {
         await approveAdjustment(id, "approved", notes);

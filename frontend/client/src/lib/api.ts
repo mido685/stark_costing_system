@@ -403,6 +403,7 @@ export async function apiCall<T>(
 ): Promise<T> {
   const token = localStorage.getItem("token");
   const response = await fetch(`${API_BASE}${endpoint}`, {
+    cache: "no-store",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -1187,24 +1188,22 @@ export async function setPeriodStatus(data: {
   status: PeriodStatusValue;
   notes?: string;
 }): Promise<PeriodStatusRow> {
-  try {
-    return await apiCall<PeriodStatusRow>("/api/period/status", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  } catch {
-    return {
-      company_id:       0,
-      period:           data.period,
-      status:           "open",
-      notes:            data.notes ?? "",
-      updated_by:       null,
-      updated_at:       null,
-      updated_by_name:  null,
-      is_closed:        false,
-      is_locked:        false,
-    };
-  }
+  const res = await apiCall<any>("/api/period/status", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  const row = res?.period_status ?? res;
+  return {
+    company_id: row.company_id ?? 0,
+    period: row.period ?? data.period,
+    status: row.status ?? data.status,
+    notes: row.notes ?? data.notes ?? "",
+    updated_by: row.updated_by ?? null,
+    updated_at: row.updated_at ?? null,
+    updated_by_name: row.updated_by_name ?? null,
+    is_closed: (row.status ?? data.status) !== "open",
+    is_locked: (row.status ?? data.status) === "locked",
+  };
 }
 
 export async function generatePeriodBackups(data: {
