@@ -392,7 +392,7 @@ export default function PeriodStatusControl() {
 
   const trigRef  = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-
+  const statusRequestRef = useRef(0);
   const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
   const [toast, setToast] = useState<PeriodToast | null>(null);
 
@@ -440,14 +440,22 @@ export default function PeriodStatusControl() {
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchStatus = useCallback(async (p: string) => {
-    try {
-      const r   = await apiCall<unknown>(`/api/period/status?period=${p}`);
-      const row = unwrap<Record<string, unknown>>(r, {});
-      const s   = (row?.status as Status | undefined) ?? "open";
+  const requestId = ++statusRequestRef.current;
+
+  try {
+    const r = await apiCall<unknown>(`/api/period/status?period=${p}`);
+    const row = unwrap<Record<string, unknown>>(r, {});
+    const s = (row?.status as Status | undefined) ?? "open";
+
+    // Ignore an older response if a newer status request has started.
+    if (requestId === statusRequestRef.current) {
       setStatus(s);
       setStatusMap((prev) => ({ ...prev, [p]: s }));
-    } catch { setStatus("open"); }
-  }, []);
+    }
+  } catch {
+    // Keep the current status if the request fails.
+  }
+}, []);
 
   const fetchPast = useCallback(async () => {
     try {
@@ -570,10 +578,12 @@ export default function PeriodStatusControl() {
       ref={panelRef}
       className="psc-panel fixed w-[300px] rounded-2xl border border-border/60 bg-card"
       style={{
-        top:       panelPos.top,
-        left:      panelPos.left,
-        zIndex:    99999,
-        boxShadow: "0 20px 60px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)",
+        top: 16,
+        right: 16,
+        left: "auto",
+        zIndex: 99999,
+        width: "min(420px, calc(100vw - 32px))",
+        boxSizing: "border-box",
       }}
     >
       {drillPeriod ? (
@@ -749,9 +759,11 @@ export default function PeriodStatusControl() {
     ) : (
       <CheckCircle size={20} />
     )}
+  <span className="min-w-0 flex-1 whitespace-normal leading-snug">
+  {toast.msg}
+</span>
 
-    <span>{toast.msg}</span>
-  </div>,
+      </div>,
   document.body
 )}
       {/* Badge trigger */}
