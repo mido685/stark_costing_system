@@ -369,25 +369,23 @@
   }
 
   // Opening = closing value of the latest snapshot dated before this period starts
-function openingValueForPeriod(
-  snapshots: PeriodSnapshot[],
-  openingStock: any[],
-  period: string
-): { value: number; source: "snapshot" | "manual" } {
-  const start = `${period}-01`;
+  const closingValue = selectedSnapshot
+    ? n(selectedSnapshot.closing_value)
+    : historicalClosingValue;
 
-  const prior = snapshots
-    .filter(s => (s.entry_date ?? "") < start)
-    .sort((a, b) => (b.entry_date ?? "").localeCompare(a.entry_date ?? ""));
+  const historicalClosingUnavailable =
+    !selectedSnapshot &&
+    historicalClosingState !== "ok";
 
-  if (prior.length) {
-    return { value: n(prior[0].closing_value), source: "snapshot" };
-  }
+  const openingUnavailable =
+    openingSource === "missing";
 
-  const openingRows = openingStock.filter(row => (row.entry_date ?? "") < start);
-  const value = openingRows.reduce((sum, row) => sum + n(row.opening_value), 0);
-  return { value, source: "manual" };
-}
+  const estimatedCOGS =
+    openingUnavailable ||
+    historicalClosingUnavailable ||
+    closingValue === null
+      ? null
+      : openingValue + totalPurchasesValue - closingValue;
   // Is the period containing `date` open for this branch? Returns an error message, or null if OK.
   // Fails open on network errors: the server remains the real enforcement.
   async function checkDateOpen(branchId: number, date: string): Promise<string | null> {
