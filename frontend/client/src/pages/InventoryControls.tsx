@@ -384,7 +384,8 @@ function openingValueForPeriod(
     return { value: n(prior[0].closing_value), source: "snapshot" };
   }
 
-  const openingRows = openingStock.filter(row => (row.entry_date ?? "") < start);
+  const end = lastDayOfPeriod(period);
+  const openingRows = openingStock.filter(row => (row.entry_date ?? "").slice(0, 10) <= end);
   const value = openingRows.reduce((sum, row) => sum + n(row.opening_value), 0);
   return { value, source: "manual" };
 }
@@ -486,7 +487,7 @@ function openingValueForPeriod(
   }
   function getTransfersByBranch(branchId?: number): Promise<any[]> {
     return tracked("transfers", async () =>
-      asList(await apiCall<any[]>(`/api/transfers/by-branch${branchId ? `?branch_id=${branchId}` : ""}`)), []);
+      asList(await apiCall<any[]>(`/api/transfers/by-branch?limit=5000${branchId ? `&branch_id=${branchId}` : ""}`)), []);
   }
   function getOpeningStockByBranch(branchId?: number): Promise<any[]> {
     return tracked("opening stock", async () =>
@@ -547,6 +548,7 @@ function openingValueForPeriod(
       const p = new URLSearchParams();
       if (branchId) p.set("branch_id", String(branchId));
       if (movementType) p.set("movement_type", movementType);
+      p.set("limit", "5000");
       return asList(await apiCall<any[]>(`/api/inventory-movements/by-branch?${p}`));
     }, []);
   }
@@ -1094,7 +1096,7 @@ interface ConsumptionRow {
   usedQty: number; unitCost: number; usedValue: number;
 }
 
-function ConsumptionByItem({ branchId, period }: { branchId: number; period: string }) {
+function ConsumptionByItem({ branchId, period,onTotals}: { branchId: number; period: string;   onTotals?: (t: { opening: number; purchases: number; closing: number; consumed: number } | null) => void; }) {
   const [rows, setRows] = useState<ConsumptionRow[]>([]);
   const [state, setState] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [search, setSearch] = useState("");
@@ -1102,9 +1104,10 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    if (!branchId || !period) { setRows([]); setState("idle"); return; }
+    if (!branchId || !period) { setRows([]); setState("idle"); onTotals?.(null); return; }
     let cancelled = false;
     setState("loading");
+    onTotals?.(null);
 
     const [y, m] = period.split("-").map(Number);
     const fmt = (d: Date) =>
@@ -1124,12 +1127,13 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
         const closing = asList(closeRaw).map(normalizeBalance);
 
         type Acc = { name: string; unit: string; openQty: number; openVal: number; closeQty: number;
-                     closeVal: number; purchQty: number; purchVal: number; tIn: number; tOut: number };
+                     closeVal: number; purchQty: number; purchVal: number; tIn: number; tOut: number;
+                     tInVal: number; tOutVal: number };
         const map = new Map<number, Acc>();
         const get = (id: number, name = "", unit = ""): Acc => {
           let a = map.get(id);
           if (!a) {
-            a = { name, unit, openQty: 0, openVal: 0, closeQty: 0, closeVal: 0, purchQty: 0, purchVal: 0, tIn: 0, tOut: 0 };
+            a = { name, unit, openQty: 0, openVal: 0, closeQty: 0, closeVal: 0, purchQty: 0, purchVal: 0, tIn: 0, tOut: 0, tInVal: 0, tOutVal: 0 };
             map.set(id, a);
           }
           if (!a.name && name) a.name = name;
@@ -1154,8 +1158,8 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
           switch (mv.movement_type) {
             case "opening_stock": a.openQty += q; a.openVal += q * cost; break; // opening stock dated inside the month still counts as opening
             case "grn":           a.purchQty += q; a.purchVal += q * cost; break; // goods actually received
-            case "transfer_in":   a.tIn += q; break;
-            case "transfer_out":  a.tOut += Math.abs(q); break;
+            case "transfer_in":   a.tIn += q; a.tInVal += q * cost; break;
+            case "transfer_out":  a.tOut += Math.abs(q); a.tOutVal += Math.abs(q) * cost; break;
           }
         });
 
@@ -1173,9 +1177,18 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
         }).sort((a, b) => Math.abs(b.usedValue) - Math.abs(a.usedValue));
 
         setRows(out);
+                onTotals?.({
+          opening:   [...map.values()].reduce((s, a) => s + a.openVal, 0),
+          purchases: [...map.values()].reduce((s, a) => s + a.purchVal, 0),
+          closing:   [...map.values()].reduce((s, a) => s + a.closeVal, 0),
+          consumed:  [...map.values()].reduce((s, a) => s + a.openVal + a.purchVal + a.tInVal - a.tOutVal - a.closeVal, 0),
+        });
         setState("ok");
       })
-      .catch(e => { console.error("[consumption] item load failed", e); if (!cancelled) setState("error"); });
+      .catch(e => {
+  console.error("[consumption] item load failed", e);
+  if (!cancelled) { setState("error"); onTotals?.(null); }
+});
 
     return () => { cancelled = true; };
   }, [branchId, period, reloadKey]);
@@ -1291,6 +1304,7 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
     const [filteredPurchases, setFilteredPurchases] = useState<any[]>([]);
     const [purchState, setPurchState] = useState<"loading" | "ok" | "error">("loading");
     const [reloadKey, setReloadKey] = useState(0);
+    const [itemTotals, setItemTotals] = useState<{ opening: number; purchases: number; closing: number; consumed: number } | null>(null);
 
     useEffect(() => {
       if (!period) { setFilteredPurchases([]); setPurchState("ok"); return; }
@@ -1337,6 +1351,11 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
       [snapshots]
     );
     const isClosed = Boolean(selectedSnapshot);
+    const shownOpening   = itemTotals ? itemTotals.opening   : openingValue;
+    const shownPurchases = itemTotals ? itemTotals.purchases : totalPurchasesValue;
+    const shownClosing   = itemTotals ? itemTotals.closing   : closingValue;
+    const shownConsumed  = itemTotals ? itemTotals.consumed : shownOpening + shownPurchases - shownClosing;
+    const shownUnavailable = !itemTotals && historicalClosingUnavailable;
 
     if (purchState === "error") {
       return (
@@ -1371,7 +1390,7 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
         </Card>
 
 
-                  {openingValue === 0 && closingValue > 0 && (
+                  {shownOpening === 0 && shownClosing > 0 && (
           <Card className="p-3 border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20">
             <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1381,9 +1400,9 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
         )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard label="Closing Inventory" value={fmtEGP(closingValue)} sub={isClosed ? "Saved at end of selected period" : "Current inventory value (as of today)"} color="text-blue-600" icon={<Package className="w-5 h-5 text-blue-600" />} />
-          <KpiCard label={`Purchases (${period})`} value={fmtEGP(totalPurchasesValue)} sub="Total purchases in this period" color="text-violet-600" icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
-          <KpiCard label="Inventory Consumption" value={historicalClosingUnavailable ? "—" : fmtSignedEGP(estimatedCOGS)} sub="Opening + Purchases − Closing" color="text-amber-600" icon={<BarChart2 className="w-5 h-5 text-amber-600" />} />
+          <KpiCard label="Closing Inventory" value={fmtEGP(shownClosing)} sub={isClosed ? "Saved at end of selected period" : "Inventory value at end of selected period"} color="text-blue-600" icon={<Package className="w-5 h-5 text-blue-600" />} />
+          <KpiCard label={`Purchases (${period})`} value={fmtEGP(shownPurchases)} sub="Total purchases in this period" color="text-violet-600" icon={<ShoppingCart className="w-5 h-5 text-violet-600" />} />
+          <KpiCard label="Inventory Consumption" value={shownUnavailable ? "—" : fmtSignedEGP(shownConsumed)} sub="Opening + Purchases − Closing" color="text-amber-600" icon={<BarChart2 className="w-5 h-5 text-amber-600" />} />
           <KpiCard label="Locked Periods" value={String(snapshots.length)} sub="Number of closed periods" color="text-green-600" icon={<Lock className="w-5 h-5 text-green-600" />} />
         </div>
 
@@ -1394,20 +1413,20 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
             </div>
             <div className="space-y-3 p-5">
               <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-3 dark:border-blue-900 dark:bg-blue-950/20">
-                <div><p className="text-sm font-medium text-blue-800 dark:text-blue-300">Opening Inventory</p><p className="text-xs text-muted-foreground">{openingValue > 0 ? `From ${openingSource === "snapshot" ? "previous month's closing snapshot" : "manual opening stock entries"}` : "No prior closing snapshot for this period"}</p></div>
-                <span className="font-mono text-sm font-bold text-blue-600">{fmtEGP(openingValue)}</span>
+                <div><p className="text-sm font-medium text-blue-800 dark:text-blue-300">Opening Inventory</p><p className="text-xs text-muted-foreground">{shownOpening > 0 ? `From ${openingSource === "snapshot" ? "previous month's closing snapshot" : "manual opening stock entries"}` : "No prior closing snapshot for this period"}</p></div>
+                <span className="font-mono text-sm font-bold text-blue-600">{fmtEGP(shownOpening)}</span>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-violet-200 bg-violet-50/60 px-4 py-3 dark:border-violet-900 dark:bg-violet-950/20">
-                <div><p className="text-sm font-medium text-violet-800 dark:text-violet-300">+ Purchases</p><p className="text-xs text-muted-foreground">{filteredPurchases.length} purchase transactions in {periodLabel}</p></div>
-                <span className="font-mono text-sm font-bold text-violet-600">{fmtEGP(totalPurchasesValue)}</span>
+                <div><p className="text-sm font-medium text-violet-800 dark:text-violet-300">+ Purchases</p><p className="text-xs text-muted-foreground">{itemTotals ? `Goods received (GRN) in ${periodLabel}` : `${filteredPurchases.length} purchase transactions in ${periodLabel}`}</p></div>
+                <span className="font-mono text-sm font-bold text-violet-600">{fmtEGP(shownPurchases)}</span>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-900 dark:bg-green-950/20">
                 <div><p className="text-sm font-medium text-green-800 dark:text-green-300">− Closing Inventory</p><p className="text-xs text-muted-foreground">{isClosed ? "Inventory at end of selected period" : historicalClosingState === "loading" ? "Loading period-end inventory…" : historicalClosingState === "error" ? "Could not load period-end inventory" : "Inventory at end of selected period"}</p></div>
-                <span className="font-mono text-sm font-bold text-green-600">{historicalClosingUnavailable ? "—" : fmtEGP(closingValue)}</span>
+                <span className="font-mono text-sm font-bold text-green-600">{shownUnavailable ? "—" : fmtEGP(shownClosing)}</span>
               </div>
               <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
                 <span className="text-sm font-bold text-amber-900 dark:text-amber-200">= Inventory Consumption</span>
-                <span className="font-mono text-base font-bold text-amber-600">{historicalClosingUnavailable ? "—" : fmtSignedEGP(estimatedCOGS)}</span>
+                <span className="font-mono text-base font-bold text-amber-600">{shownUnavailable ? "—" : fmtSignedEGP(shownConsumed)}</span>
               </div>
             </div>
           </Card>
@@ -1421,7 +1440,7 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
             <Card className="border-green-200 bg-green-50/60 p-4 dark:border-green-800 dark:bg-green-950/20"><p className="flex items-start gap-2 text-xs leading-relaxed text-green-700 dark:text-green-400"><Zap className="mt-0.5 h-4 w-4 shrink-0" /> Tip: Make sure all purchases, adjustments, and wastes are recorded before closing the period to get an accurate consumption figure.</p></Card>
           </div>
         </div>
-        <ConsumptionByItem branchId={branchId} period={period} />
+        <ConsumptionByItem branchId={branchId} period={period} onTotals={setItemTotals} />
         <Card className="overflow-hidden">
           <div className="border-b border-border bg-secondary/20 px-6 py-4"><h3 className="text-sm font-semibold text-foreground">Consumption History (Closed Periods)</h3></div>
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border bg-secondary/50"><th className="px-4 py-3 text-left text-xs font-semibold text-foreground">Period</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Opening Inventory</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Purchases</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Closing Inventory</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Consumption</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked By</th><th className="px-4 py-3 text-right text-xs font-semibold text-foreground">Locked Date</th><th className="px-4 py-3 text-center text-xs font-semibold text-foreground">Status</th></tr></thead>
