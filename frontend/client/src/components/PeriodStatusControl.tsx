@@ -281,48 +281,110 @@ function AdjustingEntryForm({ period, onClose, onSuccess }: {
   );
 }
 
-function PeriodPicker({ selected, statusMap, todayPeriod, onChange, locale }: {
-  selected: string; statusMap: Record<string, Status>; todayPeriod: string; onChange: (p: string) => void; locale: string;
+
+function PeriodPicker({
+  selected,
+  statusMap,
+  todayPeriod,
+  onChange,
+  locale,
+}: {
+  selected: string;
+  statusMap: Record<string, Status>;
+  todayPeriod: string;
+  onChange: (p: string) => void;
+  locale: string;
 }) {
-  const [viewYear, setViewYear] = useState(() => Number(selected.split("-")[0]));
-  const months     = useMemo(() => buildMonthLabels(locale), [locale]);
-  const todayYear  = Number(todayPeriod.split("-")[0]);
-  const todayMonth = Number(todayPeriod.split("-")[1]);  const isFuture = (m: number) => viewYear > todayYear || (viewYear === todayYear && m > todayMonth);
-  const cell     = (m: number) => `${viewYear}-${String(m).padStart(2, "0")}`;
+  const [viewYear, setViewYear] = useState(
+    () => Number(selected.split("-")[0])
+  );
+
+  const months = useMemo(
+    () => buildMonthLabels(locale),
+    [locale]
+  );
+
+  const todayYear = Number(todayPeriod.split("-")[0]);
+  const todayMonth = Number(todayPeriod.split("-")[1]);
+
+  const isFuture = (m: number) =>
+    viewYear > todayYear ||
+    (viewYear === todayYear && m > todayMonth);
+
+  const cell = (m: number) =>
+    `${viewYear}-${String(m).padStart(2, "0")}`;
 
   return (
     <div className="px-3 py-2.5">
       <div className="flex items-center justify-between mb-3">
-        <button onClick={() => setViewYear((y) => y - 1)}
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+        <button
+          onClick={() => setViewYear((y) => y - 1)}
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted"
+        >
           <ChevronLeft size={13} />
         </button>
-        <span className="text-[12px] font-bold text-foreground tracking-wider">{viewYear}</span>
-        <button onClick={() => setViewYear((y) => y + 1)} disabled={viewYear >= todayYear}
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed">
+
+        <span className="text-[12px] font-bold text-foreground">
+          {viewYear}
+        </span>
+
+        <button
+          onClick={() => setViewYear((y) => y + 1)}
+          disabled={viewYear >= todayYear}
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted disabled:opacity-20"
+        >
           <ChevronRight size={13} />
         </button>
       </div>
+
       <div className="grid grid-cols-4 gap-1.5">
         {months.map((name, idx) => {
-          const m = idx + 1; const p = cell(m);
-          const future = isFuture(m); const st = statusMap[p] ?? "open";
-          const isSelected = p === selected; const isToday = p === todayPeriod;
+          const m = idx + 1;
+          const p = cell(m);
+          const future = isFuture(m);
+          const st = statusMap[p];
+          const isSelected = p === selected;
+          const isToday = p === todayPeriod;
+
           return (
-            <button key={p} disabled={future} onClick={() => onChange(p)}
-              className={`psc-cal-cell relative py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-25 disabled:cursor-not-allowed
-                ${isSelected ? `ring-2 ${STATUS[st].ring} ring-offset-1 ring-offset-card ${STATUS[st].pill}` : STATUS[st].cell}`}>
+            <button
+              key={p}
+              disabled={future}
+              onClick={() => onChange(p)}
+              className={`psc-cal-cell relative py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-25 disabled:cursor-not-allowed ${
+                st
+                  ? isSelected
+                    ? `ring-2 ${STATUS[st].ring} ring-offset-1 ring-offset-card ${STATUS[st].pill}`
+                    : STATUS[st].cell
+                  : "bg-muted/30 text-muted-foreground"
+              }`}
+            >
               {name}
-              {isToday && !isSelected && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400" />}
-              {!future && st !== "open" && <span className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${STATUS[st].dot}`} />}
+
+              {isToday && !isSelected && (
+                <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400" />
+              )}
+
+              {!future && st && st !== "open" && (
+                <span
+                  className={`absolute top-0.5 right-0.5 w-1 h-1 rounded-full ${STATUS[st].dot}`}
+                />
+              )}
             </button>
           );
         })}
       </div>
+
       <div className="flex items-center gap-4 mt-3 pt-2.5 border-t border-border/50">
-        {(["open","closed","locked"] as Status[]).map((s) => (
-          <span key={s} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className={`w-1.5 h-1.5 rounded-full ${STATUS[s].dot}`} />{STATUS[s].label}
+        {(["open", "closed", "locked"] as Status[]).map((s) => (
+          <span
+            key={s}
+            className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${STATUS[s].dot}`}
+            />
+            {STATUS[s].label}
           </span>
         ))}
       </div>
@@ -363,17 +425,18 @@ export default function PeriodStatusControl() {
   const { user }                                             = useAuth();
   const { language }                                         = useLanguage();
   const {
-  workingPeriod,
-  setWorkingPeriod,
-  isCurrentPeriod,
-  refreshPeriodStatus,
-} = useWorkingPeriod();
+    workingPeriod,
+    setWorkingPeriod,
+    isCurrentPeriod,
+    periodStatus,
+    refreshPeriodStatus,
+  } = useWorkingPeriod();
   const todayPeriod = useMemo(() => buildCurrentPeriod(), []);
 
   const [open,         setOpen]         = useState(false);
   const [tab,          setTab]          = useState<Tab>("actions");
   const [acting,       setActing]       = useState(false);
-  const [status,       setStatus]       = useState<Status>("open");
+  const status = periodStatus;
   const [statusMap,    setStatusMap]    = useState<Record<string, Status>>({});
   const [pastPeriods,  setPastPeriods]  = useState<PeriodRow[]>([]);
   const [history,      setHistory]      = useState<HistoryEntry[]>([]);
@@ -419,28 +482,36 @@ export default function PeriodStatusControl() {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  const fetchStatus = useCallback(async (period: string) => {
-  const response = await apiCall<unknown>(
-    `/api/period/status?period=${period}`
-  );
+  const fetchStatus = useCallback(
+  async (period: string): Promise<Status> => {
+    if (period === workingPeriod) {
+      return await refreshPeriodStatus();
+    }
 
-  const row = unwrap<Record<string, unknown>>(response, {});
-  const nextStatus = row.status;
+    const response = await apiCall<unknown>(
+      `/api/period/status?period=${encodeURIComponent(period)}`
+    );
 
-  if (
-    nextStatus !== "open" &&
-    nextStatus !== "closed" &&
-    nextStatus !== "locked"
-  ) {
-    throw new Error("Invalid period status response");
-  }
+    const row = unwrap<Record<string, unknown>>(response, {});
+    const nextStatus = row.status;
 
-  setStatus(nextStatus);
-  setStatusMap(prev => ({
-    ...prev,
-    [period]: nextStatus,
-  }));
-}, []);
+    if (
+      nextStatus !== "open" &&
+      nextStatus !== "closed" &&
+      nextStatus !== "locked"
+    ) {
+      throw new Error(`Invalid period status for ${period}`);
+    }
+
+    setStatusMap(prev => ({
+      ...prev,
+      [period]: nextStatus,
+    }));
+
+    return nextStatus;
+  },
+  [workingPeriod, refreshPeriodStatus]
+);
   const fetchPast = useCallback(async () => {
     try {
       const r    = await apiCall<unknown>("/api/period/list");
@@ -448,9 +519,19 @@ export default function PeriodStatusControl() {
       setPastPeriods(rows.filter((p) => p.period !== todayPeriod));
       const map: Record<string, Status> = {};
       rows.forEach((p) => { map[p.period] = p.status; });
-      setStatusMap((prev) => ({ ...prev, ...map }));
+      setStatusMap(prev => {
+      const next = { ...prev, ...map };
+
+      if (periodStatus !== null) {
+        next[workingPeriod] = periodStatus;
+      } else {
+        delete next[workingPeriod];
+      }
+
+      return next;
+    });
     } catch { setPastPeriods([]); }
-  }, [todayPeriod]);
+  }, [todayPeriod, workingPeriod, periodStatus]);
 
   const fetchHistory = useCallback(async (p: string) => {
     setHistLoading(true);
@@ -461,7 +542,14 @@ export default function PeriodStatusControl() {
     finally { setHistLoading(false); }
   }, []);
 
-  useEffect(() => { fetchStatus(workingPeriod); }, [workingPeriod, fetchStatus]);
+  useEffect(() => {
+  if (periodStatus === null) return;
+
+  setStatusMap(prev => ({
+    ...prev,
+    [workingPeriod]: periodStatus,
+  }));
+  }, [periodStatus, workingPeriod]);
   useEffect(() => { fetchPast(); }, [fetchPast]);
   useEffect(() => {
     if (open && tab === "history") fetchHistory(workingPeriod);
@@ -502,26 +590,50 @@ export default function PeriodStatusControl() {
     setPending({ status: newStatus, period: workingPeriod });
   }
 
-  async function applyTransition() {
-    if (!pending || acting) return;
-    const { status: newStatus, period } = pending;
-    setActing(true);
-    try {
-      await apiCall("/api/period/status", {
-        method: "POST",
-        body: JSON.stringify({ period, status: newStatus }),
-      });
-      await fetchStatus(period);
-      await refreshPeriodStatus();
-      await fetchPast();
-      if (tab === "history") fetchHistory(period);
-      setPending(null);
-      showToast(`Period set to ${newStatus}.`);
-    } catch (err) {
-      setPending(null);
-      showToast(extractError(err), "err");
-    } finally { setActing(false); }
+ async function applyTransition() {
+  if (!pending || acting) return;
+
+  const {
+    status: newStatus,
+    period,
+  } = pending;
+
+  setActing(true);
+
+  try {
+    await apiCall("/api/period/status", {
+      method: "POST",
+      body: JSON.stringify({
+        period,
+        status: newStatus,
+      }),
+    });
+
+    const confirmedStatus =
+      period === workingPeriod
+        ? await refreshPeriodStatus()
+        : await fetchStatus(period);
+    if (confirmedStatus !== newStatus) {
+      throw new Error(
+        `The backend did not confirm ${newStatus}.`
+      );
+    }
+
+    await fetchPast();
+
+    if (tab === "history") {
+      fetchHistory(period);
+    }
+
+    setPending(null);
+    showToast(`Period set to ${newStatus}.`);
+  } catch (error) {
+    setPending(null);
+    showToast(extractError(error), "err");
+  } finally {
+    setActing(false);
   }
+}
 
   async function runValidation() {
     try {
@@ -583,11 +695,17 @@ export default function PeriodStatusControl() {
           <div className="px-4 py-3 border-b border-border/50">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[14px] font-bold text-foreground leading-tight">{fmtPeriod(workingPeriod)}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{STATUS[status].desc}</p>
-              </div>
-              <StatusPill status={status} />
-            </div>
+            <p className="text-[14px] font-bold text-foreground leading-tight">
+              {fmtPeriod(workingPeriod)}
+            </p>
+
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {status ? STATUS[status].desc : "Loading period status..."}
+            </p>
+          </div>
+
+          {status ? <StatusPill status={status} /> : <Spinner />}
+        </div>
             {!isCurrentPeriod && (
               <div className="flex items-center gap-2 mt-2.5 px-2.5 py-2 rounded-xl bg-amber-500/[0.08] border border-amber-500/20">
                 <AlertTriangle size={11} className="text-amber-400 shrink-0" />
@@ -686,9 +804,17 @@ export default function PeriodStatusControl() {
           {/* Footer */}
           <div className="px-4 py-2 border-t border-border/50 flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground/50 font-mono">STARK ERP · Period Control</span>
-            <span className={`text-[10px] font-semibold ${STATUS[status].pill.split(" ")[1]}`}>
-              {STATUS[status].label.toUpperCase()}
-            </span>
+            <span
+  className={`text-[10px] font-semibold ${
+    status
+      ? STATUS[status].pill
+      : "text-muted-foreground"
+  }`}
+>
+  {status
+    ? STATUS[status].label.toUpperCase()
+    : "LOADING"}
+</span>
           </div>
         </>
       )}
@@ -730,15 +856,27 @@ export default function PeriodStatusControl() {
         }}
         aria-haspopup="true"
         aria-expanded={open}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-all duration-150 select-none hover:opacity-90 active:scale-95 ${STATUS[status].badge}`}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-all duration-150 select-none hover:opacity-90 active:scale-95 ${
+  status
+    ? STATUS[status].badge
+    : "border-border text-muted-foreground"
+}`}
       >
         <span className="relative flex h-2 w-2">
           {status === "open" && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />}
-          <span className={`relative inline-flex rounded-full h-2 w-2 ${STATUS[status].dot}`} />
+          <span
+  className={`relative inline-flex rounded-full h-2 w-2 ${
+    status
+      ? STATUS[status].dot
+      : "bg-muted-foreground"
+  }`}
+/>
         </span>
         <span>{fmtShortPeriod(workingPeriod)}</span>
         <span className="opacity-50">·</span>
-        <span>{STATUS[status].label}</span>
+        <span>
+  {status ? STATUS[status].label : "Loading"}
+</span>
         {!isCurrentPeriod && <AlertTriangle size={10} className="text-amber-400" />}
         <ChevronDown size={11} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
