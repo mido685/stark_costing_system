@@ -369,23 +369,25 @@
   }
 
   // Opening = closing value of the latest snapshot dated before this period starts
-  const closingValue = selectedSnapshot
-    ? n(selectedSnapshot.closing_value)
-    : historicalClosingValue;
+function openingValueForPeriod(
+  snapshots: PeriodSnapshot[],
+  openingStock: any[],
+  period: string
+): { value: number; source: "snapshot" | "manual" } {
+  const start = `${period}-01`;
 
-  const historicalClosingUnavailable =
-    !selectedSnapshot &&
-    historicalClosingState !== "ok";
+  const prior = snapshots
+    .filter(s => (s.entry_date ?? "") < start)
+    .sort((a, b) => (b.entry_date ?? "").localeCompare(a.entry_date ?? ""));
 
-  const openingUnavailable =
-    openingSource === "missing";
+  if (prior.length) {
+    return { value: n(prior[0].closing_value), source: "snapshot" };
+  }
 
-  const estimatedCOGS =
-    openingUnavailable ||
-    historicalClosingUnavailable ||
-    closingValue === null
-      ? null
-      : openingValue + totalPurchasesValue - closingValue;
+  const openingRows = openingStock.filter(row => (row.entry_date ?? "") < start);
+  const value = openingRows.reduce((sum, row) => sum + n(row.opening_value), 0);
+  return { value, source: "manual" };
+}
   // Is the period containing `date` open for this branch? Returns an error message, or null if OK.
   // Fails open on network errors: the server remains the real enforcement.
   async function checkDateOpen(branchId: number, date: string): Promise<string | null> {
@@ -1226,7 +1228,7 @@ function ConsumptionByItem({ branchId, period }: { branchId: number; period: str
               <tr className="bg-secondary/50 border-b border-border text-xs font-semibold text-foreground">
                 <th className="px-4 py-3 text-left">Item</th>
                 <th className="px-4 py-3 text-right">Opening</th>
-                <th className="px-4 py-3 text-right">+ Purchases</th>
+                <th className="px-4 py-3 text-right">+ Received (GRN)</th>
                 <th className="px-4 py-3 text-right">+ Transfer In</th>
                 <th className="px-4 py-3 text-right">− Transfer Out</th>
                 <th className="px-4 py-3 text-right">− Closing</th>
