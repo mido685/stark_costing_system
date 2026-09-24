@@ -35,17 +35,6 @@ interface HistoryEntry {
   changed_by_name: string; changed_at: string; note: string | null;
 }
 
-import AnimatedPeriodLock from "./AnimatedPeriodLock";
-
-type PeriodToast = {
-  msg: string;
-  type: "ok" | "err";
-  status?: Status;
-  period?: string;
-};
-
-
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildCurrentPeriod(): string {
@@ -388,13 +377,13 @@ export default function PeriodStatusControl() {
   const [drillHist,    setDrillHist]    = useState<HistoryEntry[]>([]);
   const [drillLoading, setDrillLoading] = useState(false);
   const [showAdjForm,  setShowAdjForm]  = useState(false);
+  const [toast,        setToast]        = useState<{ msg: string; type: "ok" | "err" } | null>(null);
   const [pending,      setPending]      = useState<{ status: Status; period: string } | null>(null);
 
   const trigRef  = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const statusRequestRef = useRef(0);
+
   const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
-  const [toast, setToast] = useState<PeriodToast | null>(null);
 
   const updatePos = useCallback(() => {
     if (!trigRef.current) return;
@@ -408,16 +397,6 @@ export default function PeriodStatusControl() {
   }, []);
 
   useEffect(() => {
-  if (!toast) return;
-
-  const timer = window.setTimeout(() => {
-    setToast(null);
-  }, 3500);
-
-  return () => window.clearTimeout(timer);
-}, [toast]);
-
-  useEffect(() => {
     if (!open) return;
     updatePos();
     window.addEventListener("resize", updatePos);
@@ -428,34 +407,22 @@ export default function PeriodStatusControl() {
     };
   }, [open, updatePos]);
 
-  function showToast(
-  msg: string,
-  type: "ok" | "err" = "ok",
-  status?: Status,
-  period?: string
-) {
-  setToast({ msg, type, status, period });
-}
+  function showToast(msg: string, type: "ok" | "err" = "ok") {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  }
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   const fetchStatus = useCallback(async (p: string) => {
-  const requestId = ++statusRequestRef.current;
-
-  try {
-    const r = await apiCall<unknown>(`/api/period/status?period=${p}`);
-    const row = unwrap<Record<string, unknown>>(r, {});
-    const s = (row?.status as Status | undefined) ?? "open";
-
-    // Ignore an older response if a newer status request has started.
-    if (requestId === statusRequestRef.current) {
+    try {
+      const r   = await apiCall<unknown>(`/api/period/status?period=${p}`);
+      const row = unwrap<Record<string, unknown>>(r, {});
+      const s   = (row?.status as Status | undefined) ?? "open";
       setStatus(s);
       setStatusMap((prev) => ({ ...prev, [p]: s }));
-    }
-  } catch {
-    // Keep the current status if the request fails.
-  }
-}, []);
+    } catch { setStatus("open"); }
+  }, []);
 
   const fetchPast = useCallback(async () => {
     try {
@@ -531,18 +498,7 @@ export default function PeriodStatusControl() {
       await fetchPast();
       if (tab === "history") fetchHistory(period);
       setPending(null);
-      showToast(
-  `${fmtPeriod(period)} successfully ${
-    newStatus === "open"
-      ? "reopened"
-      : newStatus === "closed"
-        ? "closed"
-        : "permanently locked"
-  }.`,
-  "ok",
-  newStatus,
-  period
-);
+      showToast(`Period set to ${newStatus}.`);
     } catch (err) {
       setPending(null);
       showToast(extractError(err), "err");
@@ -578,12 +534,10 @@ export default function PeriodStatusControl() {
       ref={panelRef}
       className="psc-panel fixed w-[300px] rounded-2xl border border-border/60 bg-card"
       style={{
-        top: 16,
-        right: 16,
-        left: "auto",
-        zIndex: 99999,
-        width: "min(420px, calc(100vw - 32px))",
-        boxSizing: "border-box",
+        top:       panelPos.top,
+        left:      panelPos.left,
+        zIndex:    99999,
+        boxShadow: "0 20px 60px -10px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)",
       }}
     >
       {drillPeriod ? (
@@ -731,41 +685,18 @@ export default function PeriodStatusControl() {
       <style>{css}</style>
 
       {/* Toast portal */}
-{toast && createPortal(
-  <div
-    className={`psc-toast fixed flex items-center gap-3
-      px-4 py-3 rounded-xl text-xs font-semibold
-      shadow-xl border
-      ${
-        toast.type === "err"
-          ? "bg-card border-red-500/30 text-red-400"
-          : toast.status === "locked"
-            ? "bg-card border-red-500/30 text-red-400"
-            : toast.status === "closed"
-              ? "bg-card border-amber-500/30 text-amber-400"
-              : "bg-card border-emerald-500/30 text-emerald-400"
-      }`}
-    style={{
-      top: panelPos.top - 90,
-      left: panelPos.left,
-      zIndex: 99999,
-    }}
-    role={toast.type === "err" ? "alert" : "status"}
-  >
-    {toast.type === "ok" && toast.status ? (
-      <AnimatedPeriodLock status={toast.status} />
-    ) : toast.type === "err" ? (
-      <AlertTriangle size={20} />
-    ) : (
-      <CheckCircle size={20} />
-    )}
-  <span className="min-w-0 flex-1 whitespace-normal leading-snug">
-  {toast.msg}
-</span>
+      {toast && createPortal(
+        <div
+          className={`psc-toast fixed flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-semibold shadow-xl border whitespace-nowrap
+            ${toast.type === "ok" ? "bg-card border-emerald-500/30 text-emerald-400" : "bg-card border-red-500/30 text-red-400"}`}
+          style={{ top: panelPos.top - 48, left: panelPos.left, zIndex: 99999 }}
+        >
+          {toast.type === "ok" ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
+          {toast.msg}
+        </div>,
+        document.body
+      )}
 
-      </div>,
-  document.body
-)}
       {/* Badge trigger */}
       <button
         ref={trigRef}
