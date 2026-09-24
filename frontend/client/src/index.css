@@ -272,3 +272,56 @@
     @apply w-full px-3 py-2 border border-input rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring;
   }
 }
+
+.period-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.period-lock__shackle {
+  transform-origin: 19px 29px;
+  transition: transform 600ms cubic-bezier(.2,.8,.2,1);
+}
+
+.period-lock--open .period-lock__shackle {
+  transform: translateY(-5px) rotate(-28deg);
+}
+
+.period-lock--closed .period-lock__shackle,
+.period-lock--locked .period-lock__shackle {
+  transform: translateY(0) rotate(0);
+}
+
+.period-lock--active {
+  animation: lock-appear 600ms ease-out both;
+}
+
+.period-lock--locked.period-lock--active {
+  animation: lock-freeze 650ms ease-out both;
+}
+
+.period-lock__seal {
+  animation: lock-appear 450ms ease-out 250ms both;
+}
+
+@keyframes lock-appear {
+  from { opacity: .5; transform: scale(.88); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes lock-freeze {
+  0% { transform: scale(.9); }
+  45% { transform: scale(1.12); }
+  70% { transform: scale(.97); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .period-lock,
+  .period-lock__shackle,
+  .period-lock__seal {
+    animation: none !important;
+    transition: none !important;
+  }
+}
