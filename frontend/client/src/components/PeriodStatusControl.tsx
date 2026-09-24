@@ -16,6 +16,10 @@ import {
   ChevronLeft, ChevronRight, AlertTriangle, X,
   Zap, Shield, Activity,
 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiCall }          from "@/lib/api";
 import { useAuth }          from "@/contexts/AuthContext";
 import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
@@ -374,6 +378,7 @@ export default function PeriodStatusControl() {
   const [drillLoading, setDrillLoading] = useState(false);
   const [showAdjForm,  setShowAdjForm]  = useState(false);
   const [toast,        setToast]        = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+  const [pending,      setPending]      = useState<{ status: Status; period: string } | null>(null);
 
   const trigRef  = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -473,27 +478,31 @@ export default function PeriodStatusControl() {
   // This prevents the stale-read race where a subsequent fetchStatus (triggered
   // by workingPeriod context change) overwrites the optimistic value.
 
-  async function transition(newStatus: Status) {
+  // Opens the confirm dialog (replaces window.confirm)
+  function transition(newStatus: Status) {
     if (acting) return;
-    const confirmed = window.confirm(
-      newStatus === "locked"
-        ? "Hard lock is irreversible. The period will be frozen permanently. Continue?"
-        : `Set ${fmtShortPeriod(workingPeriod)} to "${newStatus}"?`
-    );
-    if (!confirmed) return;
+    closePanel(); // panel z-index would cover the dialog
+    setPending({ status: newStatus, period: workingPeriod });
+  }
+
+  async function applyTransition() {
+    if (!pending || acting) return;
+    const { status: newStatus, period } = pending;
     setActing(true);
     try {
       await apiCall("/api/period/status", {
         method: "POST",
-        body: JSON.stringify({ period: workingPeriod, status: newStatus }),
+        body: JSON.stringify({ period, status: newStatus }),
       });
-      // Refetch from server — source of truth, no optimistic guess
-      await fetchStatus(workingPeriod);
+      await fetchStatus(period);
       await fetchPast();
-      if (tab === "history") fetchHistory(workingPeriod);
+      if (tab === "history") fetchHistory(period);
+      setPending(null);
       showToast(`Period set to ${newStatus}.`);
-    } catch (err) { showToast(extractError(err), "err"); }
-    finally { setActing(false); }
+    } catch (err) {
+      setPending(null);
+      showToast(extractError(err), "err");
+    } finally { setActing(false); }
   }
 
   async function runValidation() {
@@ -717,6 +726,40 @@ export default function PeriodStatusControl() {
       </button>
 
       {panelContent}
+
+      <AlertDialog open={pending !== null} onOpenChange={(o) => { if (!o && !acting) setPending(null); }}>
+        <AlertDialogContent className="sm:max-w-sm">
+          <AlertDialogHeader className="items-center text-center sm:text-center">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-1 ${
+              pending?.status === "open"   ? "bg-emerald-500/10 text-emerald-400"
+              : pending?.status === "locked" ? "bg-red-500/10 text-red-400"
+              : "bg-amber-500/10 text-amber-400"}`}>
+              {pending?.status === "open" ? <LockOpen size={20} /> : <Lock size={20} />}
+            </div>
+            <AlertDialogTitle>
+              {pending?.status === "open" ? "Re-open" : pending?.status === "locked" ? "Hard lock" : "Close"}{" "}
+              {pending ? fmtPeriod(pending.period) : ""}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending?.status === "locked"
+                ? "Hard lock is irreversible. The period will be frozen permanently."
+                : pending?.status === "open"
+                ? "Data entry will be allowed again for all branches. Re-opening can change figures that were already reported."
+                : "New entries and edits will be blocked for all branches. You can re-open it later."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:justify-center">
+            <AlertDialogCancel disabled={acting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={acting}
+              className={pending?.status === "locked" ? "bg-red-600 hover:bg-red-500 text-white" : ""}
+              onClick={(e) => { e.preventDefault(); applyTransition(); }}
+            >
+              {acting ? <Spinner /> : pending?.status === "open" ? "Re-open period" : pending?.status === "locked" ? "Lock permanently" : "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
