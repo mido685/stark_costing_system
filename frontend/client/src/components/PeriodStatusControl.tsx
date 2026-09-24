@@ -362,7 +362,12 @@ function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
 export default function PeriodStatusControl() {
   const { user }                                             = useAuth();
   const { language }                                         = useLanguage();
-  const { workingPeriod, setWorkingPeriod, isCurrentPeriod } = useWorkingPeriod();
+  const {
+  workingPeriod,
+  setWorkingPeriod,
+  isCurrentPeriod,
+  refreshPeriodStatus,
+} = useWorkingPeriod();
   const todayPeriod = useMemo(() => buildCurrentPeriod(), []);
 
   const [open,         setOpen]         = useState(false);
@@ -414,16 +419,28 @@ export default function PeriodStatusControl() {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  const fetchStatus = useCallback(async (p: string) => {
-    try {
-      const r   = await apiCall<unknown>(`/api/period/status?period=${p}`);
-      const row = unwrap<Record<string, unknown>>(r, {});
-      const s   = (row?.status as Status | undefined) ?? "open";
-      setStatus(s);
-      setStatusMap((prev) => ({ ...prev, [p]: s }));
-    } catch { setStatus("open"); }
-  }, []);
+  const fetchStatus = useCallback(async (period: string) => {
+  const response = await apiCall<unknown>(
+    `/api/period/status?period=${period}`
+  );
 
+  const row = unwrap<Record<string, unknown>>(response, {});
+  const nextStatus = row.status;
+
+  if (
+    nextStatus !== "open" &&
+    nextStatus !== "closed" &&
+    nextStatus !== "locked"
+  ) {
+    throw new Error("Invalid period status response");
+  }
+
+  setStatus(nextStatus);
+  setStatusMap(prev => ({
+    ...prev,
+    [period]: nextStatus,
+  }));
+}, []);
   const fetchPast = useCallback(async () => {
     try {
       const r    = await apiCall<unknown>("/api/period/list");
@@ -495,6 +512,7 @@ export default function PeriodStatusControl() {
         body: JSON.stringify({ period, status: newStatus }),
       });
       await fetchStatus(period);
+      await refreshPeriodStatus();
       await fetchPast();
       if (tab === "history") fetchHistory(period);
       setPending(null);

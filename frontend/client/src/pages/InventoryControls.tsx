@@ -3200,7 +3200,11 @@ export default function InventoryControls() {
     const currentUserName = user?.display_name ?? "System";
     const canClosePeriod = ["owner", "admin", "manager"].includes((user?.role ?? "").toLowerCase());
     const [branchId, setBranchId] = useState<number>(0);
-    const { workingPeriod } = useWorkingPeriod();
+    const {
+      workingPeriod,
+      periodStatus,
+      refreshPeriodStatus,
+    } = useWorkingPeriod();
     const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
     const [modal, setModal] = useState<ModalType>(null);
     const [saving, setSaving] = useState(false);
@@ -3253,10 +3257,16 @@ export default function InventoryControls() {
       () => (periodSnapshots ?? []).find(s => s.period_label === workingPeriod),
       [periodSnapshots, workingPeriod]
     );
-    const liveCompanyStatus      = statusOverride?.period === workingPeriod ? statusOverride.row : companyPeriodStatus;
-    const selectedPeriodState    = liveCompanyStatus?.status ?? branchPeriodStatus?.status ?? "open";
-    const selectedPeriodClosed   = selectedPeriodState === "closed" || selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_closed) || Boolean(closedSnapshot);
-    const selectedPeriodLocked   = selectedPeriodState === "locked" || Boolean(branchPeriodStatus?.is_locked);
+    const selectedPeriodState = periodStatus;
+
+const selectedPeriodLocked =
+  selectedPeriodState === "locked" ||
+  Boolean(branchPeriodStatus?.is_locked);
+
+const selectedPeriodClosed =
+  selectedPeriodState === "closed" ||
+  selectedPeriodLocked ||
+  Boolean(branchPeriodStatus?.is_closed);
     const periodLabelDisplay = workingPeriod
       ? new Date(`${workingPeriod}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" })
       : "";
@@ -3422,7 +3432,9 @@ const closePreview = useMemo(() => {
       if (type === "transfer") setTransferForm(f => ({ ...f, from_branch_id: branchId }));
       if (type === "periodStatus") {
   setPeriodStatusForm({
-    status: selectedPeriodState === "open" ? "closed" : selectedPeriodState,
+    status:
+  selectedPeriodState === "open" ? "closed" :
+  selectedPeriodState === "closed" ? "open" :"locked",
     notes: "",
   });
 }
@@ -3640,6 +3652,9 @@ const closePreview = useMemo(() => {
       status: periodStatusForm.status,
       notes: periodStatusForm.notes,
     });
+    await refreshPeriodStatus();
+    await refetchCompanyPeriodStatus();
+    await refetchBranchPeriodStatus();
     setStatusOverride({ period: workingPeriod, row: updated }); // UI updates instantly
     setModal(null);
     refetchAll();

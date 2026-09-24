@@ -1,101 +1,144 @@
-/**
- * WorkingPeriodContext
- *
- * Global working period — the master control for the entire system.
- * All period-sensitive pages read from this context to filter their data.
- *
- * Usage:
- *   1. Wrap your app: <WorkingPeriodProvider>...</WorkingPeriodProvider>
- *   2. In any page:   const { workingPeriod } = useWorkingPeriod();
- *   3. Pass to API:   apiCall(`/api/transactions?period=${workingPeriod}`)
- *
- * Persists to sessionStorage so refresh doesn't lose the selected period.
- */
-
 import {
-  createContext, useContext, useState, useEffect, useCallback,
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+import { apiCall } from "@/lib/api";
 
-function currentPeriod(): string {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
-}
+type PeriodStatus = "open" | "closed" | "locked";
 
-function fmtPeriod(p: string): string {
-  const [y, m] = p.split("-");
-  return new Date(Number(y), Number(m) - 1).toLocaleString("default", {
-    month: "long", year: "numeric",
-  });
+interface WorkingPeriodContextValue {
+  workingPeriod: string;
+  workingPeriodLabel: string;
+  isCurrentPeriod: boolean;
+  setWorkingPeriod: (period: string) => void;
+  resetToCurrentPeriod: () => void;
+  periodStatus: PeriodStatus | null;
+  refreshPeriodStatus: () => Promise<PeriodStatus>;
 }
 
 const SESSION_KEY = "workingPeriod";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+function currentPeriod(): string {
+  const now = new Date();
 
-interface WorkingPeriodContextValue {
-  /** The currently selected working period, e.g. "2026-05" */
-  workingPeriod: string;
-
-  /** Human-readable label, e.g. "May 2026" */
-  workingPeriodLabel: string;
-
-  /** True if the selected period is the current calendar month */
-  isCurrentPeriod: boolean;
-
-  /** Change the working period — updates context + sessionStorage */
-  setWorkingPeriod: (period: string) => void;
-
-  /** Reset back to today's month */
-  resetToCurrentPeriod: () => void;
+  return `${now.getFullYear()}-${String(
+    now.getMonth() + 1
+  ).padStart(2, "0")}`;
 }
 
-// ─── Context ──────────────────────────────────────────────────────────────────
+function fmtPeriod(period: string): string {
+  const [year, month] = period.split("-");
 
-const WorkingPeriodContext = createContext<WorkingPeriodContextValue | null>(null);
+  return new Date(
+    Number(year),
+    Number(month) - 1
+  ).toLocaleString("default", {
+    month: "long",
+    year: "numeric",
+  });
+}
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
+const WorkingPeriodContext =
+  createContext<WorkingPeriodContextValue | null>(null);
 
-export function WorkingPeriodProvider({ children }: { children: ReactNode }) {
+export function WorkingPeriodProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const today = currentPeriod();
 
-  const [workingPeriod, setWorkingPeriodState] = useState<string>(() => {
-    // Restore from sessionStorage on mount
-    try {
-      return sessionStorage.getItem(SESSION_KEY) ?? today;
-    } catch {
-      return today;
-    }
-  });
+  const [workingPeriod, setWorkingPeriodState] =
+    useState<string>(() => {
+      try {
+        return sessionStorage.getItem(SESSION_KEY) ?? today;
+      } catch {
+        return today;
+      }
+    });
+
+  const [periodStatus, setPeriodStatus] =
+    useState<PeriodStatus | null>(null);
+
+  // Prevent an older request from overwriting a newer result.
+  const requestId = useRef(0);
 
   const setWorkingPeriod = useCallback((period: string) => {
+    requestId.current += 1;
+    setPeriodStatus(null);
     setWorkingPeriodState(period);
+
     try {
       sessionStorage.setItem(SESSION_KEY, period);
-    } catch { /* sessionStorage unavailable — continue without persistence */ }
+    } catch {
+      // Continue without session persistence.
+    }
   }, []);
 
   const resetToCurrentPeriod = useCallback(() => {
-    setWorkingPeriod(today);
-  }, [today, setWorkingPeriod]);
+    setWorkingPeriod(currentPeriod());
+  }, [setWorkingPeriod]);
 
-  // If the calendar month rolls over while the app is open,
-  // and the user was already on "current", follow it forward.
+  const refreshPeriodStatus = useCallback(async () => {
+    const id = ++requestId.current;
+
+    const response = await apiCall<unknown>(
+      `/api/period/status?period=${encodeURIComponent(
+        workingPeriod
+      )}`
+    );
+
+    const data =
+      response &&
+      typeof response === "object" &&
+      "data" in response
+        ? response.data
+        : response;
+
+    const status = (
+      data as { status?: unknown } | null
+    )?.status;
+
+    if (
+      status !== "open" &&
+      status !== "closed" &&
+      status !== "locked"
+    ) {
+      throw new Error("Invalid period status response");
+    }
+
+    if (id === requestId.current) {
+      setPeriodStatus(status);
+    }
+
+    return status;
+  }, [workingPeriod]);
+
   useEffect(() => {
-    const stored = (() => {
-      try { return sessionStorage.getItem(SESSION_KEY); } catch { return null; }
-    })();
-    if (!stored) setWorkingPeriod(today);
-  }, [today, setWorkingPeriod]);
+    setPeriodStatus(null);
+
+    refreshPeriodStatus().catch((error) => {
+      console.error(
+        "Failed to refresh period status:",
+        error
+      );
+    });
+  }, [refreshPeriodStatus]);
 
   const value: WorkingPeriodContextValue = {
     workingPeriod,
-    workingPeriodLabel:  fmtPeriod(workingPeriod),
-    isCurrentPeriod:     workingPeriod === today,
+    workingPeriodLabel: fmtPeriod(workingPeriod),
+    isCurrentPeriod: workingPeriod === today,
     setWorkingPeriod,
     resetToCurrentPeriod,
+    periodStatus,
+    refreshPeriodStatus,
   };
 
   return (
@@ -105,10 +148,14 @@ export function WorkingPeriodProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
-
 export function useWorkingPeriod(): WorkingPeriodContextValue {
-  const ctx = useContext(WorkingPeriodContext);
-  if (!ctx) throw new Error("useWorkingPeriod must be used inside <WorkingPeriodProvider>");
-  return ctx;
+  const context = useContext(WorkingPeriodContext);
+
+  if (!context) {
+    throw new Error(
+      "useWorkingPeriod must be used inside WorkingPeriodProvider"
+    );
+  }
+
+  return context;
 }
