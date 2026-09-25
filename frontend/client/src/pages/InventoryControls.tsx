@@ -3227,9 +3227,6 @@ export default function InventoryControls() {
     const { data: wasteRecords, refetch: refetchWaste } = useApi<WasteRecord[]>(() => getWasteByBranch(branchId || undefined), { deps: [branchId] });
     const { data: periodSnapshots, refetch: refetchSnapshots } = useApi<PeriodSnapshot[]>(() => getPeriodSnapshots(branchId || undefined), { deps: [branchId] });
 
-    // ── NEW: Company period status (same as Finance) ──────────────────────────
-    const { data: companyPeriodStatus, loading: periodStatusLoading, refetch: refetchCompanyPeriodStatus } =
-      useApi<PeriodStatusRow>(() => getPeriodStatus(workingPeriod), { deps: [workingPeriod] });
 
     // ── Branch-level period closure check ────────────────────────────────────
     const { data: branchPeriodStatus, refetch: refetchBranchPeriodStatus } =
@@ -3420,7 +3417,7 @@ const closePreview = useMemo(() => {
     function refetchAll() {
       refetchBalances?.(); refetchFG?.(); refetchCounts?.(); refetchPurchases?.();
       refetchTransfers?.(); refetchOpening?.(); refetchAdjustments?.(); refetchWaste?.(); refetchSnapshots?.();
-      refetchCompanyPeriodStatus?.(); refetchBranchPeriodStatus?.(); refetchProductionMovements?.();
+      refreshPeriodStatus?.(); refetchBranchPeriodStatus?.(); refetchProductionMovements?.();
       refetchMovements?.();
     }
     const WRITE_MODALS: ModalType[] = ["count", "adjustment", "waste", "transfer", "opening", "periodClose"];
@@ -3653,7 +3650,6 @@ const closePreview = useMemo(() => {
       notes: periodStatusForm.notes,
     });
     await refreshPeriodStatus();
-    await refetchCompanyPeriodStatus();
     await refetchBranchPeriodStatus();
     setStatusOverride({ period: workingPeriod, row: updated }); // UI updates instantly
     setModal(null);
@@ -4145,10 +4141,10 @@ const closePreview = useMemo(() => {
               variant="outline"
               size="sm"
               onClick={() => openModal("periodStatus")}
-              disabled={periodStatusLoading}
-              title={`${workingPeriod}: ${selectedPeriodState}`}
+              disabled={selectedPeriodState === null}
+              title={`${workingPeriod}: ${selectedPeriodState ?? "loading"}`}
             >
-              <Calendar className="w-4 h-4 mr-1.5" /> {workingPeriod} · {selectedPeriodState}
+              <Calendar className="w-4 h-4 mr-1.5" /> {workingPeriod} · {selectedPeriodState ?? "…"}
             </Button>
             <Button variant="outline" size="sm" onClick={refetchAll} disabled={balancesLoading}>
               <RefreshCw className={`w-4 h-4 ${balancesLoading ? "animate-spin" : ""}`} />

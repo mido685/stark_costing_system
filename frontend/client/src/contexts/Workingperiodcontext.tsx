@@ -19,6 +19,7 @@ interface WorkingPeriodContextValue {
   setWorkingPeriod: (period: string) => void;
   resetToCurrentPeriod: () => void;
   periodStatus: PeriodStatus | null;
+  periodStatusError: string | null;
   refreshPeriodStatus: () => Promise<PeriodStatus>;
 }
 
@@ -66,6 +67,9 @@ export function WorkingPeriodProvider({
   const [periodStatus, setPeriodStatus] =
     useState<PeriodStatus | null>(null);
 
+  const [periodStatusError, setPeriodStatusError] =
+    useState<string | null>(null);
+
   // Prevent an older request from overwriting a newer result.
   const requestId = useRef(0);
 
@@ -88,36 +92,48 @@ export function WorkingPeriodProvider({
   const refreshPeriodStatus = useCallback(async () => {
     const id = ++requestId.current;
 
-    const response = await apiCall<unknown>(
-      `/api/period/status?period=${encodeURIComponent(
-        workingPeriod
-      )}`
-    );
+    try {
+      const response = await apiCall<unknown>(
+        `/api/period/status?period=${encodeURIComponent(
+          workingPeriod
+        )}`
+      );
 
-    const data =
-      response &&
-      typeof response === "object" &&
-      "data" in response
-        ? response.data
-        : response;
+      const data =
+        response &&
+        typeof response === "object" &&
+        "data" in response
+          ? response.data
+          : response;
 
-    const status = (
-      data as { status?: unknown } | null
-    )?.status;
+      const status = (
+        data as { status?: unknown } | null
+      )?.status;
 
-    if (
-      status !== "open" &&
-      status !== "closed" &&
-      status !== "locked"
-    ) {
-      throw new Error("Invalid period status response");
+      if (
+        status !== "open" &&
+        status !== "closed" &&
+        status !== "locked"
+      ) {
+        throw new Error("Invalid period status response");
+      }
+
+      if (id === requestId.current) {
+        setPeriodStatus(status);
+        setPeriodStatusError(null);
+      }
+
+      return status;
+    } catch (error) {
+      if (id === requestId.current) {
+        setPeriodStatusError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load period status"
+        );
+      }
+      throw error;
     }
-
-    if (id === requestId.current) {
-      setPeriodStatus(status);
-    }
-
-    return status;
   }, [workingPeriod]);
 
   useEffect(() => {
@@ -138,6 +154,7 @@ export function WorkingPeriodProvider({
     setWorkingPeriod,
     resetToCurrentPeriod,
     periodStatus,
+    periodStatusError,
     refreshPeriodStatus,
   };
 

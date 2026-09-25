@@ -429,6 +429,7 @@ export default function PeriodStatusControl() {
     setWorkingPeriod,
     isCurrentPeriod,
     periodStatus,
+    periodStatusError,
     refreshPeriodStatus,
   } = useWorkingPeriod();
   const todayPeriod = useMemo(() => buildCurrentPeriod(), []);
@@ -699,12 +700,27 @@ export default function PeriodStatusControl() {
               {fmtPeriod(workingPeriod)}
             </p>
 
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {status ? STATUS[status].desc : "Loading period status..."}
+            <p className={`text-[11px] mt-0.5 ${periodStatusError && !status ? "text-red-400" : "text-muted-foreground"}`}>
+              {status
+                ? STATUS[status].desc
+                : periodStatusError
+                  ? `Could not load status: ${periodStatusError}`
+                  : "Loading period status..."}
             </p>
           </div>
 
-          {status ? <StatusPill status={status} /> : <Spinner />}
+          {status ? (
+            <StatusPill status={status} />
+          ) : periodStatusError ? (
+            <button
+              onClick={() => refreshPeriodStatus().catch(() => {})}
+              className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              Retry
+            </button>
+          ) : (
+            <Spinner />
+          )}
         </div>
             {!isCurrentPeriod && (
               <div className="flex items-center gap-2 mt-2.5 px-2.5 py-2 rounded-xl bg-amber-500/[0.08] border border-amber-500/20">
@@ -845,6 +861,11 @@ export default function PeriodStatusControl() {
       <button
         ref={trigRef}
         onClick={() => {
+          if (periodStatusError && !status) {
+            // Retry a failed fetch instead of opening an empty panel
+            refreshPeriodStatus().catch(() => {});
+            return;
+          }
           const next = !open;
           setOpen(next);
           if (next) {
@@ -856,10 +877,13 @@ export default function PeriodStatusControl() {
         }}
         aria-haspopup="true"
         aria-expanded={open}
+        title={periodStatusError && !status ? `${periodStatusError} — click to retry` : undefined}
         className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-all duration-150 select-none hover:opacity-90 active:scale-95 ${
   status
     ? STATUS[status].badge
-    : "border-border text-muted-foreground"
+    : periodStatusError
+      ? "border-red-500/30 text-red-400"
+      : "border-border text-muted-foreground"
 }`}
       >
         <span className="relative flex h-2 w-2">
@@ -868,17 +892,21 @@ export default function PeriodStatusControl() {
   className={`relative inline-flex rounded-full h-2 w-2 ${
     status
       ? STATUS[status].dot
-      : "bg-muted-foreground"
+      : periodStatusError
+        ? "bg-red-400"
+        : "bg-muted-foreground"
   }`}
 />
         </span>
         <span>{fmtShortPeriod(workingPeriod)}</span>
         <span className="opacity-50">·</span>
         <span>
-  {status ? STATUS[status].label : "Loading"}
+  {status ? STATUS[status].label : periodStatusError ? "Retry" : "Loading"}
 </span>
         {!isCurrentPeriod && <AlertTriangle size={10} className="text-amber-400" />}
-        <ChevronDown size={11} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        {!(periodStatusError && !status) && (
+          <ChevronDown size={11} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        )}
       </button>
 
       {panelContent}
