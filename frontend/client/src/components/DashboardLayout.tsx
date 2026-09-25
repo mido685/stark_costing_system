@@ -17,17 +17,17 @@ import { API_BASE, assetUrl } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/",                   labelKey: "nav.dashboard",      icon: LayoutDashboard, color: "text-violet-500"  },
-  { href: "/masters",            labelKey: "nav.masters",        icon: Settings2,       color: "text-slate-500"   },
-  { href: "/inventory-controls", labelKey: "nav.inventory",      icon: Package,         color: "text-blue-500"    },
-  { href: "/procurement",        labelKey: "nav.procurement",    icon: ShoppingCart,    color: "text-orange-500"  },
-  { href: "/production",         labelKey: "nav.production",     icon: Factory,         color: "text-red-500"     },
-  { href: "/recipes",            labelKey: "nav.recipes",        icon: ClipboardList,   color: "text-green-500"   },
+  { href: "/masters",            labelKey: "nav.masters",        icon: Settings2,       color: "text-slate-500",   module: "masters"     },
+  { href: "/inventory-controls", labelKey: "nav.inventory",      icon: Package,         color: "text-blue-500",    module: "inventory"   },
+  { href: "/procurement",        labelKey: "nav.procurement",    icon: ShoppingCart,    color: "text-orange-500",  module: "procurement" },
+  { href: "/production",         labelKey: "nav.production",     icon: Factory,         color: "text-red-500",     module: "costing"     },
+  { href: "/recipes",            labelKey: "nav.recipes",        icon: ClipboardList,   color: "text-green-500",   module: "costing"     },
   { href: "/sales",              labelKey: "nav.sales",          icon: DollarSign,      color: "text-emerald-500" },
-  { href: "/finance",            labelKey: "nav.finance",        icon: TrendingUp,      color: "text-cyan-500"    },
-  { href: "/governance",         labelKey: "nav.governance",     icon: ShieldCheck,     color: "text-yellow-500"  },
-  { href: "/report",             labelKey: "nav.report",         icon: FileText,        color: "text-pink-500"    },
+  { href: "/finance",            labelKey: "nav.finance",        icon: TrendingUp,      color: "text-cyan-500",    module: "finance"     },
+  { href: "/governance",         labelKey: "nav.governance",     icon: ShieldCheck,     color: "text-yellow-500",  module: "governance"  },
+  { href: "/report",             labelKey: "nav.report",         icon: FileText,        color: "text-pink-500",    module: "reports"     },
   { href: "/user-management",    labelKey: "nav.userManagement", icon: Users,           color: "text-indigo-500"  },
-  { href: "/system-logs",        labelKey: "nav.systemLogs",     icon: Activity,        color: "text-teal-500"    },
+  { href: "/system-logs",        labelKey: "nav.systemLogs",     icon: Activity,        color: "text-teal-500",    module: "system_logs" },
 ] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ export default function DashboardLayout({ children, onLogout }: Props) {
 
   const { toggleTheme, isDark }                = useTheme();
   const { language, toggleLanguage, t, isRTL } = useLanguage();
-  const { user, token, updateUser }            = useAuth();
+  const { user, token, updateUser, hasModule } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [logoError, setLogoError] = useState("");
@@ -161,10 +161,11 @@ export default function DashboardLayout({ children, onLogout }: Props) {
             )}
           </div>
         </div>
-
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5" aria-label="Main navigation">
-          {NAV_ITEMS.map(({ href, labelKey, icon: Icon, color }) => {
+          {NAV_ITEMS
+            .filter((item) => !("module" in item) || hasModule(item.module))
+            .map(({ href, labelKey, icon: Icon, color }) => {
             const active = location === href;
             return (
               <Link
@@ -185,7 +186,7 @@ export default function DashboardLayout({ children, onLogout }: Props) {
                 {!collapsed && (
                   <span className="truncate font-medium">{t(labelKey)}</span>
                 )}
-              </Link>
+            </Link>
             );
           })}
         </nav>

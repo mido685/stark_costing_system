@@ -7,9 +7,12 @@ from fastapi.responses import Response
 from app.api.responses import success, error
 from app.database import cash_purchases as cash_db
 from app.schemas import CashPurchaseRequest, ExpenseCategoryRequest, PettyCashTopUpRequest
-from app.security.dependencies import get_current_user, require_roles, check_period_open
+from app.security.dependencies import get_current_user, require_roles, check_period_open, require_module
 
-router = APIRouter(tags=["cash_purchases"])
+router = APIRouter(
+    tags=["cash_purchases"],
+    dependencies=[Depends(require_module("procurement"))],
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 INVOICE_DIR = BASE_DIR / "uploads" / "invoices"

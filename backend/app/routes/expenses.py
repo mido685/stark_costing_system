@@ -3,15 +3,18 @@ from pydantic import BaseModel
 
 from app.api.responses import error, success
 from app.database import expenses as expenses_db
-from app.database.periods import get_period_status, is_period_frozen
 from app.schemas import (
     AccrualRequest, BudgetRequest, ClosePeriodRequest, DepreciationRequest,
     ExpenseRequest, PayrollRequest, PeriodBackupRequest,
-    PeriodStatusRequest, PrepaymentRequest,
+    PrepaymentRequest,
 )
-from app.security.dependencies import check_period_open, get_current_user, require_roles
+from app.security.dependencies import check_period_open, get_current_user, require_roles, require_module
 
-router = APIRouter(tags=["expenses"])
+# Finance-only data — gated behind the finance module
+router = APIRouter(
+    tags=["expenses"],
+    dependencies=[Depends(require_module("finance"))],
+)
 
 
 # ── Expenses ──────────────────────────────────────────────────────────────────
@@ -228,6 +231,7 @@ def budget_vs_actual(
         ),
     )
 
+
 class InventoryPeriodSnapshotRequest(BaseModel):
     branch_id: int
     period_label: str
@@ -271,7 +275,10 @@ def list_inventory_period_snapshots(
             current_user["company_id"], branch_id
         ),
     )
-# ── Period Backups ────────────────────────────────────────────────────────────
+
+
+# ── Period Backups ─────────────────────────────────────────────────────────
+# TEMPORARY: still finance-gated for now — step 2 will decide where these belong
 
 @router.post("/period-backups/generate", status_code=201)
 def generate_period_backups(
@@ -311,48 +318,6 @@ def list_period_backups(
     )
 
 
-# ── Period Status / Close ─────────────────────────────────────────────────────
-
-@router.get("/period/status")
-def get_period_status_api(
-    period: str = Query(...),
-    current_user: dict = Depends(get_current_user),
-):
-    s = get_period_status(current_user["company_id"], period)
-    return success(
-        "Period status retrieved",
-        **s,
-        is_closed=s["status"] in {"closed", "locked"},
-        is_locked=s["status"] == "locked",
-    )
-
-
-@router.post("/period/status")
-def set_period_status_api(
-    req: PeriodStatusRequest,
-    current_user: dict = Depends(require_roles("owner", "admin")),
-):
-    try:
-        s = expenses_db.set_company_period_status(
-            current_user["company_id"], req.period,
-            req.status, current_user["id"], req.notes,
-        )
-        if req.status in {"closed", "locked"}:
-            expenses_db.generate_period_backups(
-                current_user["company_id"], current_user["id"], 4,
-                current_user.get("username", ""),
-                f"Generated when period {req.period} was {req.status}",
-            )
-        return success(
-            "Period status saved",
-            **s,
-            is_closed=s["status"] in {"closed", "locked"},
-            is_locked=s["status"] == "locked",
-        )
-    except ValueError as e:
-        return error(str(e))
-
-
 @router.post("/period/close")
 def close_period(
     req: ClosePeriodRequest,
@@ -363,18 +328,3 @@ def close_period(
         req.closed_to, req.user_id or current_user["id"], req.notes,
     )
     return success("Period closed", closure=row)
-
-
-@router.get("/period/is-closed")
-def is_period_closed_api(
-    branch_id: int = Query(...),
-    entry_date: str = Query(...),
-    current_user: dict = Depends(get_current_user),
-):
-    s = get_period_status(current_user["company_id"], entry_date[:7])
-    return success(
-        "Period closure checked",
-        is_closed=is_period_frozen(current_user["company_id"], entry_date),
-        is_locked=s["status"] == "locked",
-        status=s["status"],
-    )

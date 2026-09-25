@@ -3,9 +3,13 @@ from fastapi import APIRouter, Request, Depends, Query
 from app.api.responses import success, error
 from app.database import damage as damage_db
 from app.schemas import DamageRequest
-from app.security.dependencies import get_current_user, require_roles, check_period_open
+from app.security.dependencies import get_current_user, require_roles, check_period_open, require_module
 
-router = APIRouter(prefix="/damage", tags=["damage"])
+router = APIRouter(
+    prefix="/damage",
+    tags=["damage"],
+    dependencies=[Depends(require_module("inventory"))],
+)
 
 
 @router.get("")

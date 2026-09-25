@@ -8,9 +8,13 @@ from app.database.rbac import (
     get_user_permissions, set_user_permission_override, remove_user_permission_override,
     list_user_branches, assign_user_to_branch, remove_user_from_branch,
 )
-from app.security.dependencies import get_current_user, require_roles
+from app.security.dependencies import get_current_user, require_roles, require_module
 
-router = APIRouter(prefix="/rbac", tags=["RBAC"])
+router = APIRouter(
+    prefix="/rbac",
+    tags=["RBAC"],
+    dependencies=[Depends(require_module("governance"))],
+)
 
 
 # ── Request Schemas ── (unchanged)
@@ -37,15 +41,15 @@ class UserBranchRequest(BaseModel):
     branch_id: int
 
 
-def _company(request: Request) -> int:
-    company_id = request.state.user.get("company_id")
+def _company(current_user: dict) -> int:
+    company_id = current_user.get("company_id")
     if not company_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return company_id
 
 
-def _actor(request: Request) -> int | None:
-    return request.state.user.get("id")
+def _actor(current_user: dict) -> int | None:
+    return current_user.get("id")
 
 
 def _ip(request: Request) -> str:
@@ -56,12 +60,12 @@ def _ip(request: Request) -> str:
 
 @router.get("/roles")
 def route_list_roles(request: Request, current_user: dict = Depends(get_current_user)):
-    return list_roles(_company(request))
+    return list_roles(_company(current_user))
 
 
 @router.get("/roles/{role_id}")
 def route_get_role(role_id: int, request: Request, current_user: dict = Depends(get_current_user)):
-    role = get_role(role_id, _company(request))
+    role = get_role(role_id, _company(current_user))
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     return role
@@ -74,8 +78,8 @@ def route_add_role(
 ):
     try:
         return add_role(
-            company_id=_company(request), name=body.name, description=body.description,
-            actor_id=_actor(request), ip_address=_ip(request),
+            company_id=_company(current_user), name=body.name, description=body.description,
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -88,8 +92,8 @@ def route_update_role(
 ):
     try:
         return update_role(
-            role_id=role_id, company_id=_company(request), name=body.name,
-            description=body.description, actor_id=_actor(request), ip_address=_ip(request),
+            role_id=role_id, company_id=_company(current_user), name=body.name,
+            description=body.description, actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -102,8 +106,8 @@ def route_toggle_role(
 ):
     try:
         return toggle_role(
-            role_id=role_id, company_id=_company(request),
-            actor_id=_actor(request), ip_address=_ip(request),
+            role_id=role_id, company_id=_company(current_user),
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -135,7 +139,7 @@ def route_add_permission(
 @router.get("/roles/{role_id}/permissions")
 def route_get_role_permissions(role_id: int, request: Request, current_user: dict = Depends(get_current_user)):
     try:
-        return get_role_permissions(role_id, _company(request))
+        return get_role_permissions(role_id, _company(current_user))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -147,8 +151,8 @@ def route_assign_permission(
 ):
     try:
         return assign_permission_to_role(
-            role_id=role_id, permission_id=body.permission_id, company_id=_company(request),
-            actor_id=_actor(request), ip_address=_ip(request),
+            role_id=role_id, permission_id=body.permission_id, company_id=_company(current_user),
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -161,8 +165,8 @@ def route_revoke_permission(
 ):
     try:
         return revoke_permission_from_role(
-            role_id=role_id, permission_id=permission_id, company_id=_company(request),
-            actor_id=_actor(request), ip_address=_ip(request),
+            role_id=role_id, permission_id=permission_id, company_id=_company(current_user),
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -173,7 +177,7 @@ def route_revoke_permission(
 @router.get("/users/{user_id}/permissions")
 def route_get_user_permissions(user_id: int, request: Request, current_user: dict = Depends(get_current_user)):
     try:
-        return get_user_permissions(user_id, _company(request))
+        return get_user_permissions(user_id, _company(current_user))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -186,7 +190,7 @@ def route_set_user_permission(
     try:
         return set_user_permission_override(
             user_id=user_id, permission_id=body.permission_id, is_allowed=body.is_allowed,
-            company_id=_company(request), actor_id=_actor(request), ip_address=_ip(request),
+            company_id=_company(current_user), actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -199,8 +203,8 @@ def route_remove_user_permission(
 ):
     try:
         return remove_user_permission_override(
-            user_id=user_id, permission_id=permission_id, company_id=_company(request),
-            actor_id=_actor(request), ip_address=_ip(request),
+            user_id=user_id, permission_id=permission_id, company_id=_company(current_user),
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -213,7 +217,7 @@ def route_remove_user_permission(
 @router.get("/users/{user_id}/branches")
 def route_list_user_branches(user_id: int, request: Request, current_user: dict = Depends(get_current_user)):
     try:
-        return list_user_branches(user_id, _company(request))
+        return list_user_branches(user_id, _company(current_user))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -225,8 +229,8 @@ def route_assign_branch(
 ):
     try:
         return assign_user_to_branch(
-            user_id=user_id, branch_id=body.branch_id, company_id=_company(request),
-            actor_id=_actor(request), ip_address=_ip(request),
+            user_id=user_id, branch_id=body.branch_id, company_id=_company(current_user),
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -239,8 +243,8 @@ def route_remove_branch(
 ):
     try:
         return remove_user_from_branch(
-            user_id=user_id, branch_id=branch_id, company_id=_company(request),
-            actor_id=_actor(request), ip_address=_ip(request),
+            user_id=user_id, branch_id=branch_id, company_id=_company(current_user),
+            actor_id=_actor(current_user), ip_address=_ip(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

@@ -18,6 +18,9 @@ export interface AuthUser {
   role:          string;
   company_id:    number | null;
   company_logo?: string | null;
+  /** Module keys this company's plan has enabled (from /auth/me). Absent/empty
+   *  for superadmin tokens (company_id === null), which are unrestricted. */
+  enabled_modules?: string[];
 }
 
 interface AuthState {
@@ -27,6 +30,9 @@ interface AuthState {
   login:    (user: AuthUser, token: string) => void;
   logout:   () => void;
   updateUser: (patch: Partial<AuthUser>) => void;
+  /** True if the current company's plan includes this module.
+   *  Superadmin (company_id === null) always passes. */
+  hasModule: (moduleKey: string) => boolean;
 }
 
 // ─── Storage keys ─────────────────────────────────────────────────────────────
@@ -189,13 +195,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Empty deps — intentional: patch once, logoutRef handles staleness.
   }, []);
 
+  // ── Module access check ───────────────────────────────────────────────────
+  // Superadmin tokens have company_id === null and are always unrestricted
+  // (mirrors the backend's require_module short-circuit for that case).
+
+  const hasModule = useCallback(
+    (moduleKey: string) => {
+      if (!user) return false;
+      if (user.company_id === null) return true;
+      return (user.enabled_modules ?? []).includes(moduleKey);
+    },
+    [user]
+  );
+
   // ── Stable context value ──────────────────────────────────────────────────
   // Memoised so consumers only re-render when the values actually change,
   // not on every render of AuthProvider itself.
 
   const value = useMemo<AuthState>(
-    () => ({ user, token, checking, login, logout, updateUser }),
-    [user, token, checking, login, logout, updateUser]
+    () => ({ user, token, checking, login, logout, updateUser, hasModule }),
+    [user, token, checking, login, logout, updateUser, hasModule]
   );
 
   return (

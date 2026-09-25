@@ -28,6 +28,12 @@ interface CompanyRole {
   id:   number;
   name: string;
 }
+interface CompanyModule {
+  id:           number;
+  module_key:   string;
+  display_name: string;
+  is_enabled:   boolean;
+}
 
 interface CompanyUser {
   id:           number;
@@ -189,6 +195,7 @@ function CompanyRow({
   userForm, setUserForm, savingUser, onCreateUser,
   updatingUserId, onDisableUser, onRestoreUser,
   userSearch, setUserSearch,
+  modulesOpen, onToggleModules, modules, modulesLoading, onToggleModule, togglingModuleId,
 }: {
   company:        Company;
   isOpen:         boolean;
@@ -206,6 +213,12 @@ function CompanyRow({
   onRestoreUser:  (uid: number) => void;
   userSearch:     string;
   setUserSearch:  (v: string) => void;
+  modulesOpen:      boolean;
+  onToggleModules:  () => void;
+  modules:          CompanyModule[];
+  modulesLoading:   boolean;
+  onToggleModule:   (moduleId: number, next: boolean) => void;
+  togglingModuleId: number | null;
 }) {
   const initials    = company.name.slice(0, 2).toUpperCase();
   const isActive    = company.is_active !== false;
@@ -265,6 +278,14 @@ function CompanyRow({
           <Users className="w-3.5 h-3.5" />
           <span>{users.length > 0 ? `${users.length} Users` : "Users"}</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+        </button>
+        <button
+          onClick={onToggleModules}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/10 text-[13px] text-[#aaa] hover:text-white hover:bg-white/8 hover:border-white/20 transition-colors shrink-0"
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Modules</span>
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${modulesOpen ? "rotate-180" : ""}`} />
         </button>
 
         {/* Action buttons */}
@@ -421,6 +442,44 @@ function CompanyRow({
               </div>
             )}
           </div>
+ </div>
+      )}
+
+      {modulesOpen && (
+        <div className="border-t border-white/6 bg-[#141414] px-5 py-4">
+          {modulesLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => <div key={i} className="h-10 rounded-xl bg-white/4 animate-pulse" />)}
+            </div>
+          ) : modules.length === 0 ? (
+            <div className="h-16 rounded-xl border border-dashed border-white/8 flex items-center justify-center text-[13px] text-[#444]">
+              No modules found
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {modules.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between px-3 py-2 rounded-xl border border-white/6"
+                >
+                  <span className="text-[13px] text-white">{m.display_name}</span>
+                  <button
+                    onClick={() => onToggleModule(m.id, !m.is_enabled)}
+                    disabled={togglingModuleId === m.id}
+                    className={`w-9 h-5 rounded-full relative transition-colors disabled:opacity-40 ${
+                      m.is_enabled ? "bg-green-500" : "bg-white/15"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        m.is_enabled ? "translate-x-4" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -526,6 +585,10 @@ export default function SuperAdminPanel() {
   const [openCompanyId,  setOpenCompanyId]  = useState<number | null>(null);
   const [usersByCompany, setUsersByCompany] = useState<Record<number, CompanyUser[]>>({});
   const [rolesByCompany, setRolesByCompany] = useState<Record<number, CompanyRole[]>>({});
+  const [modulesByCompany,  setModulesByCompany]  = useState<Record<number, CompanyModule[]>>({});
+  const [modulesLoading,    setModulesLoading]    = useState(false);
+  const [openModulesCompanyId, setOpenModulesCompanyId] = useState<number | null>(null);
+  const [togglingModuleId,  setTogglingModuleId]  = useState<number | null>(null);
   const [usersLoading,   setUsersLoading]   = useState(false);
   const [userForm,       setUserForm]       = useState(EMPTY_USER_FORM);
   const [savingUser,     setSavingUser]     = useState(false);
@@ -566,6 +629,46 @@ export default function SuperAdminPanel() {
       setUsersLoading(false);
     }
   }, []);
+  const fetchCompanyModules = useCallback(async (companyId: number) => {
+  setModulesLoading(true);
+  try {
+    const res = await apiCall<any>(`/api/superadmin/companies/${companyId}/modules`);
+    const modules = Array.isArray(res) ? res : (res.modules ?? res.data ?? []);
+    setModulesByCompany((p) => ({ ...p, [companyId]: modules }));
+  } catch (err: any) {
+    toast.error(err?.message ?? "Failed to load modules");
+  } finally {
+    setModulesLoading(false);
+  }
+}, []);
+
+async function toggleCompanyModulesPanel(companyId: number) {
+  const nextId = openModulesCompanyId === companyId ? null : companyId;
+  setOpenModulesCompanyId(nextId);
+  if (nextId) await fetchCompanyModules(nextId);
+}
+
+async function handleToggleModule(companyId: number, moduleId: number, nextEnabled: boolean) {
+  const current = modulesByCompany[companyId] ?? [];
+  const enabledKeys = current
+    .map((m) => (m.id === moduleId ? { ...m, is_enabled: nextEnabled } : m))
+    .filter((m) => m.is_enabled)
+    .map((m) => m.module_key);
+
+  setTogglingModuleId(moduleId);
+  try {
+    await apiCall(`/api/superadmin/companies/${companyId}/modules`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled_modules: enabledKeys }),
+    });
+    await fetchCompanyModules(companyId);
+    toast.success("Modules updated");
+  } catch (err: any) {
+    toast.error(err?.message ?? "Failed to update modules");
+  } finally {
+    setTogglingModuleId(null);
+  }
+}
 
   async function toggleCompanyUsers(companyId: number) {
     const nextId = openCompanyId === companyId ? null : companyId;
@@ -795,6 +898,12 @@ export default function SuperAdminPanel() {
                   onRestoreUser={(uid) => handleRestoreUser(company.id, uid)}
                   userSearch={userSearch}
                   setUserSearch={setUserSearch}
+                  modulesOpen={openModulesCompanyId === company.id}
+                  onToggleModules={() => toggleCompanyModulesPanel(company.id)}
+                  modules={modulesByCompany[company.id] ?? []}
+                  modulesLoading={openModulesCompanyId === company.id && modulesLoading}
+                  onToggleModule={(moduleId, next) => handleToggleModule(company.id, moduleId, next)}
+                  togglingModuleId={togglingModuleId}
                 />
               );
             })}

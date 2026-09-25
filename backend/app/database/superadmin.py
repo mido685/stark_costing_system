@@ -632,3 +632,142 @@ def _get_user(cur, user_id: int, company_id: int) -> dict[str, Any] | None:
     """, (user_id, company_id))
     row = cur.fetchone()
     return dict(row) if row else None
+# ─── Module Access ─────────────────────────────────────────────────────────
+
+def list_modules() -> list[dict[str, Any]]:
+    """All modules available in the system (the catalog, not any company's grants)."""
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        cur.execute("""
+            SELECT id, module_key, display_name, created_at
+            FROM modules
+            ORDER BY id
+        """)
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_company_modules(company_id: int) -> list[dict[str, Any]]:
+    """
+    Modules enabled for this company. Empty list means no restriction rows
+    exist yet — caller/route layer should treat that as full access.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        _ensure_company(cur, company_id)
+        cur.execute("""
+            SELECT m.id, m.module_key, m.display_name, cma.is_enabled, cma.updated_at
+            FROM company_module_access cma
+            JOIN modules m ON m.id = cma.module_id
+            WHERE cma.company_id = %s
+            ORDER BY m.id
+        """, (company_id,))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close()
+        conn.close()
+
+def get_company_modules_resolved(company_id: int) -> list[dict[str, Any]]:
+    """
+    Every module in the catalog, annotated with this company's current
+    is_enabled state. Mirrors the resolution rule in company_has_module:
+    no restriction rows at all = everything enabled; once any row exists,
+    modules without a row are disabled.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        _ensure_company(cur, company_id)
+        cur.execute("SELECT id, module_key, display_name FROM modules ORDER BY id")
+        catalog = [dict(r) for r in cur.fetchall()]
+
+        cur.execute(
+            "SELECT module_id, is_enabled FROM company_module_access WHERE company_id = %s",
+            (company_id,),
+        )
+        grants = {r["module_id"]: r["is_enabled"] for r in cur.fetchall()}
+        has_any_restriction = bool(grants)
+
+        for m in catalog:
+            m["is_enabled"] = grants.get(m["id"], not has_any_restriction) if has_any_restriction else True
+        return catalog
+    finally:
+        cur.close()
+        conn.close()
+        
+def set_company_modules(
+    company_id: int,
+    enabled_module_keys: list[str],
+    granted_by: int | None = None,
+    ip_address: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Replace this company's module grants with exactly the given set.
+    Every catalog module gets an explicit row — enabled if its key is in
+    enabled_module_keys, disabled otherwise. Never leaves rows absent, so
+    disabling everything actually locks the company out instead of
+    reverting to the "no rows = unrestricted" default.
+    """
+    conn = get_connection()
+    cur = dict_cursor(conn)
+    try:
+        company = _ensure_company(cur, company_id)
+
+        cur.execute("SELECT id, module_key FROM modules")
+        catalog = {r["module_key"]: r["id"] for r in cur.fetchall()}
+
+        invalid = set(enabled_module_keys) - set(catalog.keys())
+        if invalid:
+            raise ValueError(f"Unknown module key(s): {sorted(invalid)}")
+
+        old = get_company_modules(company_id)
+
+        # Wipe and re-insert ONE ROW PER CATALOG MODULE, explicit true/false, so
+        # disabling everything locks the company out instead of deleting all rows
+        # (which would fall back to "no restrictions = full access").
+        cur.execute("DELETE FROM company_module_access WHERE company_id = %s", (company_id,))
+        enabled_set = set(enabled_module_keys)
+        for key, module_id in catalog.items():
+            cur.execute("""
+                INSERT INTO company_module_access (company_id, module_id, is_enabled, enabled_by)
+                VALUES (%s, %s, %s, %s)
+            """, (company_id, module_id, key in enabled_set, granted_by))
+        updated = get_company_modules(company_id)
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=None,
+            action="SUPERADMIN_UPDATE",
+            table_name="company_module_access",
+            record_id=company_id,
+            old_data={"modules": old},
+            new_data={"modules": updated},
+            ip_address=ip_address,
+        )
+        log_event(
+            conn,
+            company_id=SUPERADMIN_COMPANY_ID,
+            action="modules_updated",
+            category="security",
+            entity_type="companies",
+            entity_id=company_id,
+            payload={
+                "target_company":    company["name"],
+                "target_company_id": company_id,
+                "enabled_modules":   enabled_module_keys,
+            },
+            ip_address=ip_address,
+        )
+        conn.commit()
+        return updated
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()

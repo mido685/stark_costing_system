@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, Request, UploadFile, File, Form
 from app.api.responses import error, success
 from app.database import superadmin as superadmin_db
 from app.database import auth as auth_db
-from app.schemas import UserRequest
+from app.schemas import UserRequest,ModuleAccessRequest
 from app.security.dependencies import require_superadmin
 import os, shutil, uuid
+
 
 router = APIRouter(prefix="/superadmin", tags=["superadmin"])
 
@@ -145,3 +146,40 @@ def delete_company_user(company_id: int, user_id: int, request: Request, _: dict
         return success("User suspended")
     except ValueError as e:
         return error(str(e), status=404)
+# ─── Modules ──────────────────────────────────────────────────────────────
+
+@router.get("/modules")
+def list_modules(_: dict = Depends(require_superadmin)):
+    try:
+        modules = superadmin_db.list_modules()
+        return success("Modules retrieved", modules=modules)
+    except ValueError as e:
+        return error(str(e))
+
+
+@router.get("/companies/{company_id}/modules")
+def get_company_modules(company_id: int, _: dict = Depends(require_superadmin)):
+    try:
+        modules = superadmin_db.get_company_modules_resolved(company_id)
+        return success("Company modules retrieved", modules=modules)
+    except ValueError as e:
+        return error(str(e), status=404)
+        
+
+@router.put("/companies/{company_id}/modules")
+def set_company_modules(
+    company_id: int,
+    req: ModuleAccessRequest,
+    request: Request,
+    admin: dict = Depends(require_superadmin),
+):
+    try:
+        modules = superadmin_db.set_company_modules(
+            company_id=company_id,
+            enabled_module_keys=req.enabled_modules,
+            granted_by=admin.get("id"),
+            ip_address=request.client.host,
+        )
+        return success("Company modules updated", modules=modules)
+    except ValueError as e:
+        return error(str(e), status=400)

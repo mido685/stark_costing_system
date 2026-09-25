@@ -12,9 +12,12 @@ from app.schemas import (
     WasteRequest,
     UpdateTransferRequest,
 )
-from app.security.dependencies import check_period_open, get_current_user, require_roles
+from app.security.dependencies import check_period_open, get_current_user, require_roles,require_module
 
-router = APIRouter(tags=["inventory"])
+router = APIRouter(
+    tags=["inventory"],
+    dependencies=[Depends(require_module("inventory"))],
+)
 
 
 # ---------------------------------------------------------------------------

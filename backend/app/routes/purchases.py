@@ -8,10 +8,13 @@ from app.api.responses import success, error
 from app.database import purchases as purchases_db
 from app.database import inventory as inventory_db
 from app.schemas import PurchaseRequest, PurchaseReturnRequest, PurchaseUpdateRequest
-from app.security.dependencies import get_current_user, require_roles, check_period_open
+from app.security.dependencies import get_current_user, require_roles, check_period_open, require_module
 
-router = APIRouter(prefix="/purchases", tags=["purchases"])
-
+router = APIRouter(
+    prefix="/purchases",
+    tags=["purchases"],
+    dependencies=[Depends(require_module("procurement"))],
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LIST

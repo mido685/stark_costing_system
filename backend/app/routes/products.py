@@ -5,10 +5,14 @@ from app.api.responses import success, error
 from app.schemas import ProductRequest, ProductUpdateRequest, ItemRequest
 from app.database import products as products_db
 from app.database import ingredients as ingredients_db
-from app.security.dependencies import get_current_user, require_roles
+from app.security.dependencies import get_current_user, require_roles, require_module
+import psycopg2
 
-router = APIRouter(prefix="/products", tags=["products"])
-
+router = APIRouter(
+    prefix="/products",
+    tags=["products"],
+    dependencies=[Depends(require_module("masters"))],
+)
 UPLOAD_DIR = Path("app/static/item_images")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +73,6 @@ def list_items(
     return success("Items retrieved", items=sorted(items, key=lambda x: x["name"]))
 
 
-@router.post("/items")
 @router.post("/items")
 def create_item(
     req: ItemRequest,

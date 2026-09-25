@@ -7,9 +7,12 @@ from fastapi.responses import StreamingResponse
 
 from app.api.responses import error, success
 from app.database import reports as reports_db
-from app.security.dependencies import get_current_user
+from app.security.dependencies import get_current_user, require_module
 
-router = APIRouter(tags=["reports"])
+router = APIRouter(
+    tags=["reports"],
+    dependencies=[Depends(require_module("reports"))],
+)
 
 
 def _csv_response(filename: str, data: Any) -> StreamingResponse:

@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from app.security import auth
 from app.database.periods import get_period_status
-
+from app.database.modules import company_has_module
 security = HTTPBearer()
 
 def get_current_user(
@@ -42,3 +42,17 @@ def check_period_open(entry_date: str, current_user: dict) -> None:
             status_code=409,
             detail={"error": "This accounting period is closed"},
         )
+def require_module(module_key: str):
+    def checker(current_user: dict = Depends(get_current_user)):
+        company_id = current_user.get("company_id")
+        if company_id is None:
+            # superadmin tokens have no company_id — always allow
+            return current_user
+
+        if not company_has_module(company_id, module_key):
+            raise HTTPException(
+                status_code=403,
+                detail={"error": f"Your plan does not include the {module_key} module"},
+            )
+        return current_user
+    return checker

@@ -523,3 +523,5 @@ class UpdateTransferRequest(BaseModel):
     entry_date: date          # match whatever type TransferRequest uses
     quantity: float = Field(gt=0)
     notes: str = ""
+class ModuleAccessRequest(BaseModel):
+    enabled_modules: list[str]

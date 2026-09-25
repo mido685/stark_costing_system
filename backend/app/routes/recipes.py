@@ -2,10 +2,13 @@ from fastapi import APIRouter, Request, Depends
 from app.api.responses import success, error
 from app.schemas import RecipeRequest, RecipeIngredientRequest
 from app.database import recipes as recipes_db
-from app.security.dependencies import get_current_user, require_roles
+from app.security.dependencies import get_current_user, require_roles, require_module
 
-router = APIRouter(prefix="/recipes", tags=["recipes"])
-
+router = APIRouter(
+    prefix="/recipes",
+    tags=["recipes"],
+    dependencies=[Depends(require_module("costing"))],
+)
 @router.get("/{product_id}/cost")
 def get_recipe_cost(
     product_id: int,

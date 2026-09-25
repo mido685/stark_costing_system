@@ -11,7 +11,7 @@ from app.schemas import LoginRequest
 from app.security import auth
 from app.config import APP_NAME, APP_VERSION
 from app.security.dependencies import require_roles
-
+from app.database import superadmin as superadmin_db
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer = HTTPBearer()
 
@@ -73,11 +73,22 @@ def login(req: LoginRequest):
             username=req.username,
             password=req.password,
         )
+
+        company_id = user_data.get("company_id")
+        if company_id is not None:
+            modules = superadmin_db.get_company_modules(company_id)
+            if modules:
+                enabled_modules = [m["module_key"] for m in modules if m["is_enabled"]]
+            else:
+                # no restriction rows = unrestricted, full access
+                all_modules = superadmin_db.list_modules()
+                enabled_modules = [m["module_key"] for m in all_modules]
+            user_data["enabled_modules"] = enabled_modules
+
         token = auth.create_token(user_data)
         return success("Login successful", token=token, user=user_data)
     except ValueError as e:
         return error(str(e), status=401)
-
 
 @router.post("/superadmin/login")
 def superadmin_login(req: LoginRequest):
@@ -141,7 +152,18 @@ def me(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
         user = cur.fetchone()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        return success("OK", user=dict(user))
+
+        modules = superadmin_db.get_company_modules(company_id)
+        if modules:
+            enabled_modules = [m["module_key"] for m in modules if m["is_enabled"]]
+        else:
+            # no restriction rows = unrestricted, full access
+            all_modules = superadmin_db.list_modules()
+            enabled_modules = [m["module_key"] for m in all_modules]
+
+        user_dict = dict(user)
+        user_dict["enabled_modules"] = enabled_modules
+        return success("OK", user=user_dict)
     finally:
         cur.close()
         conn.close()

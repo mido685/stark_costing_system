@@ -3,11 +3,16 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.api.responses import error, success
 from app.database import production_costs as production_db
 from app.schemas import ProductionRequest
-from app.security.dependencies import check_period_open, get_current_user, require_roles
 
 
-router = APIRouter(prefix="/production", tags=["production"])
+from app.security.dependencies import check_period_open, get_current_user, require_roles, require_module
 
+
+router = APIRouter(
+    prefix="/production",
+    tags=["production"],
+    dependencies=[Depends(require_module("costing"))],
+)
 
 @router.get("")
 def list_production(
