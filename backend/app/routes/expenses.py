@@ -8,18 +8,19 @@ from app.schemas import (
     ExpenseRequest, PayrollRequest, PeriodBackupRequest,
     PrepaymentRequest,
 )
-from app.security.dependencies import check_period_open, get_current_user, require_roles, require_module
 
 # Finance-only data — gated behind the finance module
-router = APIRouter(
-    tags=["expenses"],
-    dependencies=[Depends(require_module("finance"))],
-)
+# new
+from app.security.dependencies import check_period_open, get_current_user, require_roles, require_module
+
+router = APIRouter(tags=["expenses"])
+
+FINANCE = Depends(require_module("finance"))
+INVENTORY = Depends(require_module("inventory"))
 
 
 # ── Expenses ──────────────────────────────────────────────────────────────────
-
-@router.get("/expenses")
+@router.get("/expenses", dependencies=[FINANCE])
 def list_expenses(
     branch_id: int | None = Query(None),
     period: str | None = Query(None),
@@ -34,7 +35,7 @@ def list_expenses(
     )
 
 
-@router.post("/expenses", status_code=201)
+@router.post("/expenses", status_code=201, dependencies=[FINANCE])
 def create_expense(
     req: ExpenseRequest,
     request: Request,
@@ -55,7 +56,7 @@ def create_expense(
 
 # ── Payroll ───────────────────────────────────────────────────────────────────
 
-@router.get("/payroll")
+@router.get("/payroll", dependencies=[FINANCE])
 def list_payroll(
     branch_id: int | None = Query(None),
     period: str | None = Query(None),
@@ -70,7 +71,7 @@ def list_payroll(
     )
 
 
-@router.post("/payroll", status_code=201)
+@router.post("/payroll", status_code=201, dependencies=[FINANCE])
 def create_payroll(
     req: PayrollRequest,
     request: Request,
@@ -91,7 +92,7 @@ def create_payroll(
 
 # ── Depreciation ──────────────────────────────────────────────────────────────
 
-@router.get("/depreciation")
+@router.get("/depreciation", dependencies=[FINANCE])
 def list_depreciation(
     branch_id: int | None = Query(None),
     period: str | None = Query(None),
@@ -106,7 +107,7 @@ def list_depreciation(
     )
 
 
-@router.post("/depreciation", status_code=201)
+@router.post("/depreciation", status_code=201, dependencies=[FINANCE])
 def create_depreciation(
     req: DepreciationRequest,
     request: Request,
@@ -127,7 +128,7 @@ def create_depreciation(
 
 # ── Accruals ──────────────────────────────────────────────────────────────────
 
-@router.get("/accruals")
+@router.get("/accruals", dependencies=[FINANCE])
 def list_accruals(
     branch_id: int | None = Query(None),
     period: str | None = Query(None),
@@ -142,7 +143,7 @@ def list_accruals(
     )
 
 
-@router.post("/accruals", status_code=201)
+@router.post("/accruals", status_code=201, dependencies=[FINANCE])
 def create_accrual(
     req: AccrualRequest,
     request: Request,
@@ -163,7 +164,7 @@ def create_accrual(
 
 # ── Prepayments ───────────────────────────────────────────────────────────────
 
-@router.get("/prepayments")
+@router.get("/prepayments", dependencies=[FINANCE])
 def list_prepayments(
     branch_id: int | None = Query(None),
     period: str | None = Query(None),
@@ -178,7 +179,7 @@ def list_prepayments(
     )
 
 
-@router.post("/prepayments", status_code=201)
+@router.post("/prepayments", status_code=201, dependencies=[FINANCE])
 def create_prepayment(
     req: PrepaymentRequest,
     request: Request,
@@ -200,7 +201,7 @@ def create_prepayment(
 
 # ── Budgets ───────────────────────────────────────────────────────────────────
 
-@router.post("/budgets", status_code=201)
+@router.post("/budgets", status_code=201, dependencies=[FINANCE])
 def set_budget(
     req: BudgetRequest,
     current_user: dict = Depends(require_roles("owner", "admin", "manager")),
@@ -218,7 +219,7 @@ def set_budget(
         return error(str(e))
 
 
-@router.get("/budgets/{branch_id}/{period}")
+@router.get("/budgets/{branch_id}/{period}", dependencies=[FINANCE])
 def budget_vs_actual(
     branch_id: int,
     period: str,
@@ -244,7 +245,7 @@ class InventoryPeriodSnapshotRequest(BaseModel):
     notes: str = ""
 
 
-@router.post("/inventory-period-snapshots", status_code=201)
+@router.post("/inventory-period-snapshots", status_code=201, dependencies=[INVENTORY])
 def create_inventory_period_snapshot(
     req: InventoryPeriodSnapshotRequest,
     request: Request,
@@ -264,7 +265,7 @@ def create_inventory_period_snapshot(
         return error(str(e), status=400)
 
 
-@router.get("/inventory-period-snapshots")
+@router.get("/inventory-period-snapshots", dependencies=[INVENTORY])
 def list_inventory_period_snapshots(
     branch_id: int | None = Query(None),
     current_user: dict = Depends(get_current_user),
@@ -280,7 +281,7 @@ def list_inventory_period_snapshots(
 # ── Period Backups ─────────────────────────────────────────────────────────
 # TEMPORARY: still finance-gated for now — step 2 will decide where these belong
 
-@router.post("/period-backups/generate", status_code=201)
+@router.post("/period-backups/generate", status_code=201, dependencies=[FINANCE])
 def generate_period_backups(
     req: PeriodBackupRequest,
     current_user: dict = Depends(require_roles("owner", "admin")),
@@ -293,7 +294,7 @@ def generate_period_backups(
     return success("Period backups generated", count=len(rows), rows=rows)
 
 
-@router.get("/period-backups")
+@router.get("/period-backups", dependencies=[FINANCE])
 def list_period_backups(
     branch_id: int | None = Query(None),
     months: int = Query(4, ge=1, le=24),
