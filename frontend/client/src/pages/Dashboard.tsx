@@ -237,7 +237,7 @@ function PeriodBanner({
 
 export default function Dashboard() {
   const { t } = useLanguage();
-  const { workingPeriod, workingPeriodLabel, isCurrentPeriod } = useWorkingPeriod();
+  const { workingPeriod, workingPeriodLabel, isCurrentPeriod, periodStatus } = useWorkingPeriod();
 
   // Branch filter — dashboard-specific, period comes from context
   const [branchId,    setBranchId]    = useState("");
@@ -261,21 +261,6 @@ export default function Dashboard() {
     { refetchInterval: 30000, deps: [branchId, dateFrom, dateTo] }
   );
   const metrics = rawMetrics as DashboardMetrics | undefined;
-
-  // Fetch period status so we can show the right warning banner
-  const [periodStatus, setPeriodStatus] = useState<"open" | "closed" | "locked" | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/period/status?period=${workingPeriod}`, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-    })
-      .then((r) => r.json())
-      .then((r) => { if (!cancelled) setPeriodStatus(r?.data?.status ?? "open"); })
-      .catch(() => { if (!cancelled) setPeriodStatus(null); });
-    return () => { cancelled = true; };
-  }, [workingPeriod]);
-
   // Clear export error when period or branch changes
   useEffect(() => { setExportError(null); }, [workingPeriod, branchId]);
 

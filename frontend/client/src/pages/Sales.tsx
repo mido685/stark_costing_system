@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,11 +11,13 @@ import { apiCall, getPeriodStatus, setPeriodStatus } from "@/lib/api";
 import type { PeriodStatusValue, PeriodStatusRow } from "@/lib/api";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 import {
   formatCurrency as formatCurrencyValue,
   formatDateTime,
   getCurrencyLabel,
 } from "@/lib/localization";
+import { ref } from "process";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -525,10 +527,9 @@ function Modal({
 // ─── Period Status Modal ──────────────────────────────────────────────────────
 
 function PeriodStatusModal({
-  period, setPeriod, currentStatus, onClose, onSave, saving, formError,
+  period, currentStatus, onClose, onSave, saving, formError,
 }: {
   period: string;
-  setPeriod: (p: string) => void;
   currentStatus: PeriodStatusValue;
   onClose: () => void;
   onSave: (status: PeriodStatusValue, notes: string) => void;
@@ -559,7 +560,7 @@ function PeriodStatusModal({
             </p>
           )}
           <Field label="Period">
-            <input type="month" className={inputClass} value={period} onChange={e => setPeriod(e.target.value)} />
+            <input type="text" className={inputClass} value={period} readOnly />
           </Field>
           <Field label="Status">
             <select className={inputClass} value={status} onChange={e => setStatus(e.target.value as PeriodStatusValue)}>
@@ -828,13 +829,11 @@ export default function Sales() {
   const statusLabel     = (v: string) => translateOption(v, SALE_STATUS_KEYS, t);
   const reasonLabel     = (v: string) => translateOption(v, WASTE_REASON_KEYS, t);
 
-  // ── Period status ──
-  const [period, setPeriod] = useState(currentPeriod);
+  // ── Period status — driven entirely by the shared topbar period, not a local picker ──
+  const { workingPeriod, isCurrentPeriod, periodStatus, refreshPeriodStatus } = useWorkingPeriod();
+  const period = workingPeriod; // kept as an alias so the rest of this file needs no renaming
 
-  const { data: companyPeriodStatus, refetch: refetchPeriodStatus } =
-    useApi<PeriodStatusRow>(() => getPeriodStatus(period), { deps: [period] });
-
-  const selectedPeriodState  = companyPeriodStatus?.status ?? "open";
+  const selectedPeriodState  = periodStatus ?? "open";
   const selectedPeriodClosed = selectedPeriodState === "closed" || selectedPeriodState === "locked";
   const selectedPeriodLocked = selectedPeriodState === "locked";
 
@@ -860,13 +859,32 @@ export default function Sales() {
   const [periodFormError, setPeriodFormError] = useState("");
   const [activeTab,       setActiveTab]       = useState<"sales" | "waste" | "damage">("sales");
 
-  // ── Filters ──
+  // Derive [start, end] of the working period, same shape Dashboard already uses
+  const periodBounds = useMemo(() => {
+    const [y, m] = period.split("-").map(Number);
+    const first = new Date(y, m - 1, 1);
+    const last  = new Date(y, m, 0);
+    const fmtDate = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return { dateFrom: fmtDate(first), dateTo: fmtDate(last) };
+  }, [period]);
+
+  // ── Filters — default to the topbar's selected period, resettable per period change below ──
   const [saleFilters, setSaleFilters] = useState<SaleFilters>({
-    branchId: "", dateFrom: "", dateTo: "", paymentMethod: "", search: "", status: "",
+    branchId: "", dateFrom: periodBounds.dateFrom, dateTo: periodBounds.dateTo, paymentMethod: "", search: "", status: "",
   });
   const [wasteFilters, setWasteFilters] = useState<WasteFilters>({
-    branchId: "", dateFrom: "", dateTo: "", reason: "", search: "",
+    branchId: "", dateFrom: periodBounds.dateFrom, dateTo: periodBounds.dateTo, reason: "", search: "",
   });
+
+  // Whenever the topbar period changes, snap both filter bars back to that period's range.
+  // Users can still widen/narrow manually afterward within the same period selection.
+  useEffect(() => {
+    setSaleFilters(f => ({ ...f, dateFrom: periodBounds.dateFrom, dateTo: periodBounds.dateTo }));
+    setWasteFilters(f => ({ ...f, dateFrom: periodBounds.dateFrom, dateTo: periodBounds.dateTo }));
+    setSalePage(1);
+    setWastePage(1);
+  }, [period, periodBounds.dateFrom, periodBounds.dateTo]);
 
   // ── Pagination ──
   const [salePage,  setSalePage]  = useState(1);
@@ -996,19 +1014,21 @@ export default function Sales() {
     setModal(type);
   }
 
-  function refetchAll() {
+
+
+    function refetchAll() {
     refetchSales?.();
     refetchWaste?.();
-    refetchPeriodStatus?.();
+    refreshPeriodStatus?.();
   }
 
   // ── Period status save ──
   async function handleSavePeriodStatus(status: PeriodStatusValue, notes: string) {
     setSaving(true); setPeriodFormError("");
     try {
-      await setPeriodStatus({ period, status, notes });
+      await setPeriodStatus({ period: workingPeriod, status, notes });
       setModal(null);
-      refetchPeriodStatus?.();
+      await refreshPeriodStatus();
     } catch {
       setPeriodFormError("Could not update period status");
     }
@@ -1193,8 +1213,7 @@ export default function Sales() {
       {/* ── Period Status Modal ── */}
       {modal === "periodStatus" && (
         <PeriodStatusModal
-          period={period}
-          setPeriod={setPeriod}
+          period={workingPeriod}
           currentStatus={selectedPeriodState}
           onClose={() => setModal(null)}
           onSave={handleSavePeriodStatus}
@@ -1441,12 +1460,11 @@ export default function Sales() {
           <p className="text-muted-foreground mt-1">{t("sales.subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          <input
-            type="month"
-            className="px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-36"
-            value={period}
-            onChange={e => setPeriod(e.target.value)}
-          />
+          <span className="text-xs text-muted-foreground px-1">
+            Period: <span className="font-medium text-foreground">{period}</span>
+            {" · "}
+            <span className="text-muted-foreground">Change from topbar</span>
+          </span>
           <Button variant="outline" size="sm" onClick={refetchAll}>
             <RefreshCw className="w-4 h-4" />
           </Button>
@@ -1461,6 +1479,16 @@ export default function Sales() {
           </Button>
         </div>
       </div>
+
+      {/* ── Historical period view banner ── */}
+      {!isCurrentPeriod && (
+        <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20">
+          <p className="text-xs text-blue-700 dark:text-blue-400 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            Viewing {period}. Sales and waste tables below are scoped to this period by default — adjust the filter dates to widen the view.
+          </p>
+        </Card>
+      )}
 
       {/* ── Period closed / locked banner ── */}
       {selectedPeriodClosed && (

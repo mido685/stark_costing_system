@@ -456,6 +456,17 @@ function openingValueForPeriod(
     return (Array.isArray(rows) ? rows : []).map(normalizeBalance);
   }
 
+  // Per-item balances as of the end of a given period — same source the COGS
+  // closing-value total already uses, just returning rows instead of a sum.
+  async function fetchBalancesAsOf(branchId: number, asOf: string): Promise<StockBalance[]> {
+    const rows = await apiCall<any[]>(`/api/stock/${branchId}?as_of=${asOf}`);
+    return asList(rows).map(normalizeBalance);
+  }
+  async function fetchFGBalancesAsOf(branchId: number, asOf: string): Promise<StockBalance[]> {
+    const rows = await apiCall<any[]>(`/api/stock/finished-goods/${branchId}?as_of=${asOf}`);
+    return asList(rows).map(normalizeBalance);
+  }
+
   const LOAD_ERROR_EVENT = "inventory:load-error";
 
   // Keeps the old "return a fallback" behaviour, but tells the page whether the load worked
@@ -3204,6 +3215,7 @@ export default function InventoryControls() {
       workingPeriod,
       periodStatus,
       refreshPeriodStatus,
+      isCurrentPeriod,
     } = useWorkingPeriod();
     const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
     const [modal, setModal] = useState<ModalType>(null);
@@ -3217,8 +3229,18 @@ export default function InventoryControls() {
     const [statusOverride, setStatusOverride] = useState<{ period: string; row: PeriodStatusRow } | null>(null);
 
     const { data: branches } = useApi<Branch[]>(getBranches);
-    const { data: balances,              loading: balancesLoading, refetch: refetchBalances   } = useApi<StockBalance[]>(() => branchId ? fetchBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
-    const { data: finishedGoodsBalances, loading: fgLoading,      refetch: refetchFG          } = useApi<StockBalance[]>(() => branchId ? fetchFGBalances(branchId) : Promise.resolve<StockBalance[]>([]), { deps: [branchId] });
+    const { data: balances,              loading: balancesLoading, refetch: refetchBalances   } = useApi<StockBalance[]>(
+      () => branchId
+        ? (isCurrentPeriod ? fetchBalances(branchId) : fetchBalancesAsOf(branchId, lastDayOfPeriod(workingPeriod)))
+        : Promise.resolve<StockBalance[]>([]),
+      { deps: [branchId, workingPeriod, isCurrentPeriod] }
+    );
+    const { data: finishedGoodsBalances, loading: fgLoading,      refetch: refetchFG          } = useApi<StockBalance[]>(
+      () => branchId
+        ? (isCurrentPeriod ? fetchFGBalances(branchId) : fetchFGBalancesAsOf(branchId, lastDayOfPeriod(workingPeriod)))
+        : Promise.resolve<StockBalance[]>([]),
+      { deps: [branchId, workingPeriod, isCurrentPeriod] }
+    );
     const { data: stockCounts,  refetch: refetchCounts     } = useApi<any[]>(() => getStockCountsWithPurchases(branchId || undefined), { deps: [branchId] });
     const { data: purchases,    refetch: refetchPurchases  } = useApi<any[]>(() => getPurchasesByBranch(branchId || undefined),        { deps: [branchId] });
     const { data: transfers, loading: transfersLoading, refetch: refetchTransfers } = useApi<any[]>(() => getTransfersByBranch(branchId || undefined), { deps: [branchId] });
@@ -3292,16 +3314,23 @@ const selectedPeriodClosed =
     const [openingForm,  setOpeningForm]  = useState({ ingredient_id: 0, entry_date: today(), qty_issued: 0, notes: "" });
     const [periodForm,   setPeriodForm]   = useState({ period_label: "", entry_date: today(), notes: "" });
 
+    // When viewing a past (closed) period, every supporting list is capped to
+    // that period's end date so the breakdown columns match the balances above.
+    // The current period keeps seeing everything up to today, as normal.
+    const periodCutoff = isCurrentPeriod ? null : lastDayOfPeriod(workingPeriod);
+    const upToCutoff = <T extends { entry_date?: string }>(rows: T[]): T[] =>
+      periodCutoff ? rows.filter(r => String(r.entry_date ?? "").slice(0, 10) <= periodCutoff) : rows;
+
     const safeBalances    = balances ?? [];
     const safeFG          = finishedGoodsBalances ?? [];
-    const safeCounts      = stockCounts ?? [];
-    const safePurchases   = purchases ?? [];
-    const safeTransfers   = transfers ?? [];
-    const safeOpening     = openingStock ?? [];
-    const safeAdjustments = adjustments ?? [];
-    const safeWaste       = wasteRecords ?? [];
+    const safeCounts      = upToCutoff(stockCounts ?? []);
+    const safePurchases   = upToCutoff(purchases ?? []);
+    const safeTransfers   = upToCutoff(transfers ?? []);
+    const safeOpening     = upToCutoff(openingStock ?? []);
+    const safeAdjustments = upToCutoff(adjustments ?? []);
+    const safeWaste       = upToCutoff(wasteRecords ?? []);
     const safeSnapshots   = periodSnapshots ?? [];
-    const safeInventoryMovements = inventoryMovements ?? [];
+    const safeInventoryMovements = upToCutoff(inventoryMovements ?? []);
 
     // Which list loads have failed right now (cleared when the same load later succeeds)
     const [loadErrors, setLoadErrors] = useState<Record<string, true>>({});
@@ -4188,6 +4217,16 @@ const closePreview = useMemo(() => {
                 Change status
               </Button>
             </div>
+          </Card>
+        )}
+
+        {/* ── Historical period view banner ── */}
+        {!isCurrentPeriod && (
+          <Card className="p-3 border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20">
+            <p className="text-xs text-blue-700 dark:text-blue-400 flex items-center gap-2">
+              <Eye className="w-4 h-4 shrink-0" />
+              Viewing {workingPeriod} as of {lastDayOfPeriod(workingPeriod)}. Balances and history below are frozen to that date — switch back to the current period to resume live entry.
+            </p>
           </Card>
         )}
 
