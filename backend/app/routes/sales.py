@@ -2,9 +2,9 @@ from fastapi import APIRouter, Request, Depends, Query
 from app.api.responses import success, error
 from app.schemas import SaleRequest
 from app.database import sales as sales_db
-from app.security.dependencies import get_current_user, require_roles, check_period_open
+from app.security.dependencies import get_current_user, require_roles, check_period_open,require_module
 
-router = APIRouter(prefix="/sales", tags=["sales"])
+router = APIRouter(prefix="/sales", tags=["sales"], dependencies=[Depends(require_module("sales"))])
 
 
 @router.get("")

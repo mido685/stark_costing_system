@@ -22,7 +22,7 @@ const NAV_ITEMS = [
   { href: "/procurement",        labelKey: "nav.procurement",    icon: ShoppingCart,    color: "text-orange-500",  module: "procurement" },
   { href: "/production",         labelKey: "nav.production",     icon: Factory,         color: "text-red-500",     module: "costing"     },
   { href: "/recipes",            labelKey: "nav.recipes",        icon: ClipboardList,   color: "text-green-500",   module: "costing"     },
-  { href: "/sales",              labelKey: "nav.sales",          icon: DollarSign,      color: "text-emerald-500" },
+  { href: "/sales",              labelKey: "nav.sales",          icon: DollarSign,      color: "text-emerald-500", module: "sales" },
   { href: "/finance",            labelKey: "nav.finance",        icon: TrendingUp,      color: "text-cyan-500",    module: "finance"     },
   { href: "/governance",         labelKey: "nav.governance",     icon: ShieldCheck,     color: "text-yellow-500",  module: "governance"  },
   { href: "/report",             labelKey: "nav.report",         icon: FileText,        color: "text-pink-500",    module: "reports"     },

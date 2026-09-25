@@ -29,6 +29,7 @@ def upgrade() -> None:
             ('inventory', 'Inventory'),
             ('procurement', 'Procurement'),
             ('costing', 'Costing'),
+            ('sales', 'Sales'),
             ('finance', 'Finance'),
             ('governance', 'Governance'),
             ('masters', 'Masters'),
