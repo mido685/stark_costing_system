@@ -916,6 +916,7 @@ export default function Procurement() {
   const [grnForm, setGrnForm] = useState<GRNForm>(initGRNForm);
 
   function openGRNModal(row: FulfillmentRow) {
+    if (viewingHistorical) return;
     setGrnForm({
       purchase_id:     row.po_id,
       po_number:       row.po_number,
@@ -1098,7 +1099,7 @@ export default function Procurement() {
   const [invoiceForm,  setInvoiceForm]   = useState<InvoiceForm>(initInvoiceForm);
 
   function openModal(type: ModalType) {
-    if ((selectedPeriodClosed || viewingHistorical) && type !== "invoice_upload" && type !== "petty_topup" && type !== "grn") return;
+    if ((selectedPeriodClosed || viewingHistorical) && type !== "invoice_upload" && type !== "grn") return;
     setFormError(""); setModal(type);
     if (type==="purchase")       dispatchPurchase({ type:"RESET" });
     if (type==="return")         dispatchReturn({ type:"RESET" });
@@ -2182,7 +2183,14 @@ export default function Procurement() {
       {activeTab==="invoices" && (
         <>
           <Card className="p-6 border border-border/60">
-            <SectionHeader title="Invoice Search"/>
+            <SectionHeader
+              title="Invoice Search"
+              action={
+                <span className="text-[11px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded-md">
+                  Uses its own date filters below, independent of {period}
+                </span>
+              }
+            />
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <Field label="Reference Type"><select className={inputCls} value={invoiceRefTable} onChange={e=>setInvoiceRefTable(e.target.value as InvoiceRefTable)}><option value="">All Types</option>{INVOICE_REF_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></Field>
               <Field label="Branch"><select className={inputCls} value={invoiceFilterBranchId} onChange={e=>setInvoiceFilterBranchId(Number(e.target.value))}><option value={0}>All Branches</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
@@ -2279,7 +2287,14 @@ export default function Procurement() {
           </Card>
 
           <Card className="p-6 border border-border/60">
-            <SectionHeader title={`PO Fulfillment — ${filteredFulfillment.length} record${filteredFulfillment.length!==1?"s":""}`}/>
+            <SectionHeader
+              title={`PO Fulfillment — ${filteredFulfillment.length} record${filteredFulfillment.length!==1?"s":""}`}
+              action={
+                <span className="text-[11px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded-md">
+                  Live data — not scoped to {period}
+                </span>
+              }
+            />
             {fulfillmentLoading ? <SkeletonRows count={6}/> : !filteredFulfillment.length ? (
               <EmptyState icon={<ClipboardList className="w-6 h-6 text-muted-foreground"/>} title="No fulfillment data" desc="Approved POs will appear here once created. Use the filters to narrow results."/>
             ) : (
@@ -2320,8 +2335,13 @@ export default function Procurement() {
                           <div className="flex items-center justify-center gap-1">
                             <EyeBtn onClick={()=>handleOpenFulfillmentHtml(row)}/>
                             {canGRN ? (
-                              <button onClick={()=>openGRNModal(row)} title="Record goods receipt for this PO"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 text-xs font-semibold hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors">
+                              <button onClick={()=>openGRNModal(row)} disabled={viewingHistorical}
+                                title={viewingHistorical ? "Switch to the current period to record a GRN" : "Record goods receipt for this PO"}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                                  viewingHistorical
+                                    ? "border-border bg-muted/30 text-muted-foreground cursor-not-allowed"
+                                    : "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-950/50"
+                                }`}>
                                 <ArrowDownToLine className="w-3.5 h-3.5"/>GRN
                               </button>
                             ) : (
