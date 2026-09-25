@@ -722,7 +722,7 @@ def get_variance_report(
 # ─────────────────────────────────────────────────────────────────────────────
 # Audit Log
 # ─────────────────────────────────────────────────────────────────────────────
-
+# new
 def list_audit_log(
     company_id: int, branch_id: int | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:
@@ -734,10 +734,10 @@ def list_audit_log(
                     SELECT al.id, al.action, al.table_name, al.record_id,
                        al.table_name AS entity_type, al.record_id AS entity_id,
                        al.old_data, al.new_data, al.ip_address, al.created_at,
-                       u.display_name AS user_name, u.company_id
+                       u.display_name AS user_name, al.company_id
                 FROM audit_log al
                 LEFT JOIN app_users u ON u.id = al.user_id
-                WHERE u.company_id = %s
+                WHERE al.company_id = %s
                   AND al.branch_id = %s
                 ORDER BY al.created_at DESC, al.id DESC
                 LIMIT %s
@@ -747,7 +747,7 @@ def list_audit_log(
                 SELECT al.id, al.action, al.table_name, al.record_id,
                        al.table_name AS entity_type, al.record_id AS entity_id,
                        al.old_data, al.new_data, al.ip_address, al.created_at,
-                       u.display_name AS user_name, u.company_id
+                       u.display_name AS user_name, al.company_id
                 FROM audit_log al
                 LEFT JOIN app_users u ON u.id = al.user_id
                 WHERE al.company_id = %s
@@ -759,6 +759,7 @@ def list_audit_log(
     finally:
         cur.close()
         conn.close()
+        
 def _attach_audit_names(conn, cur, company_id: int, rows: list[dict]) -> list[dict]:
     """Resolve *_id fields inside old_data/new_data to display names (adds row['names'])."""
     import json

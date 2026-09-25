@@ -9,10 +9,7 @@ from app.api.responses import error, success
 from app.database import reports as reports_db
 from app.security.dependencies import get_current_user, require_module
 
-router = APIRouter(
-    tags=["reports"],
-    dependencies=[Depends(require_module("reports"))],
-)
+router = APIRouter(tags=["reports"])
 
 
 def _csv_response(filename: str, data: Any) -> StreamingResponse:
@@ -29,6 +26,7 @@ def _csv_response(filename: str, data: Any) -> StreamingResponse:
     )
 
 
+# ── Dashboard — always available, not gated behind "reports" ──────────────────
 @router.get("/dashboard")
 def dashboard(
     branch_id: str = Query(""),
@@ -45,7 +43,9 @@ def dashboard(
     return success("Dashboard retrieved", dashboard=data)
 
 
-@router.get("/kpi/{branch_id}/{period}")
+# ── Everything below requires the "reports" module ─────────────────────────────
+
+@router.get("/kpi/{branch_id}/{period}", dependencies=[Depends(require_module("reports"))])
 def kpi(
     branch_id: int,
     period: str,
@@ -58,7 +58,7 @@ def kpi(
         return error(str(e), status=404)
 
 
-@router.get("/reports/pl")
+@router.get("/reports/pl", dependencies=[Depends(require_module("reports"))])
 def pl_report(
     branch_id: int = Query(...),
     period: str = Query(...),
@@ -71,7 +71,7 @@ def pl_report(
         return error(str(e), status=404)
 
 
-@router.get("/reports/food-cost-trend")
+@router.get("/reports/food-cost-trend", dependencies=[Depends(require_module("reports"))])
 def food_cost_trend(
     branch_id: int = Query(...),
     months: int = Query(6, ge=1, le=24),
@@ -84,7 +84,7 @@ def food_cost_trend(
     return success("Food cost trend retrieved", trend=trend)
 
 
-@router.get("/reports/variance")
+@router.get("/reports/variance", dependencies=[Depends(require_module("reports"))])
 def variance_report(
     branch_id: int | None = Query(None),
     date_from: str = Query(""),
@@ -100,7 +100,7 @@ def variance_report(
     return success("Variance report retrieved", variance=rows)
 
 
-@router.get("/audit-log")
+@router.get("/audit-log", dependencies=[Depends(require_module("reports"))])
 def audit_log(
     branch_id: int | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
@@ -110,7 +110,7 @@ def audit_log(
     return success("Audit log retrieved", audit_log=rows)
 
 
-@router.get("/export")
+@router.get("/export", dependencies=[Depends(require_module("reports"))])
 def export_report(
     branch_id: int = Query(...),
     date_from: str = Query(""),
@@ -125,8 +125,9 @@ def export_report(
         date_to=date_to,
     )
     return _csv_response(f"sales_report_{branch_id}_{date_from or 'all'}.csv", rows)
-    
-@router.get("/reports/{report_type}")
+
+
+@router.get("/reports/{report_type}", dependencies=[Depends(require_module("reports"))])
 def get_report(
     report_type: str,
     branch_id: int | None = Query(None),
@@ -152,7 +153,7 @@ def get_report(
             return error("period (YYYY-MM) is required")
         data = reports_db.compare_branches_by_period(company_id, period)
     elif report_type == "menu":
-        data = reports_db.get_menu_engineering(company_id, branch_id,period or None)
+        data = reports_db.get_menu_engineering(company_id, branch_id, period or None)
     elif report_type == "waste-summary":
         data = reports_db.get_waste_summary(company_id, branch_id)
     elif report_type == "stock":
