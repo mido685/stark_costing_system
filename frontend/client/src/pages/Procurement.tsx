@@ -23,9 +23,9 @@ import {
   ArrowDownToLine,History
 } from "lucide-react";
 import { useApi }         from "@/hooks/useApi";
-import { getBranches, getSuppliers, addPurchase, apiCall, getPeriodStatus } from "@/lib/api";
-import type { PeriodStatusRow } from "@/lib/api";
+import { getBranches, getSuppliers, addPurchase, apiCall } from "@/lib/api";
 import { useLanguage }    from "@/contexts/LanguageContext";
+import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
 import { formatCurrency as formatCurrencyValue, getCurrencyLabel } from "@/lib/localization";
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
@@ -179,6 +179,13 @@ type CashFormAction     = { type: "SET"; field: keyof CashForm;     value: numbe
 
 const todayISO      = (): string => new Date().toISOString().split("T")[0];
 const currentPeriod = (): string => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+
+function lastDayOfPeriod(period: string): string {
+  const [y, m] = (period || "").split("-").map(Number);
+  if (!y || !m) return todayISO();
+  const last = new Date(y, m, 0).getDate();
+  return `${period}-${String(last).padStart(2, "0")}`;
+}
 
 const initPurchaseForm    = (): PurchaseForm    => ({ branch_id:0,supplier_id:0,item_id:0,entry_date:todayISO(),quantity:0,unit_cost:0,tax_amount:0,payable_amount:0,notes:"" });
 const initEditPurchaseForm= (): EditPurchaseForm=> ({ quantity:0, unit_cost:0, notes:"" });
@@ -628,12 +635,17 @@ export default function Procurement() {
   const currencyLabel   = getCurrencyLabel(language);
 
   const [activeTab, setActiveTab] = useState<TabKey>("po");
-  const [period, setPeriod] = useState(() => currentPeriod());
-  const { data: companyPeriodStatus } = useApi<PeriodStatusRow>(() => getPeriodStatus(period), { deps:[period] });
-  const selectedPeriodState  = companyPeriodStatus?.status ?? "open";
+  const { workingPeriod: period, periodStatus, isCurrentPeriod } = useWorkingPeriod();
+  const selectedPeriodState  = periodStatus ?? "open";
   const selectedPeriodClosed = selectedPeriodState==="closed" || selectedPeriodState==="locked";
   const selectedPeriodLocked = selectedPeriodState==="locked";
-  const lockedTitle = selectedPeriodClosed ? (selectedPeriodLocked ? "Period is locked" : "Period is closed") : undefined;
+  const viewingHistorical    = !isCurrentPeriod;
+  const lockedTitle = selectedPeriodClosed
+    ? (selectedPeriodLocked ? "Period is locked" : "Period is closed")
+    : viewingHistorical
+      ? "Viewing a past period — switch to the current period to add entries"
+      : undefined;
+  const periodCutoff = isCurrentPeriod ? null : lastDayOfPeriod(period);
 
   // ── Reference data ─────────────────────────────────────────────────────────
   const { data:branchesRaw }          = useApi(getBranches);
@@ -1086,7 +1098,7 @@ export default function Procurement() {
   const [invoiceForm,  setInvoiceForm]   = useState<InvoiceForm>(initInvoiceForm);
 
   function openModal(type: ModalType) {
-    if (selectedPeriodClosed && type !== "invoice_upload" && type !== "petty_topup" && type !== "grn") return;
+    if ((selectedPeriodClosed || viewingHistorical) && type !== "invoice_upload" && type !== "petty_topup" && type !== "grn") return;
     setFormError(""); setModal(type);
     if (type==="purchase")       dispatchPurchase({ type:"RESET" });
     if (type==="return")         dispatchReturn({ type:"RESET" });
@@ -1133,6 +1145,7 @@ export default function Procurement() {
   // ── Derived data ───────────────────────────────────────────────────────────
   const filteredPurchases = useMemo(() => {
     let result = filterBranchId === 0 ? purchases : purchases.filter(p => Number(p.branch_id) === filterBranchId);
+    if (periodCutoff) result = result.filter(p => String(p.entry_date ?? "").slice(0,10) <= periodCutoff);
     if (poSearch.trim()) {
       const q = poSearch.toLowerCase();
       result = result.filter(p =>
@@ -1144,7 +1157,7 @@ export default function Procurement() {
       );
     }
     return result;
-  }, [purchases, filterBranchId, poSearch]);
+  }, [purchases, filterBranchId, poSearch, periodCutoff]);
 
   const stats = useMemo(() => {
     const thisMonth = todayISO().slice(0,7);
@@ -1170,10 +1183,17 @@ export default function Procurement() {
     );
   }, [purchaseHistory, historySearch]);
 
+  const displayedCashPurchases = useMemo(
+    () => periodCutoff
+      ? cashPurchases.filter(p => String(p.entry_date ?? "").slice(0,10) <= periodCutoff)
+      : cashPurchases,
+    [cashPurchases, periodCutoff],
+  );
+
   const cashStats = useMemo(() => ({
-    total:   cashPurchases.reduce((s,p)=>s+Number(p.payable_amount||0),0),
-    pending: cashPurchases.filter(p=>p.status==="pending").length,
-  }), [cashPurchases]);
+    total:   displayedCashPurchases.reduce((s,p)=>s+Number(p.payable_amount||0),0),
+    pending: displayedCashPurchases.filter(p=>p.status==="pending").length,
+  }), [displayedCashPurchases]);
 
   const activeBranchLabel = useMemo(
     () => filterBranchId===0 ? "All Branches" : (branches.find(b=>b.id===filterBranchId)?.name ?? `Branch #${filterBranchId}`),
@@ -1801,8 +1821,9 @@ export default function Procurement() {
           <p className="text-sm text-muted-foreground mt-0.5">{t("proc.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input type="month" value={period} onChange={e=>setPeriod(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring w-36"/>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-secondary text-muted-foreground">
+            {period}
+          </span>
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-md flex items-center gap-1.5 ${selectedPeriodLocked?"bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-800":selectedPeriodClosed?"bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:ring-amber-800":"bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:ring-emerald-800"}`}>
             <Lock className="w-3 h-3"/>{selectedPeriodState.toUpperCase()}
           </span>
@@ -1827,6 +1848,16 @@ export default function Procurement() {
           <p className={`flex items-center gap-2 text-sm ${selectedPeriodLocked?"text-red-700 dark:text-red-400":"text-amber-700 dark:text-amber-400"}`}>
             <Lock className="h-3.5 w-3.5 flex-shrink-0"/>
             {selectedPeriodLocked?`${period} is locked for the whole company. No purchase entries are allowed.`:`${period} is closed for the whole company. Purchase entries are restricted.`}
+          </p>
+        </Card>
+      )}
+
+      {/* ══ VIEWING HISTORICAL PERIOD BANNER ═══════════════════════════════════ */}
+      {!selectedPeriodClosed && viewingHistorical && (
+        <Card className="p-3.5 border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20">
+          <p className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-400">
+            <Lock className="h-3.5 w-3.5 flex-shrink-0"/>
+            Viewing {period} — Purchase Orders and Cash Purchases below are capped to that period. Switch back to the current period to add new entries.
           </p>
         </Card>
       )}
@@ -1892,13 +1923,13 @@ export default function Procurement() {
                   { key:"purchase" as ModalType, label:t("proc.ops.purchase"), desc:t("proc.ops.purchaseDesc"), icon:<ShoppingCart className="w-5 h-5"/>, iconCls:"bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" },
                   { key:"return"   as ModalType, label:t("proc.ops.return"),   desc:t("proc.ops.returnDesc"),   icon:<RotateCcw    className="w-5 h-5"/>, iconCls:"bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400" },
                 ] as const).map(item=>(
-                  <button key={item.key} onClick={()=>openModal(item.key)} disabled={selectedPeriodClosed} title={lockedTitle}
-                    className={`w-full text-left p-4 border border-border/60 rounded-xl transition-all flex items-center justify-between group ${selectedPeriodClosed?"opacity-50 cursor-not-allowed bg-muted/20":"hover:bg-muted/40 hover:border-border cursor-pointer"}`}>
+                  <button key={item.key} onClick={()=>openModal(item.key)} disabled={selectedPeriodClosed || viewingHistorical} title={lockedTitle}
+                    className={`w-full text-left p-4 border border-border/60 rounded-xl transition-all flex items-center justify-between group ${(selectedPeriodClosed || viewingHistorical)?"opacity-50 cursor-not-allowed bg-muted/20":"hover:bg-muted/40 hover:border-border cursor-pointer"}`}>
                     <div className="flex items-center gap-3">
                       <div className={`${item.iconCls} p-2.5 rounded-lg`}>{item.icon}</div>
                       <div><p className="font-semibold text-foreground text-sm">{item.label}</p><p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p></div>
                     </div>
-                    {!selectedPeriodClosed?<div className="flex items-center gap-1 text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity"><Plus className="w-3 h-3"/>{t("proc.ops.record")}<ChevronRight className="w-3 h-3"/></div>:<Lock className="w-4 h-4 text-muted-foreground shrink-0"/>}
+                    {!(selectedPeriodClosed || viewingHistorical)?<div className="flex items-center gap-1 text-xs font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity"><Plus className="w-3 h-3"/>{t("proc.ops.record")}<ChevronRight className="w-3 h-3"/></div>:<Lock className="w-4 h-4 text-muted-foreground shrink-0"/>}
                   </button>
                 ))}
               </div>
@@ -1928,7 +1959,7 @@ export default function Procurement() {
               <EmptyState icon={<Package className="w-6 h-6 text-muted-foreground"/>}
                 title={filterBranchId!==0?`No purchases for ${activeBranchLabel}`:t("proc.recent.empty")}
                 desc={filterBranchId!==0?"Try changing the branch filter or add a new purchase.":"Start by recording your first purchase order."}
-                cta={filterBranchId!==0?<Button size="sm" variant="outline" onClick={()=>updateFilter(0)}>Show All Branches</Button>:<Button size="sm" onClick={()=>openModal("purchase")} disabled={selectedPeriodClosed} title={lockedTitle} className="gap-1.5"><Plus className="w-4 h-4"/>{t("proc.recent.firstCta")}</Button>}
+                cta={filterBranchId!==0?<Button size="sm" variant="outline" onClick={()=>updateFilter(0)}>Show All Branches</Button>:<Button size="sm" onClick={()=>openModal("purchase")} disabled={selectedPeriodClosed || viewingHistorical} title={lockedTitle} className="gap-1.5"><Plus className="w-4 h-4"/>{t("proc.recent.firstCta")}</Button>}
               />
             ) : (
               <TableWrap>
@@ -2023,7 +2054,7 @@ export default function Procurement() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <KPICard label="Total Cash Purchases" value={fmt(cashStats.total)}  sub="All time"        loading={cashPurchasesLoading}/>
             <KPICard label="Pending Approval"      value={cashStats.pending}     sub="Awaiting review" loading={cashPurchasesLoading}/>
-            <KPICard label="Total Records"         value={cashPurchases.length}  sub="Loaded"          loading={cashPurchasesLoading}/>
+            <KPICard label="Total Records"         value={displayedCashPurchases.length}  sub="Loaded"          loading={cashPurchasesLoading}/>
           </div>
           <Card className="px-4 py-3 border border-border/60">
             <div className="flex flex-wrap items-center gap-3">
@@ -2032,19 +2063,19 @@ export default function Procurement() {
               <select className="px-2.5 py-1.5 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring" value={cashTypeFilter} onChange={e=>setCashTypeFilter(e.target.value)}><option value="">All Types</option><option value="branch_cash">Branch Cash</option><option value="emergency">Emergency</option></select>
               <div className="ml-auto flex items-center gap-2">
                 <Button size="sm" variant="outline" onClick={fetchCashPurchases} disabled={cashPurchasesLoading}><RefreshCw className={`w-4 h-4 ${cashPurchasesLoading?"animate-spin":""}`}/></Button>
-                <Button size="sm" onClick={()=>openModal("cash")} disabled={selectedPeriodClosed} title={lockedTitle} className="gap-1.5">{selectedPeriodClosed?<Lock className="w-3.5 h-3.5"/>:<><Plus className="w-4 h-4"/>New Cash Purchase</>}</Button>
+                <Button size="sm" onClick={()=>openModal("cash")} disabled={selectedPeriodClosed || viewingHistorical} title={lockedTitle} className="gap-1.5">{(selectedPeriodClosed || viewingHistorical)?<Lock className="w-3.5 h-3.5"/>:<><Plus className="w-4 h-4"/>New Cash Purchase</>}</Button>
               </div>
             </div>
           </Card>
           <Card className="p-6 border border-border/60">
             <SectionHeader title="Cash Purchase Records"/>
-            {cashPurchasesLoading?<SkeletonRows count={5}/>:!cashPurchases.length?(
-              <EmptyState icon={<Banknote className="w-6 h-6 text-muted-foreground"/>} title="No cash purchases found" desc="Record branch cash or emergency buys — inventory or expense credited on approval." cta={<Button size="sm" onClick={()=>openModal("cash")} disabled={selectedPeriodClosed} title={lockedTitle} className="gap-1.5"><Plus className="w-4 h-4"/>New Cash Purchase</Button>}/>
+            {cashPurchasesLoading?<SkeletonRows count={5}/>:!displayedCashPurchases.length?(
+              <EmptyState icon={<Banknote className="w-6 h-6 text-muted-foreground"/>} title="No cash purchases found" desc="Record branch cash or emergency buys — inventory or expense credited on approval." cta={<Button size="sm" onClick={()=>openModal("cash")} disabled={selectedPeriodClosed || viewingHistorical} title={lockedTitle} className="gap-1.5"><Plus className="w-4 h-4"/>New Cash Purchase</Button>}/>
             ):(
               <TableWrap>
                 <thead><tr className="border-b border-border"><Th>Date</Th><Th>Branch</Th><Th>Type</Th><Th>Item / Category</Th><Th>Supplier</Th><Th right>Qty</Th><Th right>Unit Cost</Th><Th right>Payable</Th><Th center>Petty Cash</Th><Th center>Status</Th><Th center>View</Th>{canApprove&&<Th center>Action</Th>}</tr></thead>
                 <tbody className="divide-y divide-border/60">
-                  {cashPurchases.map((row,i)=>(
+                  {displayedCashPurchases.map((row,i)=>(
                     <tr key={row.id??i} className="hover:bg-muted/30 transition-colors">
                       <Td muted>{row.entry_date}</Td>
                       <Td muted>{row.branch_name??`Branch #${row.branch_id}`}</Td>
@@ -2061,7 +2092,7 @@ export default function Procurement() {
                     </tr>
                   ))}
                 </tbody>
-                <tfoot><tr className="border-t-2 border-border bg-muted/20"><td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({cashPurchases.length} records)</td><td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{fmt(cashStats.total)}</td><td colSpan={canApprove?4:3}/></tr></tfoot>
+                <tfoot><tr className="border-t-2 border-border bg-muted/20"><td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({displayedCashPurchases.length} records)</td><td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{fmt(cashStats.total)}</td><td colSpan={canApprove?4:3}/></tr></tfoot>
               </TableWrap>
             )}
           </Card>
@@ -2115,7 +2146,7 @@ export default function Procurement() {
                     </p>
                   )}
                 </div>
-                <Button className="w-full gap-2" onClick={()=>openModal("petty_topup")} disabled={selectedPeriodClosed} title={lockedTitle}>{selectedPeriodClosed?<Lock className="w-4 h-4"/>:<Plus className="w-4 h-4"/>}Top Up Petty Cash</Button>
+                <Button className="w-full gap-2" onClick={()=>openModal("petty_topup")} disabled={selectedPeriodClosed || viewingHistorical} title={lockedTitle}>{(selectedPeriodClosed || viewingHistorical)?<Lock className="w-4 h-4"/>:<Plus className="w-4 h-4"/>}Top Up Petty Cash</Button>
               </div>
             )}
             {!pettyBranchId&&<p className="text-xs text-muted-foreground text-center py-8 mt-4">Select a branch to view its petty cash balance and ledger.</p>}
