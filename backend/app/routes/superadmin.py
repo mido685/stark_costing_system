@@ -177,7 +177,7 @@ def set_company_modules(
         modules = superadmin_db.set_company_modules(
             company_id=company_id,
             enabled_module_keys=req.enabled_modules,
-            granted_by=admin.get("id"),
+            granted_by=admin.get("id") or None,
             ip_address=request.client.host,
         )
         return success("Company modules updated", modules=modules)
