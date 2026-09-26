@@ -514,7 +514,7 @@ def delete_purchase(
         cur.execute("DELETE FROM goods_receipts WHERE purchase_id = %s", (purchase_id,))
 
         # 3 — remove purchase invoices if any
-        cur.execute("DELETE FROM purchase_invoices WHERE purchase_id = %s", (purchase_id,))
+        
 
         # 4 — remove the purchase itself
         cur.execute("DELETE FROM purchases WHERE id = %s", (purchase_id,))

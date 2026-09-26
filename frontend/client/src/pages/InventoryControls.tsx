@@ -355,6 +355,10 @@
   };
 
   const periodOf = (date?: string) => (date ?? "").slice(0, 7); // "YYYY-MM"
+  const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+  function isValidPeriod(p: string): boolean {
+    return PERIOD_RE.test(p);
+  }
   function lastDayOfPeriod(period: string): string {
   const [y, m] = (period || "").split("-").map(Number);
   if (!y || !m) return today();
@@ -1318,14 +1322,14 @@ function ConsumptionByItem({ branchId, period,onTotals}: { branchId: number; per
     const [itemTotals, setItemTotals] = useState<{ opening: number; purchases: number; closing: number; consumed: number } | null>(null);
 
     useEffect(() => {
-      if (!period) { setFilteredPurchases([]); setPurchState("ok"); return; }
-      let cancelled = false;
-      setPurchState("loading");
-      fetchPurchasesForPeriod(branchId || undefined, period)
-        .then(rows => { if (!cancelled) { setFilteredPurchases(rows); setPurchState("ok"); } })
-        .catch(e => { console.error("[cogs] purchases load failed", e); if (!cancelled) setPurchState("error"); });
-      return () => { cancelled = true; };
-    }, [branchId, period, reloadKey]);
+  if (!isValidPeriod(period)) { setFilteredPurchases([]); setPurchState("ok"); return; }
+  let cancelled = false;
+  setPurchState("loading");
+  fetchPurchasesForPeriod(branchId || undefined, period)
+    .then(rows => { if (!cancelled) { setFilteredPurchases(rows); setPurchState("ok"); } })
+    .catch(e => { console.error("[cogs] purchases load failed", e); if (!cancelled) setPurchState("error"); });
+  return () => { cancelled = true; };
+}, [branchId, period, reloadKey]);
 
     const totalCurrentValue = balances.reduce((s, b) => s + assetValue(b), 0);
     const periodLabel = new Date(`${period}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -1339,18 +1343,18 @@ function ConsumptionByItem({ branchId, period,onTotals}: { branchId: number; per
     const [historicalClosingState, setHistoricalClosingState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
     useEffect(() => {
-      if (selectedSnapshot || !branchId || !period) {
-        setHistoricalClosingValue(null);
-        setHistoricalClosingState("idle");
-        return;
-      }
-      let cancelled = false;
-      setHistoricalClosingState("loading");
-      fetchHistoricalClosingValue(branchId, period)
-        .then(value => { if (!cancelled) { setHistoricalClosingValue(value); setHistoricalClosingState("ok"); } })
-        .catch(error => { console.error("[cogs] historical closing inventory load failed", error); if (!cancelled) setHistoricalClosingState("error"); });
-      return () => { cancelled = true; };
-    }, [branchId, period, selectedSnapshot]);
+  if (selectedSnapshot || !branchId || !isValidPeriod(period)) {
+    setHistoricalClosingValue(null);
+    setHistoricalClosingState("idle");
+    return;
+  }
+  let cancelled = false;
+  setHistoricalClosingState("loading");
+  fetchHistoricalClosingValue(branchId, period)
+    .then(value => { if (!cancelled) { setHistoricalClosingValue(value); setHistoricalClosingState("ok"); } })
+    .catch(error => { console.error("[cogs] historical closing inventory load failed", error); if (!cancelled) setHistoricalClosingState("error"); });
+  return () => { cancelled = true; };
+}, [branchId, period, selectedSnapshot]);
 
     const closingValue = selectedSnapshot
       ? n(selectedSnapshot.closing_value)
@@ -1388,7 +1392,16 @@ function ConsumptionByItem({ branchId, period,onTotals}: { branchId: number; per
             <div className="flex items-center gap-3">
               <Calendar className="w-4 h-4 text-muted-foreground" />
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Period</span>
-              <input aria-label="COGS period" type="month" className={inputClass + " w-auto"} value={period} onChange={e => setPeriod(e.target.value)} />
+              <input
+                aria-label="COGS period"
+                type="month"
+                className={inputClass + " w-auto"}
+                value={period}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === "" || isValidPeriod(v)) setPeriod(v || currentPeriod());
+                }}
+              />
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ${isClosed ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"}`}>
@@ -3391,7 +3404,7 @@ const [closePurchState, setClosePurchState] = useState<"idle" | "loading" | "ok"
 const [closePeriodBlocked, setClosePeriodBlocked] = useState<string | null>(null);
 
 useEffect(() => {
-  if (modal !== "periodClose" || !closePeriodKey) { setClosePurchState("idle"); return; }
+  if (modal !== "periodClose" || !isValidPeriod(closePeriodKey)) { setClosePurchState("idle"); return; }
   let cancelled = false;
   setClosePurchState("loading");
   fetchPurchasesForPeriod(branchId || undefined, closePeriodKey)
@@ -3399,9 +3412,11 @@ useEffect(() => {
     .catch(e => { console.error("[period close] purchases load failed", e); if (!cancelled) setClosePurchState("error"); });
   return () => { cancelled = true; };
 }, [modal, branchId, closePeriodKey]);
-
 useEffect(() => {
-  if (modal !== "periodClose" || !closePeriodKey) { setClosePeriodBlocked(null); return; }
+  if (modal !== "periodClose" || !isValidPeriod(closePeriodKey)) {
+    setClosePeriodBlocked(isValidPeriod(closePeriodKey) ? null : "Enter a complete month (YYYY-MM) before continuing.");
+    return;
+  }
   let cancelled = false;
   checkDateOpen(branchId, lastDayOfPeriod(closePeriodKey)).then(msg => {
     if (!cancelled) setClosePeriodBlocked(msg ?? null);
@@ -3417,7 +3432,7 @@ const [closeClosingValue, setCloseClosingValue] = useState<number | null>(null);
 const [closeClosingState, setCloseClosingState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
 useEffect(() => {
-  if (modal !== "periodClose" || !branchId || !closePeriodKey) {
+  if (modal !== "periodClose" || !branchId || !isValidPeriod(closePeriodKey)) {
     setCloseClosingValue(null); setCloseClosingState("idle"); return;
   }
   let cancelled = false;
@@ -3639,11 +3654,11 @@ const closePreview = useMemo(() => {
       if (ok) { setModal(null); setOpeningForm({ ingredient_id: 0, entry_date: today(), qty_issued: 0, notes: "" }); refetchAll(); }
       else setFormError(t("inv.err.saveFailed"));
     }
-
-    async function handlePeriodClose() {
-      if (!canClosePeriod) { setFormError("You don't have permission to close a period."); return; }
-      if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
-      if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
+async function handlePeriodClose() {
+  if (!canClosePeriod) { setFormError("You don't have permission to close a period."); return; }
+  if (!branchId) { setFormError(t("inv.err.selectBranch")); return; }
+  if (!periodForm.period_label.trim()) { setFormError(t("inv.err.periodLabel")); return; }
+  if (!isValidPeriod(closePeriodKey)) { setFormError("Enter a complete month in YYYY-MM format before closing."); return; }
       if (closePeriodBlocked) { setFormError(closePeriodBlocked); return; }
       if (closePeriodExistingSnapshots.length > 0) {
         setFormError(`${closePeriodKey} already has a locked snapshot. Reopen or delete it first before closing it again.`);

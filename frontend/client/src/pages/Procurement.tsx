@@ -34,7 +34,7 @@ type PurchaseStatus  = "pending" | "approved" | "rejected";
 type PurchaseType    = "branch_cash" | "emergency";
 type PurchaseMode    = "ingredient" | "expense";
 type TabKey          = "po" | "cash" | "petty" | "invoices" | "fulfillment";
-type InvoiceRefTable = "cash_purchases" | "expenses" | "inventory_movements";
+type InvoiceRefTable = "cash_purchases" | "expenses" | "inventory_movements" | "purchases";
 type CategoryType    = "inventory" | "expense" | "asset" | "service";
 type ModalType       = "purchase" | "editPurchase" | "return" | "cash" | "petty_topup" | "invoice_upload" | "grn" |"history"| null;
 
@@ -612,6 +612,7 @@ const TABS: TabDef[] = [
 ];
 
 const INVOICE_REF_OPTIONS: { value:InvoiceRefTable; label:string }[] = [
+  { value:"purchases",           label:"Purchase Order" },
   { value:"cash_purchases",      label:"Cash Purchase" },
   { value:"expenses",            label:"Expense" },
   { value:"inventory_movements", label:"Inventory Movement" },
@@ -1319,7 +1320,15 @@ const handleRejectCash = useCallback(async (id:number) => {
     } catch { setFormError("Failed to top up petty cash."); }
     finally  { setSaving(false); }
   }
-
+  function handleSelectPurchaseForInvoice(purchaseId: number) {
+    const p = purchases.find(x => x.id === purchaseId);
+    setInvoiceForm(f => ({
+      ...f,
+      ref_id:      purchaseId,
+      branch_id:   p?.branch_id   ?? f.branch_id,
+      supplier_id: p?.supplier_id ?? f.supplier_id,
+    }));
+  }
   async function handleUploadInvoice() {
     if (!invoiceForm.file)   { setFormError("Please select a file to upload."); return; }
     if (!invoiceForm.ref_id) { setFormError("Please enter the reference ID."); return; }
@@ -1348,8 +1357,9 @@ const handleRejectCash = useCallback(async (id:number) => {
 
   async function handleInvoiceDownload(inv: Invoice) {
     try {
-      const token = localStorage.getItem("token") ?? "";
-      const resp  = await fetch(`/api/invoices/file/${inv.id}`, { headers:{ Authorization:`Bearer ${token}` } });
+      const token    = localStorage.getItem("token") ?? "";
+      const API_BASE = import.meta.env.VITE_API_URL ?? "";
+      const resp  = await fetch(`${API_BASE}/api/invoices/file/${inv.id}`, { headers:{ Authorization:`Bearer ${token}` } });
       if (!resp.ok) throw new Error(`${resp.status}`);
       const blob      = await resp.blob();
       const typedBlob = blob.slice(0, blob.size, inv.mime_type);
@@ -1359,6 +1369,25 @@ const handleRejectCash = useCallback(async (id:number) => {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url),1000);
     } catch (err) { console.error("Invoice download failed:", err); }
+  }
+    const [previewingInvoiceId, setPreviewingInvoiceId] = useState<number|null>(null);
+
+  async function handleInvoicePreview(inv: Invoice) {
+    setPreviewingInvoiceId(inv.id);
+    try {
+      const token    = localStorage.getItem("token") ?? "";
+      const API_BASE = import.meta.env.VITE_API_URL ?? "";
+      const resp = await fetch(`${API_BASE}/api/invoices/file/${inv.id}`, { headers:{ Authorization:`Bearer ${token}` } });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const blob      = await resp.blob();
+      const typedBlob = blob.slice(0, blob.size, inv.mime_type);
+      const url = URL.createObjectURL(typedBlob);
+      window.open(url, "_blank");
+      setTimeout(()=>URL.revokeObjectURL(url), 15000);
+    } catch (err) {
+      console.error("Invoice preview failed:", err);
+      alert("Could not open the file. It may still be processing or the connection to the server was lost.");
+    } finally { setPreviewingInvoiceId(null); }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1824,11 +1853,24 @@ const handleRejectCash = useCallback(async (id:number) => {
           <div ref={errorRef as any}><FormError message={formError}/></div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Reference Type" htmlFor="inv-reftable">
-              <select id="inv-reftable" className={inputCls} value={invoiceForm.ref_table} onChange={e=>setInvoiceForm(f=>({...f,ref_table:e.target.value as InvoiceRefTable}))}>
+              <select id="inv-reftable" className={inputCls} value={invoiceForm.ref_table} onChange={e=>setInvoiceForm(f=>({...f,ref_table:e.target.value as InvoiceRefTable, ref_id:0}))}>
                 {INVOICE_REF_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
-            <Field label="Record ID (#)" htmlFor="inv-refid"><input id="inv-refid" type="number" min={1} step={1} className={inputCls} placeholder="e.g. 42" value={invoiceForm.ref_id||""} onChange={e=>setInvoiceForm(f=>({...f,ref_id:Number(e.target.value)}))}/></Field>
+            {invoiceForm.ref_table === "purchases" ? (
+              <Field label="Purchase Order" htmlFor="inv-po-select">
+                <select id="inv-po-select" className={inputCls} value={invoiceForm.ref_id||""} onChange={e=>handleSelectPurchaseForInvoice(Number(e.target.value))}>
+                  <option value="">Select a PO…</option>
+                  {purchases.map(p=>(
+                    <option key={p.id} value={p.id}>
+                      {poRef(p.po_number, p.id)} · {p.ingredient_name ?? p.item_name ?? `Item #${p.item_id}`} · {p.branch_name ?? `Branch #${p.branch_id}`}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Record ID (#)" htmlFor="inv-refid"><input id="inv-refid" type="number" min={1} step={1} className={inputCls} placeholder="e.g. 42" value={invoiceForm.ref_id||""} onChange={e=>setInvoiceForm(f=>({...f,ref_id:Number(e.target.value)}))}/></Field>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Branch" htmlFor="inv-branch"><select id="inv-branch" className={inputCls} value={invoiceForm.branch_id||""} onChange={e=>setInvoiceForm(f=>({...f,branch_id:Number(e.target.value)||undefined} as any))}><option value="">Select branch…</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
@@ -2276,6 +2318,10 @@ const handleRejectCash = useCallback(async (id:number) => {
                         <Td center>
                           <div className="flex items-center justify-center gap-1">
                             <EyeBtn onClick={()=>handleOpenInvoiceHtml(inv)}/>
+                            <button onClick={()=>handleInvoicePreview(inv)} disabled={previewingInvoiceId===inv.id} title="View the actual file"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors disabled:opacity-40">
+                              {previewingInvoiceId===inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <FileText className="w-3.5 h-3.5"/>}
+                            </button>
                             <button onClick={()=>handleInvoiceDownload(inv)} title="Download file"
                               className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
                               <Download className="w-3.5 h-3.5"/>

@@ -19,7 +19,7 @@ INVOICE_DIR = BASE_DIR / "uploads" / "invoices"
 ALLOWED_MIME = {"image/jpeg", "image/png", "application/pdf"}
 MIME_TO_EXT = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf"}
 MAX_SIZE_MB = 10
-ALLOWED_REF_TABLES = {"cash_purchases", "expenses", "inventory_movements"}
+ALLOWED_REF_TABLES = {"cash_purchases", "expenses", "inventory_movements", "purchases"}
 
 
 # ── Cash Purchases ────────────────────────────────────────────────────────────
