@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.api.responses import error, success
 from app.database.connection import dict_cursor, get_connection
 from app.database.suppliers import approve_supplier_price
+from app.database.cash_purchases import approve_cash_purchase,reject_cash_purchase
+
 from app.database.log_audit import log_audit
 from app.database.system_logger import log_event
 from app.security.dependencies import get_current_user, require_roles
@@ -32,25 +34,33 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 b.name AS branch_name,
                 u.display_name AS submitted_by,
 
-                p.quantity,
+                COALESCE(p.quantity, cp.quantity) AS quantity,
                 p.po_number,
-                p.ingredient_id,
-                COALESCE(p.unit_cost, sph.price)   AS unit_cost,
-                p.gross_amount                      AS amount,
-                p.tax_amount,
-                p.payable_amount,
-                p.entry_date,
-                p.notes,
+                COALESCE(p.ingredient_id, cp.ingredient_id) AS ingredient_id,
+                COALESCE(p.unit_cost, cp.unit_cost, sph.price) AS unit_cost,
+                COALESCE(p.gross_amount, cp.gross_amount) AS amount,
+                COALESCE(p.tax_amount, cp.tax_amount) AS tax_amount,
+                COALESCE(p.payable_amount, cp.payable_amount) AS payable_amount,
+                COALESCE(p.entry_date, cp.entry_date) AS entry_date,
+                COALESCE(p.notes, cp.notes) AS notes,
 
-                COALESCE(s.name,   sph_s.name) AS supplier_name,
-                s.phone                         AS supplier_phone,
-                COALESCE(i.name,   sph_i.name) AS ingredient_name,
-                COALESCE(i.unit,   sph_i.unit) AS unit,
-                -- Match the Items Master: use the saved SKU, or its RM-id
-                -- fallback for legacy ingredients that do not have one yet.
+                cp.purchase_type,
+                cp.petty_cash_used,
+                ec.name AS expense_category,
+
+                COALESCE(s.name, cs.name, sph_s.name) AS supplier_name,
+                COALESCE(s.phone, cs.phone) AS supplier_phone,
+                COALESCE(i.name, ci.name, sph_i.name) AS ingredient_name,
+                COALESCE(i.unit, ci.unit, sph_i.unit) AS unit,
+
+                -- Support ordinary purchases, cash purchases and price history.
                 COALESCE(
                     NULLIF(i.sku, ''),
-                    CASE WHEN i.id IS NOT NULL THEN 'RM-' || i.id::text END,
+                    NULLIF(ci.sku, ''),
+                    CASE
+                        WHEN i.id IS NOT NULL THEN 'RM-' || i.id::text
+                        WHEN ci.id IS NOT NULL THEN 'RM-' || ci.id::text
+                    END,
                     NULLIF(sph_i.sku, '')
                 ) AS item_sku,
 
@@ -77,7 +87,19 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
             LEFT JOIN purchases p
                 ON ar.entity_type = 'purchase'
                 AND ar.entity_id = p.id
+            LEFT JOIN cash_purchases cp
+                ON ar.entity_type = 'cash_purchase'
+                AND ar.entity_id = cp.id
 
+            LEFT JOIN suppliers cs
+                ON cs.id = cp.supplier_id
+
+            LEFT JOIN ingredients ci
+                ON ci.id = cp.ingredient_id
+
+            LEFT JOIN expense_categories ec
+                ON ec.id = cp.category_id
+            
             LEFT JOIN branches p_branch
                 ON p_branch.id = p.branch_id
 
@@ -100,6 +122,7 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
             WHERE (
                 b.company_id = %s
                 OR p_branch.company_id = %s
+                OR cp.company_id = %s
                 OR (
                     ar.entity_type = 'price_history'
                     AND ar.branch_id IS NULL
@@ -116,6 +139,7 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
             current_user["company_id"],
             current_user["company_id"],
             current_user["company_id"],
+            current_user["company_id"]
         ))
         return success("Pending approvals retrieved",
                        approvals=[dict(r) for r in cur.fetchall()])
@@ -138,8 +162,14 @@ def approvals_history(
     conn = get_connection()
     cur = dict_cursor(conn)
     try:
-        where = ["(b.company_id = %s OR p_branch.company_id = %s)"]
-        params: list = [current_user["company_id"], current_user["company_id"]]
+        where = [
+            "(b.company_id = %s OR p_branch.company_id = %s OR cp.company_id = %s)"
+        ]
+        params: list = [
+            current_user["company_id"],
+            current_user["company_id"],
+            current_user["company_id"],
+        ]
 
         if branch_id:
             where.append("ar.branch_id = %s")
@@ -164,25 +194,44 @@ def approvals_history(
                 b.name              AS branch_name,
                 u.display_name      AS submitted_by,
                 ab.display_name     AS approved_by_name,
-                p.quantity,
+                COALESCE(p.quantity, cp.quantity) AS quantity,
                 p.po_number,
-                p.unit_cost,
-                p.gross_amount      AS amount,
-                p.tax_amount,
-                p.payable_amount,
-                p.entry_date,
-                p.notes,
-                s.name              AS supplier_name,
-                s.phone             AS supplier_phone,
-                i.name              AS ingredient_name,
-                i.unit
+                COALESCE(p.unit_cost, cp.unit_cost) AS unit_cost,
+                COALESCE(p.gross_amount, cp.gross_amount) AS amount,
+                COALESCE(p.tax_amount, cp.tax_amount) AS tax_amount,
+                COALESCE(p.payable_amount, cp.payable_amount) AS payable_amount,
+                COALESCE(p.entry_date, cp.entry_date) AS entry_date,
+                COALESCE(p.notes, cp.notes) AS notes,
+                COALESCE(s.name, cs.name) AS supplier_name,
+                COALESCE(s.phone, cs.phone) AS supplier_phone,
+                COALESCE(i.name, ci.name) AS ingredient_name,
+                COALESCE(i.unit, ci.unit) AS unit,
+                cp.purchase_type,
+                cp.petty_cash_used,
+                ec.name AS expense_category
             FROM approval_requests ar
             LEFT JOIN branches      b        ON b.id       = ar.branch_id
             LEFT JOIN app_users     u        ON u.id       = ar.requested_by
             LEFT JOIN app_users     ab       ON ab.id      = ar.approved_by
-            LEFT JOIN purchases     p        ON ar.entity_type = 'purchase'
-                                             AND ar.entity_id = p.id
-            LEFT JOIN branches      p_branch ON p_branch.id = p.branch_id
+            LEFT JOIN purchases p
+                ON ar.entity_type = 'purchase'
+                AND ar.entity_id = p.id
+
+            LEFT JOIN cash_purchases cp
+                ON ar.entity_type = 'cash_purchase'
+                AND ar.entity_id = cp.id
+
+            LEFT JOIN suppliers cs
+                ON cs.id = cp.supplier_id
+
+            LEFT JOIN ingredients ci
+                ON ci.id = cp.ingredient_id
+
+            LEFT JOIN expense_categories ec
+                ON ec.id = cp.category_id
+
+            LEFT JOIN branches p_branch
+                ON p_branch.id = p.branch_id
             LEFT JOIN suppliers     s        ON s.id       = p.supplier_id
             LEFT JOIN ingredients   i        ON i.id       = p.ingredient_id
             WHERE {" AND ".join(where)}
@@ -244,24 +293,46 @@ def governance_history(
                 gal.*,
                 b.name              AS branch_name,
                 u.display_name      AS actor_name,
-                p.quantity,
+                COALESCE(p.quantity, cp.quantity) AS quantity,
                 p.po_number,
-                p.ingredient_id,
-                p.unit_cost,
-                p.gross_amount      AS po_amount,
-                p.tax_amount,
-                p.payable_amount,
-                p.entry_date        AS po_date,
-                s.name              AS supplier_name,
-                i.name              AS ingredient_name,
-                i.unit,
-                COALESCE(NULLIF(i.sku, ''), 'RM-' || i.id::text) AS item_sku,
+                COALESCE(p.ingredient_id, cp.ingredient_id) AS ingredient_id,
+                COALESCE(p.unit_cost, cp.unit_cost) AS unit_cost,
+                COALESCE(p.gross_amount, cp.gross_amount) AS po_amount,
+                COALESCE(p.tax_amount, cp.tax_amount) AS tax_amount,
+                COALESCE(p.payable_amount, cp.payable_amount) AS payable_amount,
+                COALESCE(p.entry_date, cp.entry_date) AS po_date,
+                COALESCE(s.name, cs.name) AS supplier_name,
+                COALESCE(i.name, ci.name, ec.name) AS ingredient_name,
+                COALESCE(i.unit, ci.unit) AS unit,
+                COALESCE(
+                    NULLIF(i.sku, ''),
+                    NULLIF(ci.sku, ''),
+                    CASE
+                        WHEN i.id IS NOT NULL THEN 'RM-' || i.id::text
+                        WHEN ci.id IS NOT NULL THEN 'RM-' || ci.id::text
+                    END
+                ) AS item_sku,
+                cp.purchase_type,
+                cp.petty_cash_used,
+                ec.name AS expense_category,
                 sub.display_name    AS submitter_name
             FROM governance_action_log gal
             LEFT JOIN branches          b   ON b.id   = gal.branch_id
             LEFT JOIN app_users         u   ON u.id   = gal.actor_id
             LEFT JOIN purchases         p   ON gal.entity_type = 'purchase'
                                            AND gal.item_id::integer = p.id
+            LEFT JOIN cash_purchases cp
+                ON gal.entity_type = 'cash_purchase'
+                AND gal.item_id::integer = cp.id
+
+            LEFT JOIN suppliers cs
+                ON cs.id = cp.supplier_id
+
+            LEFT JOIN ingredients ci
+                ON ci.id = cp.ingredient_id
+
+            LEFT JOIN expense_categories ec
+                ON ec.id = cp.category_id
             LEFT JOIN suppliers         s   ON s.id   = p.supplier_id
             LEFT JOIN ingredients       i   ON i.id   = p.ingredient_id
             LEFT JOIN approval_requests ar  ON gal.entity_type = ar.entity_type
@@ -298,25 +369,37 @@ def _set_approval_status(
                 b_ar.company_id     AS ar_company_id,
                 u.display_name      AS submitted_by,
 
-                p.branch_id         AS p_branch_id,
-                p.ingredient_id     AS ingredient_id,
-                p.supplier_id       AS supplier_id,
-                p.quantity          AS quantity,
-                p.unit_cost         AS unit_cost,
-                p.gross_amount      AS gross_amount,
-                p.payable_amount    AS payable_amount,
-                p.entry_date        AS purchase_date,
-                p.notes             AS purchase_notes,
-                b_p.company_id      AS purchase_company_id,
-                s.name              AS supplier_name,
-                i.name              AS ingredient_name,
-
+                p.branch_id AS p_branch_id,
+                COALESCE(p.ingredient_id, cp.ingredient_id) AS ingredient_id,
+                COALESCE(p.supplier_id, cp.supplier_id) AS supplier_id,
+                COALESCE(p.quantity, cp.quantity) AS quantity,
+                COALESCE(p.unit_cost, cp.unit_cost) AS unit_cost,
+                COALESCE(p.gross_amount, cp.gross_amount) AS gross_amount,
+                COALESCE(p.payable_amount, cp.payable_amount) AS payable_amount,
+                COALESCE(p.entry_date, cp.entry_date) AS purchase_date,
+                COALESCE(p.notes, cp.notes) AS purchase_notes,
+                b_p.company_id AS purchase_company_id,
+                cp.company_id AS cash_purchase_company_id,
+                COALESCE(s.name, cs.name) AS supplier_name,
+                COALESCE(i.name, ci.name, ec.name) AS ingredient_name,
                 sph.company_id      AS price_history_company_id
             FROM approval_requests ar
             LEFT JOIN branches    b_ar ON b_ar.id  = ar.branch_id
             LEFT JOIN app_users   u    ON u.id     = ar.requested_by
             LEFT JOIN purchases   p    ON ar.entity_type = 'purchase'
                                        AND ar.entity_id = p.id
+            LEFT JOIN cash_purchases cp
+                ON ar.entity_type = 'cash_purchase'
+                AND ar.entity_id = cp.id
+
+            LEFT JOIN suppliers cs
+                ON cs.id = cp.supplier_id
+
+            LEFT JOIN ingredients ci
+                ON ci.id = cp.ingredient_id
+
+            LEFT JOIN expense_categories ec
+                ON ec.id = cp.category_id
             LEFT JOIN branches    b_p  ON b_p.id   = p.branch_id
             LEFT JOIN suppliers   s    ON s.id     = p.supplier_id
             LEFT JOIN ingredients i    ON i.id     = p.ingredient_id
@@ -324,6 +407,7 @@ def _set_approval_status(
                                        ON ar.entity_type = 'price_history'
                                        AND ar.entity_id = sph.id
             WHERE ar.id = %s
+            FOR UPDATE OF ar
         """, (request_id,))
         old = cur.fetchone()
 
@@ -332,6 +416,7 @@ def _set_approval_status(
 
         company_id = (
             old["purchase_company_id"]
+            or old["cash_purchase_company_id"]
             or old["price_history_company_id"]
             or old["ar_company_id"]
         )
@@ -361,6 +446,23 @@ def _set_approval_status(
                 "UPDATE purchases SET status = %s WHERE id = %s",
                 (status, old["entity_id"]),
             )
+        elif old["entity_type"] == "cash_purchase":
+            if status == "approved":
+                approve_cash_purchase(
+                    purchase_id=old["entity_id"],
+                    company_id=company_id,
+                    approved_by=current_user["id"],
+                    ip_address=ip_address,
+                    conn=conn,
+                )
+            else:
+                reject_cash_purchase(
+                    purchase_id=old["entity_id"],
+                    company_id=company_id,
+                    rejected_by=current_user["id"],
+                    ip_address=ip_address,
+                    conn=conn,
+                )
         elif old["entity_type"] == "transfer":
             cur.execute(
                 "UPDATE transfers SET status = %s WHERE id = %s",
@@ -440,7 +542,7 @@ def _write_governance_and_audit(
     """Write governance log, log_audit, and log_event for an approval decision."""
 
     # ── Build governance log description ─────────────────────────────────────
-    if old_dict["entity_type"] == "purchase":
+    if old_dict["entity_type"] in ("purchase", "cash_purchase"):
         description = (
             f"{status.title()} purchase of "
             f"{old_dict.get('ingredient_name') or 'item'} "
@@ -468,7 +570,7 @@ def _write_governance_and_audit(
         old_dict.get("submitted_by") or current_user.get("username"),
         "approve" if status == "approved" else "reject",
         float(old_dict["payable_amount"] or old_dict["gross_amount"] or 0)
-        if old_dict["entity_type"] == "purchase" else None,
+        if old_dict["entity_type"] in ("purchase", "cash_purchase") else None,
         None,
         old_dict["entity_type"] == "purchase",
         current_user["id"],
@@ -513,7 +615,7 @@ def _write_governance_and_audit(
                     "quantity":         float(old_dict["quantity"]) if old_dict.get("quantity") else None,
                     "payable_amount":   float(old_dict["payable_amount"] or old_dict.get("gross_amount") or 0),
                 }
-                if old_dict["entity_type"] == "purchase" else {}
+                if old_dict["entity_type"] in ("purchase", "cash_purchase") else {}
             ),
         },
         ip_address=ip_address,

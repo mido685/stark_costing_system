@@ -160,6 +160,28 @@ def add_cash_purchase(
             tax_amount, payable, petty_cash_used, status, notes, user_id,
         ))
         purchase = _row(dict(cur.fetchone()))
+        cur.execute(
+            """
+            INSERT INTO approval_requests (
+                entity_type,
+                entity_id,
+                branch_id,
+                requested_by,
+                status
+            )
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                "cash_purchase",
+                purchase["id"],
+                branch_id,
+                user_id,
+                "pending",
+            ),
+        )
+
+        purchase["approval_request_id"] = cur.fetchone()["id"]
 
         log_audit(conn, company_id=company_id, user_id=user_id, branch_id=branch_id,
                   action="CREATE", table_name="cash_purchases",
@@ -185,10 +207,27 @@ def add_cash_purchase(
         cur.close(); conn.close()
 
 
-def approve_cash_purchase(purchase_id, company_id, approved_by, ip_address=None):
-    conn = get_connection()
+def approve_cash_purchase(
+    purchase_id, company_id, approved_by,
+    ip_address=None, conn=None,
+):
+    owns_connection = conn is None
+    if owns_connection:
+        conn = get_connection()
+
     cur = dict_cursor(conn)
     try:
+        cur.execute("""
+            SELECT id, status
+            FROM approval_requests
+            WHERE entity_type = 'cash_purchase'
+              AND entity_id = %s
+            FOR UPDATE
+        """, (purchase_id,))
+        approval_request = cur.fetchone()
+
+        if approval_request and approval_request["status"] == "rejected":
+            raise ValueError("This cash purchase request was rejected")
         cur.execute("""
             SELECT cp.*, ec.type AS category_type, ec.name AS category_name
             FROM cash_purchases cp
@@ -268,6 +307,15 @@ def approve_cash_purchase(purchase_id, company_id, approved_by, ip_address=None)
             WHERE id = %s RETURNING *
         """, (approved_by, purchase_id))
         approved = _row(dict(cur.fetchone()))
+        cur.execute("""
+            UPDATE approval_requests
+            SET status = 'approved',
+                approved_by = %s,
+                approved_at = NOW()
+            WHERE entity_type = 'cash_purchase'
+              AND entity_id = %s
+              AND status = 'pending'
+        """, (approved_by, purchase_id))
 
         log_audit(conn, company_id=company_id, user_id=approved_by,
                   branch_id=approved["branch_id"], action="APPROVE",
@@ -286,18 +334,40 @@ def approve_cash_purchase(purchase_id, company_id, approved_by, ip_address=None)
                       "original":        {"status": purchase["status"]},
                   }, ip_address=ip_address)
 
-        conn.commit()
+        if owns_connection:
+            conn.commit()
         return approved
     except Exception:
-        conn.rollback(); raise
+        if owns_connection:
+            conn.rollback()
+        raise
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        if owns_connection:
+            conn.close()
 
 
-def reject_cash_purchase(purchase_id, company_id, rejected_by, reason="", ip_address=None):
-    conn = get_connection()
+def reject_cash_purchase(
+    purchase_id, company_id, rejected_by,
+    reason="", ip_address=None, conn=None,
+):
+    owns_connection = conn is None
+    if owns_connection:
+        conn = get_connection()
+
     cur = dict_cursor(conn)
     try:
+        cur.execute("""
+            SELECT id, status
+            FROM approval_requests
+            WHERE entity_type = 'cash_purchase'
+              AND entity_id = %s
+            FOR UPDATE
+        """, (purchase_id,))
+        approval_request = cur.fetchone()
+
+        if approval_request and approval_request["status"] == "approved":
+            raise ValueError("This cash purchase request was approved")
         cur.execute("""
             SELECT * FROM cash_purchases
             WHERE id = %s AND company_id = %s FOR UPDATE
@@ -317,6 +387,15 @@ def reject_cash_purchase(purchase_id, company_id, rejected_by, reason="", ip_add
             WHERE id = %s RETURNING *
         """, (rejected_by, reason, reason, purchase_id))
         rejected = _row(dict(cur.fetchone()))
+        cur.execute("""
+            UPDATE approval_requests
+                SET status = 'rejected',
+                    approved_by = %s,
+                    approved_at = NOW()
+                WHERE entity_type = 'cash_purchase'
+                AND entity_id = %s
+                AND status = 'pending'
+        """, (rejected_by, purchase_id))
 
         log_audit(conn, company_id=company_id, user_id=rejected_by,
                   branch_id=rejected["branch_id"], action="REJECT",
@@ -334,12 +413,17 @@ def reject_cash_purchase(purchase_id, company_id, rejected_by, reason="", ip_add
                       "original":       {"status": "pending"},
                   }, ip_address=ip_address)
 
-        conn.commit()
+        if owns_connection:
+            conn.commit()
         return rejected
     except Exception:
-        conn.rollback(); raise
+        if owns_connection:
+            conn.rollback()
+        raise
     finally:
-        cur.close(); conn.close()
+        cur.close()
+        if owns_connection:
+            conn.close()
 
 
 # ── Petty Cash ───────────────────────────────────────────────────────────────

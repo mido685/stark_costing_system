@@ -44,9 +44,13 @@ type ApprovalItem = {
   unit?:           string;
   quantity?:       number;
   unitCost?:       number;
-  grossAmount?:    number;
-  taxAmount?:      number;
-  notes?:          string;
+  cashPurchaseId?: number;
+  purchaseType?: string;
+  expenseCategory?: string;
+  pettyCashUsed?: boolean;
+  grossAmount?: number;
+  taxAmount?: number;
+  notes?: string;
 };
 
 type GovernanceHistoryRow = {
@@ -383,6 +387,49 @@ async function openApprovalHtml(a: ApprovalItem, t: (k: string) => string): Prom
   const ref = a.fromProcurement && a.purchaseId
     ? poRef(a.po_number, a.purchaseId)
     : `APR-${String(a.id).padStart(5, "0")}`;
+
+  // Cash purchases have their own document.
+  // Do not fetch them from /api/purchases/{id}.
+  if (a.cashPurchaseId != null) {
+    const cashRef = `CP-${String(a.cashPurchaseId).padStart(5, "0")}`;
+
+    openRecordAsHtml({
+      title: "Cash Purchase",
+      subtitle: `${cashRef} · ${formatDateShort(a.date)}`,
+      ref: cashRef,
+      badge: {
+        label: a.status.toUpperCase(),
+        color: bc.color,
+        bg: bc.bg,
+      },
+      sections: [{
+        heading: "Cash Purchase Details",
+        rows: [
+          { label: "Purchase Type", value: a.purchaseType?.replace(/_/g, " ") ?? "—" },
+          { label: "Expense Category", value: a.expenseCategory ?? "—" },
+          { label: "Item", value: a.ingredientName ?? "—" },
+          { label: "Item Code", value: a.itemSku ?? "—" },
+          { label: "Supplier", value: a.supplierName ?? "—" },
+          { label: "Branch", value: a.branchName ?? "—" },
+          { label: "Submitted By", value: a.submitted_by || "—" },
+          { label: "Date", value: formatDate(a.date) },
+          { label: "Quantity", value: a.quantity != null
+            ? `${formatNumber(a.quantity)} ${a.unit ?? ""}`
+            : "—" },
+          { label: "Unit Cost", value: formatCurrency(a.unitCost, a.currency) ?? "—" },
+          { label: "Petty Cash Used", value: a.pettyCashUsed ? "Yes" : "No" },
+        ],
+      }],
+      totals: [{
+        label: "Total Payable",
+        value: formatCurrency(a.amount, a.currency) ?? "—",
+        highlight: true,
+      }],
+      notes: a.notes,
+    });
+
+    return;
+  }
 
   const isPriceHistory = a.typeKey === "gov.approvalType.priceHistory";
   const isPurchaseOrder = a.fromProcurement === true;
@@ -1303,8 +1350,9 @@ export default function Governance() {
         const masterSku = row.ingredient_id == null
           ? undefined
           : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
+        
         const typeKey = toTypeKey(row);
-        const desc    = row.entity_type === "purchase"
+        const desc = ["purchase", "cash_purchase"].includes(row.entity_type)
           ? [row.ingredient_name, row.supplier_name, row.branch_name,
               row.quantity  != null ? `Qty: ${row.quantity} ${row.unit ?? ""}` : null,
               row.unit_cost != null ? `@ ${Number(row.unit_cost).toFixed(2)} ${row.currency ?? ""}`.trim() : null,
@@ -1330,7 +1378,7 @@ export default function Governance() {
           : row.payable_amount != null ? Number(row.payable_amount) : row.amount != null ? Number(row.amount) : undefined,
           currency:        row.currency ?? undefined,
           priority:        toPriority(row),
-          fromProcurement: typeKey === "gov.approvalType.purchase",
+          fromProcurement: row.entity_type === "purchase",
           ingredientName:  row.ingredient_name ?? undefined,
           itemSku:         String(masterSku ?? row.item_sku ?? "").trim() || undefined,
           branchName:      row.branch_name ?? undefined,
@@ -1346,9 +1394,20 @@ export default function Governance() {
           unit:           row.unit ?? undefined,
           quantity:       row.quantity != null ? Number(row.quantity) : undefined,
           unitCost:       row.unit_cost != null ? Number(row.unit_cost) : undefined,
-          grossAmount:    row.amount != null ? Number(row.amount) : undefined,
+          grossAmount:    row.gross_amount != null
+            ? Number(row.gross_amount)
+            : row.amount != null
+              ? Number(row.amount)
+              : undefined,
           taxAmount:      row.tax_amount != null ? Number(row.tax_amount) : undefined,
           notes:          row.notes ?? undefined,
+
+          cashPurchaseId: row.entity_type === "cash_purchase"
+            ? Number(row.entity_id)
+            : undefined,
+          purchaseType:    row.purchase_type ?? undefined,
+          expenseCategory: row.expense_category ?? undefined,
+          pettyCashUsed:   Boolean(row.petty_cash_used),
         };
       });
       setApprovals(serverItems); setPage(1);
