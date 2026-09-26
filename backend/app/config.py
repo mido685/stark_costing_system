@@ -3,7 +3,7 @@ import os
 import json
 
 load_dotenv()
-
+ 
 # Read version from package.json (auto-updated by semantic-release)
 def get_version():
     try:
