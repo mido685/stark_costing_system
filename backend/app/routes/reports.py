@@ -100,7 +100,7 @@ def variance_report(
     return success("Variance report retrieved", variance=rows)
 
 
-@router.get("/audit-log", dependencies=[Depends(require_module("reports"))])
+@router.get("/audit-log", dependencies=[Depends(require_module("inventory"))])
 def audit_log(
     branch_id: int | None = Query(None),
     limit: int = Query(100, ge=1, le=500),

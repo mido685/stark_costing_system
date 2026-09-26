@@ -15,7 +15,7 @@ from app.database import superadmin as superadmin_db
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer = HTTPBearer()
 
-LOGO_DIR = "app/static/logos"
+LOGO_DIR = os.getenv("LOGO_DIR", "app/static/logos")
 os.makedirs(LOGO_DIR, exist_ok=True)
 
 SUPERADMIN_USERNAME = os.getenv("SUPERADMIN_USERNAME", "stark")
