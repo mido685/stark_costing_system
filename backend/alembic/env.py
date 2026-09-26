@@ -21,26 +21,19 @@ load_dotenv(backend_dir / "app" / ".env")
 database_url = os.getenv("DATABASE_URL")
 
 if database_url:
-    # Force SQLAlchemy to use the installed psycopg2 driver.
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace(
-            "postgres://",
-            "postgresql+psycopg2://",
-            1,
-        )
-    elif database_url.startswith("postgresql://"):
-        database_url = database_url.replace(
-            "postgresql://",
-            "postgresql+psycopg2://",
-            1,
-        )
-    elif database_url.startswith("postgresql+psycopg://"):
-        database_url = database_url.replace(
-            "postgresql+psycopg://",
-            "postgresql+psycopg2://",
-            1,
-        )
-
+    database_url = database_url.replace(
+        "postgresql+psycopg://",
+        "postgresql+psycopg2://",
+        1,
+    ).replace(
+        "postgresql://",
+        "postgresql+psycopg2://",
+        1,
+    ).replace(
+        "postgres://",
+        "postgresql+psycopg2://",
+        1,
+    )
 else:
     database_url = URL.create(
         "postgresql+psycopg2",
