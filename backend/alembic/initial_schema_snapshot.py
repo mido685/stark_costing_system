@@ -1,29 +1,6 @@
 """Frozen database bootstrap used only by revision 001_initial_schema."""
 
-import os
-from pathlib import Path
-
-import psycopg2
-import psycopg2.extras
-from dotenv import load_dotenv
-
-
-load_dotenv(Path(__file__).resolve().parents[1] / "app" / ".env")
-
-
-def get_connection():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=os.getenv("DB_PORT", 5432),
-        dbname=os.getenv("DB_NAME", "stark_ai_costing"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD", ""),
-    )
-
-
-def dict_cursor(conn):
-    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
+from app.database.connection import get_connection, dict_cursor
 
 DB_INIT_LOCK_ID = 918273645
 
