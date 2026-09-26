@@ -8,11 +8,17 @@ import os
 
 load_dotenv(Path(__file__).parent / ".env")
 
-
 def _cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
-    extra_origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+    extra_origins = [
+        origin.strip()
+        for origin in configured.split(",")
+        if origin.strip()
+    ]
+
     return [
+        "https://app.starkai.us",
         "https://stark-costing-system.vercel.app",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -23,14 +29,12 @@ def _cors_origins() -> list[str]:
         *extra_origins,
     ]
 
-
 def create_app() -> FastAPI:
     application = FastAPI(title=APP_NAME, version=APP_VERSION)
 
     application.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
-        allow_origin_regex=r"https://(.*\.vercel\.app|.*\.trycloudflare\.com)",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

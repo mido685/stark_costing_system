@@ -10,7 +10,7 @@ export function encodeFinishedGoodId(itemId: number): number {
 }
 
 // Empty string = same origin, Vite proxy forwards /api/* to xlocalhost:8085
-export const API_BASE = "https://reed-feeds-complimentary-platform.trycloudflare.com";
+export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8085";;
 // api.ts
 export function assetUrl(path: string | null | undefined): string {
   if (!path) return "";
