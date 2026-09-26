@@ -47,7 +47,7 @@ def get_status(
 @router.post("/status")
 def set_status(
     body: dict,
-    current_user: dict = Depends(require_roles("manager", "admin")),
+    current_user: dict = Depends(require_roles("owner", "manager", "admin")),
 ):
     """
     Transition a period to a new status.
