@@ -554,7 +554,21 @@ function InlineCategoryCreator({ onCreated, onCancel }: { onCreated:(cat:Expense
     const name=form.name.trim();
     if(!name){setError("Category name is required.");return;}
     setSaving(true);setError("");
-    try{const result=await apiCall<{category:ExpenseCategory}>("/api/expense-categories",{method:"POST",body:JSON.stringify({name,type:form.type})});onCreated(result.category);}
+    try {
+    const category = await apiCall<ExpenseCategory>(
+      "/api/expense-categories",
+      {
+        method: "POST",
+        body: JSON.stringify({ name, type: form.type }),
+      }
+    );
+
+    if (!category || typeof category.id !== "number") {
+      throw new Error("Invalid category response");
+    }
+
+    onCreated(category);
+  }
     catch(e:any){setError(e?.message??"Failed to create category.");}
     finally{setSaving(false);}
   }
@@ -678,9 +692,16 @@ export default function Procurement() {
   }, [expenseCategoriesRaw]);
 
   function handleCategoryAdded(cat: ExpenseCategory) {
-    setExpenseCategories(prev => [...prev, cat].sort((a,b) => (a.name??"").localeCompare(b.name??"")));
-  }
+    if (!cat || typeof cat.id !== "number") {
+      console.error("Invalid expense category:", cat);
+      return;
+    }
 
+  setExpenseCategories(prev =>
+    [...prev.filter(c => c && c.id !== cat.id), cat]
+      .sort((a, b) => a.name.localeCompare(b.name))
+  );
+}
   // ── Standard purchases ─────────────────────────────────────────────────────
   const [purchases,        setPurchases]        = useState<Purchase[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(true);
