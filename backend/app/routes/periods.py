@@ -39,7 +39,7 @@ def get_status(
     """
     company_id = current_user["company_id"]
     row = get_period_status(company_id, period)
-    return success("Period status fetched", **row)
+    return success("Period status fetched", data=row)
 
 
 # ─── POST /api/period/status ──────────────────────────────────────────────────
