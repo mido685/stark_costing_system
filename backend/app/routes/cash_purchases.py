@@ -104,6 +104,25 @@ def approve_cash_purchase(
         return error(str(e), status=status_code)
 
 
+@router.post("/cash-purchases/{purchase_id}/reject")
+def reject_cash_purchase(
+    purchase_id: int,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        purchase = cash_db.reject_cash_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            rejected_by=current_user["id"],
+            ip_address=request.client.host,
+        )
+        return success("Cash purchase rejected", cash_purchase=purchase)
+    except ValueError as e:
+        status_code = 404 if "not found" in str(e).lower() else 409
+        return error(str(e), status=status_code)
+
+
 # ── Petty Cash ────────────────────────────────────────────────────────────────
 
 @router.get("/petty-cash/balance")

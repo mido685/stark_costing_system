@@ -643,8 +643,11 @@ function Td({ children, right=false, center=false, muted=false, mono=false, clas
 
 export default function Procurement() {
   const { language, t } = useLanguage();
-  const currentUserId   = Number(localStorage.getItem("user_id") ?? 1);
-  const currentUserRole = (localStorage.getItem("role") ?? "clerk").trim().toLowerCase();
+  const authUser = useMemo(() => {
+  try { return JSON.parse(localStorage.getItem("auth_user") ?? "{}"); } catch { return {}; }
+}, []);
+  const currentUserId   = Number(authUser.id ?? 1);
+  const currentUserRole = String(authUser.role ?? "clerk").trim().toLowerCase();
   const canApprove      = ["admin","manager","owner"].includes(currentUserRole);
   const currencyLabel   = getCurrencyLabel(language);
 
@@ -987,6 +990,7 @@ export default function Procurement() {
   const [cashFilterBranchId,   setCashFilterBranchId]   = useState<number>(0);
   const [cashTypeFilter,       setCashTypeFilter]        = useState<string>("");
   const [approvingId,          setApprovingId]           = useState<number|null>(null);
+  const [rejectingId,          setRejectingId]           = useState<number|null>(null);
 
   // ── Petty cash ─────────────────────────────────────────────────────────────
   const [pettyBranchId,    setPettyBranchId]    = useState<number>(0);
@@ -1028,6 +1032,15 @@ export default function Procurement() {
   useEffect(() => {
     if (activeTab==="petty" && pettyBranchId) { fetchPettyBalance(pettyBranchId); fetchPettyLedger(pettyBranchId); }
   }, [activeTab, pettyBranchId, fetchPettyBalance, fetchPettyLedger]);
+const handleRejectCash = useCallback(async (id:number) => {
+  if (!window.confirm("Reject this cash purchase? This cannot be undone.")) return;
+  setRejectingId(id);
+  try {
+    await apiCall(`/api/cash-purchases/${id}/reject`, { method:"POST" });
+    await fetchCashPurchases();
+  } catch { alert("Failed to reject cash purchase. Please try again."); }
+  finally { setRejectingId(null); }
+}, [fetchCashPurchases]);
 
   const handleApproveCash = useCallback(async (id:number) => {
     setApprovingId(id);
@@ -1038,7 +1051,6 @@ export default function Procurement() {
     } catch { alert("Failed to approve cash purchase. Please try again."); }
     finally { setApprovingId(null); }
   }, [fetchCashPurchases, pettyBranchId, fetchPettyBalance, fetchPettyLedger]);
-
   // ── PO Fulfillment ─────────────────────────────────────────────────────────
   const [fulfillment,         setFulfillment]         = useState<FulfillmentRow[]>([]);
   const [fulfillmentLoading,  setFulfillmentLoading]  = useState(false);
@@ -2110,8 +2122,12 @@ export default function Procurement() {
                       <Td center>{row.petty_cash_used?<span className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 dark:text-violet-400"><Wallet className="w-3 h-3"/>Yes</span>:<span className="text-xs text-muted-foreground/50">—</span>}</Td>
                       <Td center><StatusBadge status={row.status??"pending"}/></Td>
                       <Td center><EyeBtn onClick={()=>handleOpenCashHtml(row)}/></Td>
-                      {canApprove&&<Td center>{row.status==="pending"?<Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20" disabled={approvingId===row.id} onClick={()=>handleApproveCash(row.id)}>{approvingId===row.id?<Loader2 className="w-3 h-3 animate-spin"/>:"Approve"}</Button>:<span className="text-xs text-muted-foreground/50">—</span>}</Td>}
-                    </tr>
+                      {canApprove&&<Td center>{row.status==="pending"?(
+                        <div className="flex items-center justify-center gap-1">
+                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20" disabled={approvingId===row.id || rejectingId===row.id} onClick={()=>handleApproveCash(row.id)}>{approvingId===row.id?<Loader2 className="w-3 h-3 animate-spin"/>:"Approve"}</Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-red-700 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" disabled={approvingId===row.id || rejectingId===row.id} onClick={()=>handleRejectCash(row.id)}>{rejectingId===row.id?<Loader2 className="w-3 h-3 animate-spin"/>:"Reject"}</Button>
+                        </div>
+                      ):<span className="text-xs text-muted-foreground/50">—</span>}</Td>}                    </tr>
                   ))}
                 </tbody>
                 <tfoot><tr className="border-t-2 border-border bg-muted/20"><td colSpan={7} className="px-3 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total ({displayedCashPurchases.length} records)</td><td className="px-3 py-2.5 text-right font-bold text-foreground tabular-nums text-sm">{fmt(cashStats.total)}</td><td colSpan={canApprove?4:3}/></tr></tfoot>
