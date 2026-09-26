@@ -18,15 +18,29 @@ if config.config_file_name:
 backend_dir = Path(__file__).resolve().parents[1]
 load_dotenv(backend_dir / "app" / ".env")
 
-database_url = URL.create(
-    "postgresql+psycopg2",
-    username=os.getenv("DB_USER", "postgres"),
-    password=os.getenv("DB_PASSWORD", ""),
-    host=os.getenv("DB_HOST", "localhost"),
-    port=int(os.getenv("DB_PORT", "5432")),
-    database=os.getenv("DB_NAME", "stark_ai_costing"),
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    # Support older PostgreSQL URL formats.
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace(
+            "postgres://",
+            "postgresql://",
+            1,
+        )
+else:
+    database_url = URL.create(
+        "postgresql+psycopg2",
+        username=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", ""),
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "stark_ai_costing"),
+    ).render_as_string(hide_password=False)
+
+config.set_main_option(
+    "sqlalchemy.url",
+    database_url.replace("%", "%%"),
 )
-config.set_main_option("sqlalchemy.url", database_url.render_as_string(hide_password=False))
 
 # The application currently uses hand-written psycopg2 SQL rather than ORM models.
 # Revisions are therefore authored explicitly, not generated from model metadata.
