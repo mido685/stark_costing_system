@@ -84,7 +84,7 @@ def food_cost_trend(
     return success("Food cost trend retrieved", trend=trend)
 
 
-@router.get("/reports/variance", dependencies=[Depends(require_module("reports"))])
+@router.get("/reports/variance", dependencies=[Depends(require_module("inventory"))])
 def variance_report(
     branch_id: int | None = Query(None),
     date_from: str = Query(""),
