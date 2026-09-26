@@ -1229,8 +1229,15 @@ function POHistoryTab({ branchId, addToast }: {
 export default function Governance() {
   const { t, tf }      = useLanguage();
   const { workingPeriod, workingPeriodLabel } = useWorkingPeriod();
-  const currentUserId = Number(localStorage.getItem("user_id") ?? 1);
-  const currentUserRole = (localStorage.getItem("user_role") ?? "").toLowerCase();
+  const authUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("auth_user") ?? "{}");
+    } catch {
+      return {};
+    }
+  }, []);
+  const currentUserId = Number(authUser.id ?? 1);
+  const currentUserRole = String(authUser.role ?? "").toLowerCase();
   useEffect(() => {
   getBranches()
     .then(rows => setBranches(Array.isArray(rows) ? rows : []))
