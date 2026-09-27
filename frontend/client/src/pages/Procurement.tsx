@@ -1092,7 +1092,10 @@ const handleRejectCash = useCallback(async (id:number) => {
   const [invoiceRefTable,         setInvoiceRefTable]         = useState<InvoiceRefTable|"">("");
   const [invoices,                setInvoices]                = useState<Invoice[]>([]);
   const [invoicesLoading,         setInvoicesLoading]         = useState(false);
-  const [invoicePoNumberFilter, setInvoicePoNumberFilter] = useState<string>("");
+  const [selectedPoId,    setSelectedPoId]    = useState<number>(0);
+  const [selectedPoLabel, setSelectedPoLabel] = useState<string>("");
+  const [poSearchText,    setPoSearchText]    = useState<string>("");
+  const [showPoDropdown,  setShowPoDropdown]  = useState(false);
   const [invoiceFilterBranchId,   setInvoiceFilterBranchId]   = useState<number>(0);
   const [invoiceFilterSupplierId, setInvoiceFilterSupplierId] = useState<number>(0);
   const [invoiceNumberFilter,     setInvoiceNumberFilter]     = useState<string>("");
@@ -1108,7 +1111,10 @@ const handleRejectCash = useCallback(async (id:number) => {
       if (invoiceFilterBranchId)      params.set("branch_id",      String(invoiceFilterBranchId));
       if (invoiceFilterSupplierId)    params.set("supplier_id",    String(invoiceFilterSupplierId));
       if (invoiceNumberFilter.trim()) params.set("invoice_number", invoiceNumberFilter.trim());
-      if (invoicePoNumberFilter.trim()) params.set("po_number", invoicePoNumberFilter.trim().replace(/\D/g,""));
+      if (selectedPoId) {
+        const selectedPurchase = purchases.find(p => p.id === selectedPoId);
+        params.set("po_number", String(selectedPurchase?.po_number ?? selectedPoId));
+      }
       if (invoiceDateFrom)            params.set("date_from",      invoiceDateFrom);
       if (invoiceDateTo)              params.set("date_to",        invoiceDateTo);
       params.set("limit","100");
@@ -1116,12 +1122,13 @@ const handleRejectCash = useCallback(async (id:number) => {
       setInvoices(data ?? []);
     } catch { setInvoices([]); }
     finally { setInvoicesLoading(false); }
-  }, [invoiceRefTable, invoiceFilterBranchId, invoiceFilterSupplierId, invoiceNumberFilter, invoicePoNumberFilter, invoiceDateFrom, invoiceDateTo]);
+  }, [invoiceRefTable, invoiceFilterBranchId, invoiceFilterSupplierId, invoiceNumberFilter, selectedPoId, purchases, invoiceDateFrom, invoiceDateTo]);
 
   function handleClearInvoiceFilters() {
     setInvoiceRefTable(""); setInvoiceFilterBranchId(0); setInvoiceFilterSupplierId(0);
-    setInvoiceNumberFilter(""); setInvoicePoNumberFilter(""); setInvoiceDateFrom(""); setInvoiceDateTo(""); setInvoices([]);
-  }
+    setInvoiceNumberFilter(""); setSelectedPoId(0); setSelectedPoLabel(""); setPoSearchText("");
+    setInvoiceDateFrom(""); setInvoiceDateTo(""); setInvoices([]);
+    }
 
   // ── Modal & form state ─────────────────────────────────────────────────────
   const [modal,          setModal]          = useState<ModalType>(null);
@@ -1213,14 +1220,19 @@ const invoiceLinkedPoRef = useCallback((inv: Invoice): string | null => {
   return poRef(inv.po_number ?? p?.po_number, inv.ref_id);
 }, [purchaseById]);
 
+const filteredPOsForSearch = useMemo(() => {
+  const q = poSearchText.toLowerCase();
+  return purchases.filter(p =>
+    poRef(p.po_number, p.id).toLowerCase().includes(q) ||
+    (p.ingredient_name ?? p.item_name ?? "").toLowerCase().includes(q) ||
+    (p.supplier_name ?? "").toLowerCase().includes(q)
+  ).slice(0, 50);
+}, [purchases, poSearchText]);
+
   const displayedInvoices = useMemo(() => {
-    const digits = invoicePoNumberFilter.trim().replace(/\D/g, "");
-    if (!digits) return invoices;
-    return invoices.filter(inv => {
-      const ref = invoiceLinkedPoRef(inv);
-      return ref ? ref.replace(/\D/g, "").includes(digits) : false;
-    });
-  }, [invoices, invoicePoNumberFilter, purchaseById]);
+  if (!selectedPoId) return invoices;
+  return invoices.filter(inv => inv.ref_table === "purchases" && inv.ref_id === selectedPoId);
+  }, [invoices, selectedPoId]);
   const stats = useMemo(() => {
     const thisMonth = todayISO().slice(0,7);
     const prevMonthDate = new Date(); prevMonthDate.setMonth(prevMonthDate.getMonth()-1);
@@ -2304,21 +2316,45 @@ const invoiceLinkedPoRef = useCallback((inv: Invoice): string | null => {
               <Field label="Invoice Number"><input type="text" className={inputCls} placeholder="Search INV-..." value={invoiceNumberFilter} onChange={e=>setInvoiceNumberFilter(e.target.value)}/></Field>
               <Field label="PO Number">
               <div className="relative">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
-                <input
-                  type="text"
-                  placeholder="Search by PO number…"
-                  value={invoicePoNumberFilter}
-                  onChange={e=>setInvoicePoNumberFilter(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
-                />
-                {invoicePoNumberFilter && (
-                  <button
-                    onClick={()=>setInvoicePoNumberFilter("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5"/>
-                  </button>
+                <div className="relative">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
+                  <input
+                    type="text"
+                    placeholder="Search by PO number…"
+                    value={showPoDropdown ? poSearchText : selectedPoLabel}
+                    onFocus={()=>{ setPoSearchText(""); setShowPoDropdown(true); }}
+                    onBlur={()=>setTimeout(()=>setShowPoDropdown(false), 150)}
+                    onChange={e=>{ setPoSearchText(e.target.value); setShowPoDropdown(true); }}
+                    className="w-full pl-9 pr-8 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
+                  />
+                  {selectedPoId > 0 && (
+                    <button
+                      onClick={()=>{ setSelectedPoId(0); setSelectedPoLabel(""); setPoSearchText(""); }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5"/>
+                    </button>
+                  )}
+                </div>
+                {showPoDropdown && filteredPOsForSearch.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-full bg-background border border-border rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                    {filteredPOsForSearch.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+                        onMouseDown={()=>{
+                          setSelectedPoId(p.id);
+                          setSelectedPoLabel(poRef(p.po_number, p.id));
+                          setPoSearchText("");
+                          setShowPoDropdown(false);
+                        }}
+                      >
+                        <span className="font-medium text-foreground font-mono">{poRef(p.po_number, p.id)}</span>
+                        <span className="text-xs text-muted-foreground truncate max-w-[140px]">{p.ingredient_name ?? p.item_name ?? `Item #${p.item_id}`}</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             </Field>
@@ -2333,7 +2369,7 @@ const invoiceLinkedPoRef = useCallback((inv: Invoice): string | null => {
           </Card>
           <Card className="p-6 border border-border/60">
   <SectionHeader title={displayedInvoices.length>0?`${displayedInvoices.length} Invoice${displayedInvoices.length!==1?"s":""} Found`:"Invoices"}/>
-  {invoicesLoading ? <SkeletonRows count={4}/> : invoices.length === 0 && !invoiceRefTable && !invoiceFilterBranchId && !invoiceFilterSupplierId && !invoiceNumberFilter && !invoicePoNumberFilter && !invoiceDateFrom && !invoiceDateTo ? (
+  {invoicesLoading ? <SkeletonRows count={4}/> : invoices.length === 0 && !invoiceRefTable && !invoiceFilterBranchId && !invoiceFilterSupplierId && !invoiceNumberFilter && !selectedPoId && !invoiceDateFrom && !invoiceDateTo ? (
     <EmptyState
       icon={<Filter className="w-6 h-6 text-muted-foreground"/>}
       title="Use filters to search invoices"
