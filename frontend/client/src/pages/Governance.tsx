@@ -883,47 +883,21 @@ function CategorySelector({ value, onChange, categories, onCategoryCreated, clas
 
 // ─── Governance History Tab ───────────────────────────────────────────────────
 
-function GovernanceHistoryTab({ branchId, addToast }: {
-  branchId: number;
+function GovernanceHistoryTab({ rows, loading, error, onRetry, addToast }: {
+  rows: GovernanceHistoryRow[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
   addToast: (type: ToastMessage["type"], message: string) => void;
 }) {
-  const [rows,         setRows]         = useState<GovernanceHistoryRow[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState<string | null>(null);
   const [search,       setSearch]       = useState("");
   const [filterAction, setFilterAction] = useState<"all" | "approve" | "reject">("all");
   const [filterSource, setFilterSource] = useState<"all" | "procurement" | "system">("all");
   const [page,         setPage]         = useState(1);
 
-  const fetchHistory = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (branchId)               params.set("branch_id", String(branchId));
-      if (filterAction !== "all") params.set("action", filterAction);
-      const [data, masterItems] = await Promise.all([
-        apiCall<GovernanceHistoryRow[]>(`/api/governance/history?${params.toString()}`),
-        getItems("raw_material"),
-      ]);
-      const historyRows = (Array.isArray(data) ? data : []).map((row) => {
-        const masterSku = row.ingredient_id == null
-          ? undefined
-          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
-        const itemSku = String(masterSku ?? row.item_sku ?? "").trim()
-          || (row.ingredient_id != null ? `RM-${row.ingredient_id}` : undefined);
-        return { ...row, item_sku: itemSku };
-      });
-      setRows(historyRows); setPage(1);
-    } catch (err: any) {
-      const msg = err?.message ?? "Failed to load governance history";
-      setError(msg); addToast("error", msg);
-    } finally { setLoading(false); }
-  }, [branchId, filterAction, addToast]);
-
-  useEffect(() => { fetchHistory(); }, [fetchHistory]);
-
   const filtered = useMemo(() => {
     let result = [...rows];
+    if (filterAction !== "all")         result = result.filter((r) => r.action === filterAction);
     if (filterSource === "procurement") result = result.filter((r) => r.from_procurement);
     if (filterSource === "system")      result = result.filter((r) => !r.from_procurement);
     if (search.trim()) {
@@ -936,9 +910,9 @@ function GovernanceHistoryTab({ branchId, addToast }: {
       );
     }
     return result;
-  }, [rows, filterSource, search]);
+  }, [rows, filterAction, filterSource, search]);
 
-  useEffect(() => { setPage(1); }, [search, filterSource]);
+  useEffect(() => { setPage(1); }, [search, filterAction, filterSource]);
 
   const totalPages       = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
   const pageItems        = useMemo(() => filtered.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE), [filtered, page]);
@@ -1007,13 +981,13 @@ function GovernanceHistoryTab({ branchId, addToast }: {
             <Button variant="outline" size="sm" className="gov-btn-press h-8 text-xs" onClick={handleExportCSV} disabled={filtered.length === 0}>
               <Download className="w-3.5 h-3.5 me-1.5" /> Export
             </Button>
-            <Button variant="outline" size="sm" className="gov-btn-press h-8 w-8 p-0" onClick={fetchHistory} disabled={loading}>
+            <Button variant="outline" size="sm" className="gov-btn-press h-8 w-8 p-0" onClick={onRetry} disabled={loading}>
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
         </div>
 
-        {error && <div className="mb-4"><ErrorBanner message={error} onRetry={fetchHistory} /></div>}
+        {error && <div className="mb-4"><ErrorBanner message={error} onRetry={onRetry} /></div>}
 
         {loading ? (
           <div className="space-y-2">{[1,2,3,4,5].map((i) => <SkeletonRow key={i} />)}</div>
@@ -1070,44 +1044,16 @@ function GovernanceHistoryTab({ branchId, addToast }: {
 
 // ─── PO History Tab ───────────────────────────────────────────────────────────
 
-function POHistoryTab({ branchId, addToast }: {
-  branchId: number;
+function POHistoryTab({ rows, loading, error, onRetry, addToast }: {
+  rows: PurchaseHistoryRow[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
   addToast: (type: ToastMessage["type"], message: string) => void;
 }) {
-  const [rows,         setRows]         = useState<PurchaseHistoryRow[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState<string | null>(null);
   const [search,       setSearch]       = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "approved" | "pending" | "rejected">("all");
   const [page,         setPage]         = useState(1);
-
-  const fetchPOs = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      const params = new URLSearchParams({ limit: "200" });
-      if (branchId) params.set("branch_id", String(branchId));
-      const [data, masterItems] = await Promise.all([
-        apiCall<PurchaseHistoryRow[]>(`/api/purchases?${params.toString()}`),
-        getItems("raw_material"),
-      ]);
-      const purchaseOrders = (Array.isArray(data) ? data : []).map((row) => {
-        const masterSku = row.ingredient_id == null
-          ? undefined
-          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
-        // Use the current SKU from Items Master even when an older PO response
-        // does not include item_sku yet.
-        const itemSku = String(masterSku ?? row.item_sku ?? "").trim()
-          || (row.ingredient_id != null ? `RM-${row.ingredient_id}` : undefined);
-        return { ...row, item_sku: itemSku };
-      });
-      setRows(purchaseOrders); setPage(1);
-    } catch (err: any) {
-      const msg = err?.message ?? "Failed to load purchase orders";
-      setError(msg); addToast("error", msg);
-    } finally { setLoading(false); }
-  }, [branchId, addToast]);
-
-  useEffect(() => { fetchPOs(); }, [fetchPOs]);
 
   const filtered = useMemo(() => {
     let result = [...rows];
@@ -1187,13 +1133,13 @@ function POHistoryTab({ branchId, addToast }: {
             <Button variant="outline" size="sm" className="gov-btn-press h-8 text-xs" onClick={handleExportCSV} disabled={filtered.length === 0}>
               <Download className="w-3.5 h-3.5 me-1.5" /> Export
             </Button>
-            <Button variant="outline" size="sm" className="gov-btn-press h-8 w-8 p-0" onClick={fetchPOs} disabled={loading}>
+            <Button variant="outline" size="sm" className="gov-btn-press h-8 w-8 p-0" onClick={onRetry} disabled={loading}>
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
         </div>
 
-        {error && <div className="mb-4"><ErrorBanner message={error} onRetry={fetchPOs} /></div>}
+        {error && <div className="mb-4"><ErrorBanner message={error} onRetry={onRetry} /></div>}
 
         {loading ? (
           <div className="space-y-2">{[1,2,3,4,5].map((i) => <SkeletonRow key={i} />)}</div>
@@ -1285,14 +1231,93 @@ export default function Governance() {
   }, []);
   const currentUserId = Number(authUser.id ?? 1);
   const currentUserRole = String(authUser.role ?? "").toLowerCase();
-  useEffect(() => {
-  getBranches()
-    .then(rows => setBranches(Array.isArray(rows) ? rows : []))
-    .catch(() => setBranches([]));
-}, []);
   const canApprove = ["owner", "admin", "manager"].includes(currentUserRole);
+
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [branchId, setBranchId] = useState<number>(0);  const todayStr      = new Date().toISOString().split("T")[0];
+  const [branchId, setBranchId] = useState<number>(0);
+  const todayStr = new Date().toISOString().split("T")[0];
+
+  useEffect(() => {
+    getBranches()
+      .then(rows => setBranches(Array.isArray(rows) ? rows : []))
+      .catch(() => setBranches([]));
+  }, []);
+
+  // ── Shared reference data (fetched once, reused by approvals + both history tabs) ──
+  const [masterItems, setMasterItems] = useState<Array<{ id: number; sku?: string | null }>>([]);
+  useEffect(() => {
+    getItems("raw_material")
+      .then((rows) => setMasterItems(Array.isArray(rows) ? rows : []))
+      .catch(() => setMasterItems([]));
+  }, []);
+
+  // ── Governance history (fetched once per branch, not per tab click) ──
+  const [govHistoryRows,    setGovHistoryRows]    = useState<GovernanceHistoryRow[]>([]);
+  const [govHistoryLoading, setGovHistoryLoading] = useState(true);
+  const [govHistoryError,   setGovHistoryError]   = useState<string | null>(null);
+  
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = useCallback(
+    (type: ToastMessage["type"], message: string) => {
+      setToasts((prev) => [
+        ...prev.slice(-4),
+        { id: generateToastId(), type, message },
+      ]);
+    },
+    []
+  );
+
+  const fetchGovHistory = useCallback(async () => {
+    setGovHistoryLoading(true); setGovHistoryError(null);
+    try {
+      const params = new URLSearchParams();
+      if (branchId) params.set("branch_id", String(branchId));
+      const data = await apiCall<GovernanceHistoryRow[]>(`/api/governance/history?${params.toString()}`);
+      const rows = (Array.isArray(data) ? data : []).map((row) => {
+        const masterSku = row.ingredient_id == null
+          ? undefined
+          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
+        const itemSku = String(masterSku ?? row.item_sku ?? "").trim()
+          || (row.ingredient_id != null ? `RM-${row.ingredient_id}` : undefined);
+        return { ...row, item_sku: itemSku };
+      });
+      setGovHistoryRows(rows);
+    } catch (err: any) {
+      const msg = err?.message ?? "Failed to load governance history";
+      setGovHistoryError(msg); addToast("error", msg);
+    } finally { setGovHistoryLoading(false); }
+  }, [branchId, masterItems, addToast]);
+
+  useEffect(() => { fetchGovHistory(); }, [fetchGovHistory]);
+
+  // ── PO history (fetched once per branch, not per tab click) ──
+  const [poHistoryRows,    setPoHistoryRows]    = useState<PurchaseHistoryRow[]>([]);
+  const [poHistoryLoading, setPoHistoryLoading] = useState(true);
+  const [poHistoryError,   setPoHistoryError]   = useState<string | null>(null);
+
+  const fetchPOHistory = useCallback(async () => {
+    setPoHistoryLoading(true); setPoHistoryError(null);
+    try {
+      const params = new URLSearchParams({ limit: "200" });
+      if (branchId) params.set("branch_id", String(branchId));
+      const data = await apiCall<PurchaseHistoryRow[]>(`/api/purchases?${params.toString()}`);
+      const rows = (Array.isArray(data) ? data : []).map((row) => {
+        const masterSku = row.ingredient_id == null
+          ? undefined
+          : masterItems.find((item) => Number(item.id) === Number(row.ingredient_id))?.sku;
+        const itemSku = String(masterSku ?? row.item_sku ?? "").trim()
+          || (row.ingredient_id != null ? `RM-${row.ingredient_id}` : undefined);
+        return { ...row, item_sku: itemSku };
+      });
+      setPoHistoryRows(rows);
+    } catch (err: any) {
+      const msg = err?.message ?? "Failed to load purchase orders";
+      setPoHistoryError(msg); addToast("error", msg);
+    } finally { setPoHistoryLoading(false); }
+  }, [branchId, addToast, masterItems]);
+
+  useEffect(() => { fetchPOHistory(); }, [fetchPOHistory]);
   const selectedPeriodStart = `${workingPeriod}-01`;
   const selectedPeriodEnd = useMemo(() => {
     const [year, month] = workingPeriod.split("-").map(Number);
@@ -1303,7 +1328,6 @@ export default function Governance() {
   // ── State ─────────────────────────────────────────────────────────────────
 
   const [activeTab,        setActiveTab]        = useState<ActiveTab>("approvals");
-  const [toasts,           setToasts]           = useState<ToastMessage[]>([]);
   const [approvals,        setApprovals]        = useState<ApprovalItem[]>([]);
   const [approvalsLoading, setApprovalsLoading] = useState(true);
   const [approvalsError,   setApprovalsError]   = useState<string | null>(null);
@@ -1326,10 +1350,6 @@ export default function Governance() {
   // ── Expense categories (for CategorySelector) ─────────────────────────────
   // ── Toast helpers ─────────────────────────────────────────────────────────
 
-  const addToast = useCallback((type: ToastMessage["type"], message: string) => {
-    setToasts((prev) => [...prev.slice(-4), { id: generateToastId(), type, message }]);
-  }, []);
-
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
@@ -1339,10 +1359,7 @@ export default function Governance() {
   const fetchApprovals = useCallback(async () => {
     setApprovalsLoading(true); setApprovalsError(null);
     try {
-      const [data, masterItems] = await Promise.all([
-        apiCall<any[]>("/api/approvals/pending"),
-        getItems("raw_material"),
-      ]);
+      const data = await apiCall<any[]>("/api/approvals/pending");
       const serverItems: ApprovalItem[] = (Array.isArray(data) ? data : []).map((row) => {
         // Resolve each purchase against the current Items Master before it is
         // displayed or printed. This keeps the PO item code current and also
@@ -1415,7 +1432,7 @@ export default function Governance() {
       const msg = err?.message ?? t("gov.error.fetchApprovals");
       setApprovalsError(msg); addToast("error", msg);
     } finally { setApprovalsLoading(false); }
-  }, [addToast, t]);
+  }, [addToast, t, masterItems]);
 
   useEffect(() => {
     function handleNewPO(event: Event) {
@@ -1433,10 +1450,11 @@ export default function Governance() {
           : `New ${poRef(d.po_number, d.id)} added to approval queue.`
       );
     fetchApprovals();
+    fetchPOHistory();
   }
     window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
     return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
-  }, [addToast, fetchApprovals]);
+  }, [addToast, fetchApprovals, fetchPOHistory]);
 
   useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
 
@@ -1692,9 +1710,25 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
           </div>
         )}
 
-        {/* Sub-tabs */}
-        {activeTab === "gov-history" && <GovernanceHistoryTab branchId={branchId} addToast={addToast} />}
-        {activeTab === "po-history"  && <POHistoryTab         branchId={branchId} addToast={addToast} />}
+        {/* Sub-tabs — data already loaded above, just pass it down */}
+        {activeTab === "gov-history" && (
+          <GovernanceHistoryTab
+            rows={govHistoryRows}
+            loading={govHistoryLoading}
+            error={govHistoryError}
+            onRetry={fetchGovHistory}
+            addToast={addToast}
+          />
+        )}
+        {activeTab === "po-history" && (
+          <POHistoryTab
+            rows={poHistoryRows}
+            loading={poHistoryLoading}
+            error={poHistoryError}
+            onRetry={fetchPOHistory}
+            addToast={addToast}
+          />
+        )}
 
         {/* Approvals tab */}
         {activeTab === "approvals" && (
