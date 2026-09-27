@@ -163,6 +163,9 @@ def approve_purchase(
         return success("Purchase approved", purchase=updated)
     except ValueError as e:
         return error(str(e))
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return error(f"Failed to approve purchase: {e}", status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,6 +187,9 @@ def reject_purchase(
         return success("Purchase rejected", purchase=updated)
     except ValueError as e:
         return error(str(e))
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return error(f"Failed to reject purchase: {e}", status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -211,6 +217,9 @@ def update_purchase(
         return success("Purchase updated", purchase=row)
     except ValueError as e:
         return error(str(e))
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return error(f"Failed to update purchase: {e}", status=500)
 
 
 # Add new history endpoint
@@ -282,7 +291,7 @@ def create_purchase_return(
 # ─────────────────────────────────────────────────────────────────────────────
 # PDF EXPORT
 # ─────────────────────────────────────────────────────────────────────────────
-CORS_ORIGIN = "https://stark-costing-system.vercel.app"
+CORS_ORIGIN ="https://app.starkai.us"
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": CORS_ORIGIN,
     "Access-Control-Allow-Credentials": "true",
