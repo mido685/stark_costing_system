@@ -8,14 +8,15 @@ from app.api.responses import success, error
 from app.database import cash_purchases as cash_db
 from app.schemas import CashPurchaseRequest, ExpenseCategoryRequest, PettyCashTopUpRequest
 from app.security.dependencies import get_current_user, require_roles, check_period_open, require_module
+import os
 
 router = APIRouter(
     tags=["cash_purchases"],
     dependencies=[Depends(require_module("procurement"))],
 )
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-INVOICE_DIR = BASE_DIR / "uploads" / "invoices"
+INVOICE_DIR = Path(os.environ.get("UPLOAD_DIR", "./uploads")) / "invoices"
+INVOICE_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_MIME = {"image/jpeg", "image/png", "application/pdf"}
 MIME_TO_EXT = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf"}
 MAX_SIZE_MB = 10
@@ -249,7 +250,7 @@ def download_invoice(
 
     file_path = Path(invoice["file_path"])
     if not file_path.exists():
-        return error("Invoice file is missing from storage", status=500)
+        return error("Invoice file is no longer available. It may need to be re-uploaded.", status=404)
 
     content = file_path.read_bytes()
     return Response(
