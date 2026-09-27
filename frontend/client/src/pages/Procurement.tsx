@@ -744,25 +744,40 @@ export default function Procurement() {
     catch { setPurchases([]); }
     finally { setPurchasesLoading(false); }
   }, []);
+
   const handleApprovePo = useCallback(async (id: number) => {
   setApprovingPoId(id);
   try {
-    await apiCall(`/api/purchases/${id}/approve`, { method: "POST" });
-    await fetchPurchases();
-  } catch { alert("Failed to approve PO. Please try again."); }
+    const updated = await apiCall<Purchase>(`/api/purchases/${id}/approve`, { method: "POST" });
+    if (updated?.id) {
+      setPurchases(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+    } else {
+      await fetchPurchases();
+    }
+  } catch {
+    alert("Failed to approve PO. Please try again.");
+    fetchPurchases();
+  }
   finally { setApprovingPoId(null); }
 }, [fetchPurchases]);
 
-  const handleRejectPo = useCallback(async (id: number) => {
-    if (!window.confirm("Reject this PO? This cannot be undone.")) return;
-    setApprovingPoId(id);
-    try {
-      await apiCall(`/api/purchases/${id}/reject`, { method: "POST" });
+const handleRejectPo = useCallback(async (id: number) => {
+  if (!window.confirm("Reject this PO? This cannot be undone.")) return;
+  setApprovingPoId(id);
+  try {
+    const res: any = await apiCall(`/api/purchases/${id}/reject`, { method: "POST" });
+    const updated = res?.purchase ?? res;
+    if (updated?.id) {
+      setPurchases(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+    } else {
       await fetchPurchases();
-    } catch { alert("Failed to reject PO. Please try again."); }
-    finally { setApprovingPoId(null); }
-  }, [fetchPurchases]);
-
+    }
+  } catch {
+    alert("Failed to reject PO. Please try again.");
+    fetchPurchases();
+  }
+  finally { setApprovingPoId(null); }
+}, [fetchPurchases]);
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
   useEffect(() => {
   const refresh = () => { void fetchPurchases(); };

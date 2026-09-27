@@ -222,6 +222,15 @@ def approve_purchase(
         """, (user_id, purchase_id))
         updated = dict(cur.fetchone())
 
+        # ── Keep approval_requests in sync (Governance reads this table) ──────
+        cur.execute("""
+            UPDATE approval_requests
+               SET status = 'approved', approved_by = %s, approved_at = NOW()
+             WHERE entity_type = 'purchase'
+               AND entity_id = %s
+               AND status = 'pending'
+        """, (user_id, purchase_id))
+
         # Stock only increases when a GRN is recorded against this PO.
 
         log_audit(
@@ -291,6 +300,14 @@ def reject_purchase(
         """, (purchase_id,))
         updated = dict(cur.fetchone())
 
+        # ── Keep approval_requests in sync (Governance reads this table) ──────
+        cur.execute("""
+            UPDATE approval_requests
+               SET status = 'rejected', approved_by = %s, approved_at = NOW()
+             WHERE entity_type = 'purchase'
+               AND entity_id = %s
+               AND status = 'pending'
+        """, (user_id, purchase_id))
         log_audit(
             conn,
             company_id=company_id,
@@ -450,7 +467,6 @@ def update_purchase(
     finally:
         cur.close()
         conn.close()
-
 
 def get_purchase_history(
     purchase_id: int,

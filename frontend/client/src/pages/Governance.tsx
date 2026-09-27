@@ -1442,23 +1442,23 @@ export default function Governance() {
 
   // ── Approve / Reject ──────────────────────────────────────────────────────
 
-  const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
-    if (!canApprove) return;
-      setConfirmAction(null);
-    setLoadingIds((prev) => new Set(prev).add(id));
-    const newStatus: ApprovalStatus = action === "approve" ? "approved" : "rejected";
-    setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
-    try {
-      await apiCall(`/api/approvals/${id}/${action}`, { method: "POST", body: JSON.stringify({ user_id: currentUserId }) });
-      addToast("success", action === "approve" ? t("gov.toast.approved") : t("gov.toast.rejected"));
-      fetchApprovals();
-    } catch (err: any) {
-      setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: "pending" } : a)));
-      addToast("error", err?.message ?? t("gov.error.action"));
-    } finally {
-      setLoadingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
-    }
-  }, [currentUserId, addToast, t, fetchApprovals]);
+const handleAction = useCallback(async (id: string, action: "approve" | "reject") => {
+  if (!canApprove) return;
+    setConfirmAction(null);
+  setLoadingIds((prev) => new Set(prev).add(id));
+  const newStatus: ApprovalStatus = action === "approve" ? "approved" : "rejected";
+  setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)));
+  try {
+    await apiCall(`/api/approvals/${id}/${action}`, { method: "POST", body: JSON.stringify({ user_id: currentUserId }) });
+    addToast("success", action === "approve" ? t("gov.toast.approved") : t("gov.toast.rejected"));
+    fetchApprovals();
+  } catch (err: any) {
+    addToast("error", err?.message ?? t("gov.error.action"));
+    fetchApprovals();
+  } finally {
+    setLoadingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+  }
+}, [currentUserId, addToast, t, fetchApprovals]);
 
   // ── Bulk approve ──────────────────────────────────────────────────────────
 
