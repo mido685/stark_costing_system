@@ -105,6 +105,8 @@ interface Invoice {
   supplier_name?: string;
   branch_name?: string;
   ref_table?: InvoiceRefTable | string;
+  ref_id?: number;
+  po_number?: number;
 }
 
 interface FulfillmentRow {
@@ -1090,12 +1092,14 @@ const handleRejectCash = useCallback(async (id:number) => {
   const [invoiceRefTable,         setInvoiceRefTable]         = useState<InvoiceRefTable|"">("");
   const [invoices,                setInvoices]                = useState<Invoice[]>([]);
   const [invoicesLoading,         setInvoicesLoading]         = useState(false);
+  const [invoicePoNumberFilter, setInvoicePoNumberFilter] = useState<string>("");
   const [invoiceFilterBranchId,   setInvoiceFilterBranchId]   = useState<number>(0);
   const [invoiceFilterSupplierId, setInvoiceFilterSupplierId] = useState<number>(0);
   const [invoiceNumberFilter,     setInvoiceNumberFilter]     = useState<string>("");
   const [invoiceDateFrom,         setInvoiceDateFrom]         = useState<string>("");
   const [invoiceDateTo,           setInvoiceDateTo]           = useState<string>("");
 
+  
   const handleSearchInvoices = useCallback(async () => {
     setInvoicesLoading(true);
     try {
@@ -1104,6 +1108,7 @@ const handleRejectCash = useCallback(async (id:number) => {
       if (invoiceFilterBranchId)      params.set("branch_id",      String(invoiceFilterBranchId));
       if (invoiceFilterSupplierId)    params.set("supplier_id",    String(invoiceFilterSupplierId));
       if (invoiceNumberFilter.trim()) params.set("invoice_number", invoiceNumberFilter.trim());
+      if (invoicePoNumberFilter.trim()) params.set("po_number", invoicePoNumberFilter.trim().replace(/\D/g,""));
       if (invoiceDateFrom)            params.set("date_from",      invoiceDateFrom);
       if (invoiceDateTo)              params.set("date_to",        invoiceDateTo);
       params.set("limit","100");
@@ -1111,11 +1116,11 @@ const handleRejectCash = useCallback(async (id:number) => {
       setInvoices(data ?? []);
     } catch { setInvoices([]); }
     finally { setInvoicesLoading(false); }
-  }, [invoiceRefTable, invoiceFilterBranchId, invoiceFilterSupplierId, invoiceNumberFilter, invoiceDateFrom, invoiceDateTo]);
+  }, [invoiceRefTable, invoiceFilterBranchId, invoiceFilterSupplierId, invoiceNumberFilter, invoicePoNumberFilter, invoiceDateFrom, invoiceDateTo]);
 
   function handleClearInvoiceFilters() {
     setInvoiceRefTable(""); setInvoiceFilterBranchId(0); setInvoiceFilterSupplierId(0);
-    setInvoiceNumberFilter(""); setInvoiceDateFrom(""); setInvoiceDateTo(""); setInvoices([]);
+    setInvoiceNumberFilter(""); setInvoicePoNumberFilter(""); setInvoiceDateFrom(""); setInvoiceDateTo(""); setInvoices([]);
   }
 
   // ── Modal & form state ─────────────────────────────────────────────────────
@@ -1194,6 +1199,28 @@ const handleRejectCash = useCallback(async (id:number) => {
     return result;
   }, [purchases, filterBranchId, poSearch, periodCutoff]);
 
+  // Map purchase id → PO number/ref, so invoices linked to a PO (ref_table "purchases")
+// can be matched even if the backend doesn't support po_number search yet.
+const purchaseById = useMemo(() => {
+  const map = new Map<number, Purchase>();
+  for (const p of purchases) map.set(p.id, p);
+  return map;
+}, [purchases]);
+
+const invoiceLinkedPoRef = useCallback((inv: Invoice): string | null => {
+  if (inv.ref_table !== "purchases" || inv.ref_id == null) return null;
+  const p = purchaseById.get(inv.ref_id);
+  return poRef(inv.po_number ?? p?.po_number, inv.ref_id);
+}, [purchaseById]);
+
+  const displayedInvoices = useMemo(() => {
+    const digits = invoicePoNumberFilter.trim().replace(/\D/g, "");
+    if (!digits) return invoices;
+    return invoices.filter(inv => {
+      const ref = invoiceLinkedPoRef(inv);
+      return ref ? ref.replace(/\D/g, "").includes(digits) : false;
+    });
+  }, [invoices, invoicePoNumberFilter, purchaseById]);
   const stats = useMemo(() => {
     const thisMonth = todayISO().slice(0,7);
     const prevMonthDate = new Date(); prevMonthDate.setMonth(prevMonthDate.getMonth()-1);
@@ -2275,6 +2302,15 @@ const handleRejectCash = useCallback(async (id:number) => {
               <Field label="Branch"><select className={inputCls} value={invoiceFilterBranchId} onChange={e=>setInvoiceFilterBranchId(Number(e.target.value))}><option value={0}>All Branches</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
               <Field label="Supplier"><select className={inputCls} value={invoiceFilterSupplierId} onChange={e=>setInvoiceFilterSupplierId(Number(e.target.value))}><option value={0}>All Suppliers</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
               <Field label="Invoice Number"><input type="text" className={inputCls} placeholder="Search INV-..." value={invoiceNumberFilter} onChange={e=>setInvoiceNumberFilter(e.target.value)}/></Field>
+              <Field label="PO Number">
+                <input
+                  type="text"
+                  className={inputCls}
+                  placeholder="e.g. 00042 or PO-00042"
+                  value={invoicePoNumberFilter}
+                  onChange={e=>setInvoicePoNumberFilter(e.target.value)}
+                />
+              </Field>
               <Field label="Date From"><input type="date" className={inputCls} value={invoiceDateFrom} onChange={e=>setInvoiceDateFrom(e.target.value)}/></Field>
               <Field label="Date To"><input type="date" className={inputCls} value={invoiceDateTo} onChange={e=>setInvoiceDateTo(e.target.value)}/></Field>
             </div>
@@ -2285,56 +2321,58 @@ const handleRejectCash = useCallback(async (id:number) => {
             </div>
           </Card>
           <Card className="p-6 border border-border/60">
-            <SectionHeader title={invoices.length>0?`${invoices.length} Invoice${invoices.length!==1?"s":""} Found`:"Invoices"}/>
-            {invoicesLoading ? <SkeletonRows count={4}/> : invoices.length === 0 && !invoiceRefTable && !invoiceFilterBranchId && !invoiceFilterSupplierId && !invoiceNumberFilter && !invoiceDateFrom && !invoiceDateTo ? (
-              <EmptyState
-                icon={<Filter className="w-6 h-6 text-muted-foreground"/>}
-                title="Use filters to search invoices"
-                desc="Select a branch, supplier, date range, or invoice number above and click Search to find invoices."
-                cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}
-              />
-            ) : invoicesLoading ? null : !invoices.length ? (
-              <EmptyState
-                icon={<Receipt className="w-6 h-6 text-muted-foreground"/>}
-                title="No invoices found"
-                desc="No invoices match your search filters. Try adjusting the criteria or upload a new invoice."
-                cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}
-              />
-            ) : (
-              <TableWrap>
-                <thead><tr className="border-b border-border"><Th>Invoice #</Th><Th>Date</Th><Th>File</Th><Th>Type</Th><Th>Branch</Th><Th>Supplier</Th><Th right>Amount</Th><Th center>Actions</Th></tr></thead>
-                <tbody className="divide-y divide-border/60">
-                  {invoices.map(inv=>{
-                    const isPdf=inv.mime_type==="application/pdf";
-                    return (
-                      <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
-                        <Td className="font-medium text-foreground">{inv.invoice_number?<span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{inv.invoice_number}</span>:<span className="text-muted-foreground/40 text-xs">—</span>}</Td>
-                        <Td muted>{inv.invoice_date??"—"}</Td>
-                        <Td><div className="flex items-center gap-2"><div className={`w-6 h-6 rounded flex items-center justify-center shrink-0 ${isPdf?"bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400":"bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"}`}>{isPdf?<FileText className="w-3.5 h-3.5"/>:<Eye className="w-3.5 h-3.5"/>}</div><div className="min-w-0"><p className="text-sm font-medium text-foreground truncate max-w-[160px]">{inv.file_name}</p><p className="text-xs text-muted-foreground">{fmtBytes(inv.file_size_kb)}</p></div></div></Td>
-                        <Td>{inv.ref_table&&<span className="text-xs font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground capitalize">{INVOICE_REF_OPTIONS.find(o=>o.value===inv.ref_table)?.label??inv.ref_table}</span>}</Td>
-                        <Td muted>{inv.branch_name??"—"}</Td>
-                        <Td muted>{inv.supplier_name??"—"}</Td>
-                        <Td right mono className="font-semibold text-foreground">{inv.amount!=null?fmt(inv.amount):"—"}</Td>
-                        <Td center>
-                          <div className="flex items-center justify-center gap-1">
-                            <EyeBtn onClick={()=>handleOpenInvoiceHtml(inv)}/>
-                            <button onClick={()=>handleInvoicePreview(inv)} disabled={previewingInvoiceId===inv.id} title="View the actual file"
-                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors disabled:opacity-40">
-                              {previewingInvoiceId===inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <FileText className="w-3.5 h-3.5"/>}
-                            </button>
-                            <button onClick={()=>handleInvoiceDownload(inv)} title="Download file"
-                              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
-                              <Download className="w-3.5 h-3.5"/>
-                            </button>
-                          </div>
-                        </Td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </TableWrap>
-            )}
-          </Card>
+  <SectionHeader title={displayedInvoices.length>0?`${displayedInvoices.length} Invoice${displayedInvoices.length!==1?"s":""} Found`:"Invoices"}/>
+  {invoicesLoading ? <SkeletonRows count={4}/> : invoices.length === 0 && !invoiceRefTable && !invoiceFilterBranchId && !invoiceFilterSupplierId && !invoiceNumberFilter && !invoicePoNumberFilter && !invoiceDateFrom && !invoiceDateTo ? (
+    <EmptyState
+      icon={<Filter className="w-6 h-6 text-muted-foreground"/>}
+      title="Use filters to search invoices"
+      desc="Select a branch, supplier, date range, invoice number, or PO number above and click Search to find invoices."
+      cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}
+    />
+  ) : !displayedInvoices.length ? (
+    <EmptyState
+      icon={<Receipt className="w-6 h-6 text-muted-foreground"/>}
+      title="No invoices found"
+      desc="No invoices match your search filters. Try adjusting the criteria or upload a new invoice."
+      cta={<Button size="sm" variant="outline" onClick={()=>openModal("invoice_upload")} className="gap-1.5"><Upload className="w-4 h-4"/> Upload Invoice</Button>}
+    />
+  ) : (
+    <TableWrap>
+      <thead><tr className="border-b border-border"><Th>Invoice #</Th><Th>Date</Th><Th>File</Th><Th>Type</Th><Th>Linked PO</Th><Th>Branch</Th><Th>Supplier</Th><Th right>Amount</Th><Th center>Actions</Th></tr></thead>
+      <tbody className="divide-y divide-border/60">
+        {displayedInvoices.map(inv=>{
+          const isPdf=inv.mime_type==="application/pdf";
+          const linkedPo=invoiceLinkedPoRef(inv);
+          return (
+            <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
+              <Td className="font-medium text-foreground">{inv.invoice_number?<span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{inv.invoice_number}</span>:<span className="text-muted-foreground/40 text-xs">—</span>}</Td>
+              <Td muted>{inv.invoice_date??"—"}</Td>
+              <Td><div className="flex items-center gap-2"><div className={`w-6 h-6 rounded flex items-center justify-center shrink-0 ${isPdf?"bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400":"bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"}`}>{isPdf?<FileText className="w-3.5 h-3.5"/>:<Eye className="w-3.5 h-3.5"/>}</div><div className="min-w-0"><p className="text-sm font-medium text-foreground truncate max-w-[160px]">{inv.file_name}</p><p className="text-xs text-muted-foreground">{fmtBytes(inv.file_size_kb)}</p></div></div></Td>
+              <Td>{inv.ref_table&&<span className="text-xs font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground capitalize">{INVOICE_REF_OPTIONS.find(o=>o.value===inv.ref_table)?.label??inv.ref_table}</span>}</Td>
+              <Td muted>{linkedPo ? <span className="font-mono text-xs">{linkedPo}</span> : "—"}</Td>
+              <Td muted>{inv.branch_name??"—"}</Td>
+              <Td muted>{inv.supplier_name??"—"}</Td>
+              <Td right mono className="font-semibold text-foreground">{inv.amount!=null?fmt(inv.amount):"—"}</Td>
+              <Td center>
+                <div className="flex items-center justify-center gap-1">
+                  <EyeBtn onClick={()=>handleOpenInvoiceHtml(inv)}/>
+                  <button onClick={()=>handleInvoicePreview(inv)} disabled={previewingInvoiceId===inv.id} title="View the actual file"
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors disabled:opacity-40">
+                    {previewingInvoiceId===inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <FileText className="w-3.5 h-3.5"/>}
+                  </button>
+                  <button onClick={()=>handleInvoiceDownload(inv)} title="Download file"
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border transition-colors">
+                    <Download className="w-3.5 h-3.5"/>
+                  </button>
+                </div>
+              </Td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </TableWrap>
+  )}
+</Card>
         </>
       )}
 
