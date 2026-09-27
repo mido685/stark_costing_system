@@ -2303,14 +2303,25 @@ const invoiceLinkedPoRef = useCallback((inv: Invoice): string | null => {
               <Field label="Supplier"><select className={inputCls} value={invoiceFilterSupplierId} onChange={e=>setInvoiceFilterSupplierId(Number(e.target.value))}><option value={0}>All Suppliers</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
               <Field label="Invoice Number"><input type="text" className={inputCls} placeholder="Search INV-..." value={invoiceNumberFilter} onChange={e=>setInvoiceNumberFilter(e.target.value)}/></Field>
               <Field label="PO Number">
+              <div className="relative">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none"/>
                 <input
                   type="text"
-                  className={inputCls}
-                  placeholder="e.g. 00042 or PO-00042"
+                  placeholder="Search by PO number…"
                   value={invoicePoNumberFilter}
                   onChange={e=>setInvoicePoNumberFilter(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
                 />
-              </Field>
+                {invoicePoNumberFilter && (
+                  <button
+                    onClick={()=>setInvoicePoNumberFilter("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5"/>
+                  </button>
+                )}
+              </div>
+            </Field>
               <Field label="Date From"><input type="date" className={inputCls} value={invoiceDateFrom} onChange={e=>setInvoiceDateFrom(e.target.value)}/></Field>
               <Field label="Date To"><input type="date" className={inputCls} value={invoiceDateTo} onChange={e=>setInvoiceDateTo(e.target.value)}/></Field>
             </div>
