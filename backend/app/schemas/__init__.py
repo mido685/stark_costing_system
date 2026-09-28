@@ -441,13 +441,15 @@ class SaleRequest(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class WasteRequest(BaseModel):
-    branch_id:     int
-    ingredient_id: int
-    entry_date:    str
-    quantity:      float
-    waste_reason:  str
-    notes:         str = ""
-
+    branch_id: int
+    ingredient_id: int | None = None
+    product_id: int | None = None
+    item_id: int | None = None
+    entry_date: str
+    quantity: float
+    waste_reason: str
+    notes: str = ""
+    
 class DamageRequest(BaseModel):
     branch_id:     int
     entry_date:    str

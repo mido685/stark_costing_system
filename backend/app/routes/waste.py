@@ -75,34 +75,41 @@ def get_waste(
     return success("Waste retrieved", waste=waste)
 
 
+
 @router.post("")
 def create_waste(
     req: WasteRequest,
     request: Request,
-    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+    current_user: dict = Depends(
+        require_roles("owner", "admin", "manager")
+    ),
 ):
     check_period_open(req.entry_date, current_user)
+
     try:
-        ingredient_id = req.ingredient_id
-        product_id = req.product_id
-        if req.item_id and not ingredient_id and not product_id:
-            product_id = req.item_id
+        product_id = (
+            req.product_id
+            if req.product_id is not None
+            else req.item_id
+        )
+
         waste = waste_db.add_waste(
             branch_id=req.branch_id,
             entry_date=req.entry_date,
             quantity=req.quantity,
-            reason=req.reason,
+            reason=req.waste_reason,
             company_id=current_user["company_id"],
             user_id=current_user["id"],
-            ingredient_id=ingredient_id,
+            ingredient_id=req.ingredient_id,
             product_id=product_id,
             notes=req.notes,
-            ip_address=request.client.host,
+            ip_address=request.client.host if request.client else None,
         )
-        return success("Waste recorded", waste=waste)
-    except ValueError as e:
-        return error(str(e))
 
+        return success("Waste recorded", waste=waste)
+
+    except ValueError as e:
+        return error(str(e))        
 
 @router.delete("/{waste_id}")
 def delete_waste(
