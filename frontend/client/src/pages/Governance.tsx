@@ -1283,7 +1283,7 @@ export default function Governance() {
   const fetchGovHistory = useCallback(async (force = false) => {
     const key = `gov-history:${cacheScope}:${branchId}`;
     const cached = cachedGovernance<GovernanceHistoryRow[]>(key);
-    if (cached && !force) { setGovHistoryRows(cached); return; }
+    if (cached && !force) { setGovHistoryRows(cached); setGovHistoryLoading(false); return; }
     setGovHistoryLoading(!cached && govHistoryRows.length === 0);
     setGovHistoryError(null);
     try {
@@ -1316,7 +1316,7 @@ export default function Governance() {
   const fetchPOHistory = useCallback(async (force = false) => {
     const key = `po-history:${cacheScope}:${branchId}`;
     const cached = cachedGovernance<PurchaseHistoryRow[]>(key);
-    if (cached && !force) { setPoHistoryRows(cached); return; }
+    if (cached && !force) { setPoHistoryRows(cached); setPoHistoryLoading(false); return; }
     setPoHistoryLoading(!cached && poHistoryRows.length === 0);
     setPoHistoryError(null);
     try {
