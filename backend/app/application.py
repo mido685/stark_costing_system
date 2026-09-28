@@ -11,13 +11,7 @@ load_dotenv(Path(__file__).parent / ".env")
 def _cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "")
 
-    extra_origins = [
-        origin.strip()
-        for origin in configured.split(",")
-        if origin.strip()
-    ]
-
-    return [
+    default_origins = [
         "https://app.starkai.us",
         "https://stark-costing-system.vercel.app",
         "http://localhost:5173",
@@ -26,9 +20,16 @@ def _cors_origins() -> list[str]:
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
-        *extra_origins,
     ]
 
+    extra_origins = [
+        origin.strip().rstrip("/")
+        for origin in configured.split(",")
+        if origin.strip()
+    ]
+
+    return list(dict.fromkeys(default_origins + extra_origins))
+    
 def create_app() -> FastAPI:
     application = FastAPI(title=APP_NAME, version=APP_VERSION)
 
