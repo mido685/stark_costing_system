@@ -437,9 +437,12 @@ def _set_approval_status(
         # ── Sync source table status ──────────────────────────────────────────
         if old["entity_type"] == "purchase":
             cur.execute(
-                "UPDATE purchases SET status = %s WHERE id = %s",
+                "UPDATE purchases SET status = %s WHERE id = %s AND status = 'pending'",
                 (status, old["entity_id"]),
             )
+            if cur.rowcount == 0:
+                conn.rollback()
+                return error("This purchase order is no longer pending", status=409)
         elif old["entity_type"] == "cash_purchase":
             if status == "approved":
                 approve_cash_purchase(

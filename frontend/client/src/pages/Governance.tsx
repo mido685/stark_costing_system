@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { apiCall, getItems, getBranches } from "@/lib/api";
 import type { Branch } from "@/lib/api";
+import { PROCUREMENT_PO_EVENT, cachedGovernance, saveGovernance } from "@/lib/governanceCache";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,24 +134,7 @@ type ToastMessage = { id: string; type: "success" | "error" | "warning"; message
 
 const PAGE_SIZE         = 20;
 const HISTORY_PAGE_SIZE = 25;
-export const PROCUREMENT_PO_EVENT = "procurement:po-created";
 
-// Short-lived, in-memory cache. Scoped to the signed-in user; cleared on full reload.
-const GOV_CACHE_MS = 60_000;
-const governanceCache = new Map<string, { value: unknown; savedAt: number }>();
-function cachedGovernance<T>(key: string): T | undefined {
-  const entry = governanceCache.get(key);
-  if (!entry || Date.now() - entry.savedAt > GOV_CACHE_MS) return undefined;
-  return entry.value as T;
-}
-function saveGovernance<T>(key: string, value: T): void {
-  governanceCache.set(key, { value, savedAt: Date.now() });
-}
-
-// A PO created elsewhere invalidates everything, even while this page is unmounted.
-if (typeof window !== "undefined") {
-  window.addEventListener(PROCUREMENT_PO_EVENT, () => governanceCache.clear());
-}
 
 const CATEGORY_TYPES: { value: CategoryType; label: string }[] = [
   { value: "expense",   label: "Expense"   },
@@ -222,6 +206,12 @@ function generateToastId(): string {
 function poRef(poNumber?: number | null, fallbackId?: number | null): string {
   return `PO-${String(poNumber ?? fallbackId ?? 0).padStart(5, "0")}`;
 }
+
+const esc = (v: unknown): string =>
+  String(v ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
 // ─── HTML Viewer ──────────────────────────────────────────────────────────────
 
 const SHARED_HTML_STYLES = `
@@ -233,6 +223,7 @@ const SHARED_HTML_STYLES = `
   .doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}
   .doc-sub{font-size:12px;color:#64748b}
   .meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}
+    .status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px}
   .watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:80px;font-weight:900;opacity:0.04;color:#dc2626;pointer-events:none;z-index:0;letter-spacing:8px;text-transform:uppercase}
   @media print{.watermark{opacity:0.06}}
   .section{margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #f1f5f9}
@@ -285,22 +276,24 @@ interface HtmlViewerParams {
 }
 
 function recordAsHtml(params: HtmlViewerParams): string {
-  const { title, subtitle, ref, badge, sections, lineItems, totals, notes } = params;
+  const { badge, sections, lineItems, totals } = params;
+  const title = esc(params.title), subtitle = esc(params.subtitle), ref = esc(params.ref);
+  const notes = params.notes ? esc(params.notes) : "";
   const now       = new Date().toLocaleDateString();
-  const badgeHtml = badge ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>` : "";
+  const badgeHtml = badge ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${esc(badge.label)}</span>` : "";
   const sectionsHtml = sections.map(sec => `
-    <div class="section"><div class="section-title">${sec.heading}</div><div class="info-grid">
+    <div class="section"><div class="section-title">${esc(sec.heading)}</div><div class="info-grid">
     ${sec.rows.map((r, idx, arr) => {
       const val        = r.value ?? "";
       const colorClass = val.startsWith("▲") ? " up" : val.startsWith("▼") ? " down" : "";
       const fullClass  = arr.length % 2 !== 0 && idx === arr.length - 1 ? " full" : "";
-      return `<div class="info-block${fullClass}"><div class="info-label">${r.label}</div><div class="info-value${colorClass}">${val}</div></div>`;
+      return `<div class="info-block${fullClass}"><div class="info-label">${esc(r.label)}</div><div class="info-value${colorClass}">${esc(val)}</div></div>`;
     }).join("")}
     </div></div>`).join("");
-  const lineItemsHtml = lineItems ? `<div class="section"><div class="section-title">${lineItems.heading}</div>
-    <table class="line-items"><thead><tr>${lineItems.columns.map((column, index) => `<th class="${index > 2 ? "right" : ""}">${column}</th>`).join("")}</tr></thead>
-    <tbody>${lineItems.rows.map(row => `<tr>${row.map((value, index) => `<td class="${index === 1 ? "item" : ""}${index > 2 ? " right" : ""}">${value}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "";
-  const totalsHtml = totals?.length ? `<div class="totals">${totals.map(t => `<div class="totals-row${t.highlight ? " highlight" : ""}"><span>${t.label}</span><span>${t.value}</span></div>`).join("")}</div>` : "";
+  const lineItemsHtml = lineItems ? `<div class="section"><div class="section-title">${esc(lineItems.heading)}</div>
+    <table class="line-items"><thead><tr>${lineItems.columns.map((column, index) => `<th class="${index > 2 ? "right" : ""}">${esc(column)}</th>`).join("")}</tr></thead>
+    <tbody>${lineItems.rows.map(row => `<tr>${row.map((value, index) => `<td class="${index === 1 ? "item" : ""}${index > 2 ? " right" : ""}">${esc(value)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "";
+  const totalsHtml = totals?.length ? `<div class="totals">${totals.map(t => `<div class="totals-row${t.highlight ? " highlight" : ""}"><span>${esc(t.label)}</span><span>${esc(t.value)}</span></div>`).join("")}</div>` : "";
   const notesHtml = notes
   ? `<div class="section">
        <div class="section-title">Notes</div>

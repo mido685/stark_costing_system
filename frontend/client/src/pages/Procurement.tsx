@@ -5,7 +5,7 @@
  * Features: Edit pending POs · Record GRN from fulfillment tab · Universal Eye viewer
  */
 
-import { PROCUREMENT_PO_EVENT } from "./Governance";
+import { PROCUREMENT_PO_EVENT, invalidateGovernanceCache } from "@/lib/governanceCache";
 
 import {
   useState, useMemo, useEffect, useCallback,
@@ -22,7 +22,7 @@ import {
   ClipboardList, CheckCircle, XCircle, Clock, Pencil,
   ArrowDownToLine,History
 } from "lucide-react";
-import { useApi }         from "@/hooks/useApi";
+import { useApi, invalidateApiCache } from "@/hooks/useApi";
 import { getBranches, getSuppliers, addPurchase, apiCall } from "@/lib/api";
 import { useLanguage }    from "@/contexts/LanguageContext";
 import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
@@ -225,6 +225,11 @@ const fmtBytes = (kb: number) => kb < 1024 ? `${kb} KB` : `${(kb/1024).toFixed(1
 const poRef = (poNumber?: number | null, fallbackId?: number | null) =>
   `PO-${String(poNumber ?? fallbackId ?? 0).padStart(5, "0")}`;
 
+const esc = (v: unknown): string =>
+  String(v ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
 // ─── PDF bulk export ──────────────────────────────────────────────────────────
 
 interface ExportStats { total: number; thisMonth: number; }
@@ -285,14 +290,24 @@ async function exportPurchasesToPDF(purchases: Purchase[], stats: ExportStats, b
 
 // ─── PO HTML Export ───────────────────────────────────────────────────────────
 
-function openPoAsHtml(purchase: Purchase, currencyLabel: string): void {
+function openPoAsHtml(rawPurchase: Purchase, currencyLabel: string): void {
+  const escOpt = (v?: string | null) => (v == null ? undefined : esc(v));
+  const purchase: Purchase = {
+    ...rawPurchase,
+    branch_name:     escOpt(rawPurchase.branch_name),
+    supplier_name:   escOpt(rawPurchase.supplier_name),
+    ingredient_name: escOpt(rawPurchase.ingredient_name),
+    item_name:       escOpt(rawPurchase.item_name),
+    entry_date:      esc(rawPurchase.entry_date),
+    notes:           esc(rawPurchase.notes),
+  };
   const qty=Number(purchase.quantity??0), unitCost=Number(purchase.unit_cost??0);
   const gross=qty*unitCost, tax=Number(purchase.tax_amount??0);
   const payable=Number(purchase.payable_amount??gross+tax);
   const now=new Date().toLocaleDateString();
   const statusColor=purchase.status==="approved"?"#16a34a":purchase.status==="rejected"?"#dc2626":"#d97706";
   const ref=poRef(purchase.po_number, purchase.id);
-  const html=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${ref} — STARK AI</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',sans-serif;font-size:13px;color:#1e293b;background:#f8fafc}.page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;padding:40px}.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:28px}.brand{font-size:10px;font-weight:800;letter-spacing:4px;color:#1e3a5f;text-transform:uppercase;margin-bottom:6px}.doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}.doc-sub{font-size:12px;color:#64748b}.meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}.status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px;background:${purchase.status==="approved"?"#dcfce7":purchase.status==="rejected"?"#fee2e2":"#fef3c7"};color:${statusColor}}.section{margin-bottom:24px}.section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}.info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}.info-value{font-size:13px;font-weight:600;color:#0f172a}table{width:100%;border-collapse:collapse;margin-bottom:20px}thead tr{background:#1e3a5f}thead th{color:#fff;padding:10px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}thead th.right{text-align:right}tbody tr{border-bottom:1px solid #f1f5f9}tbody tr:nth-child(even){background:#f8fafc}tbody td{padding:12px 14px;font-size:13px;color:#334155}tbody td.right{text-align:right;font-weight:600;color:#0f172a}.totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}.totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}.totals-row:last-child{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}.totals-row:last-child span{color:#93c5fd}.notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}.footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}.footer-note{font-size:10px;color:#94a3b8}.print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}.print-btn:hover{background:#1e40af}@media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}</style></head><body><button class="print-btn" onclick="window.print()">🖨 Save as PDF</button><div class="page"><div class="header"><div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">Purchase Order</div><div class="doc-sub">${ref} · ${purchase.entry_date}</div></div><div class="meta"><div><span class="status-badge">${(purchase.status??"PENDING").toUpperCase()}</span></div><div style="margin-top:8px">Generated: ${now}</div><div>Ref: ${ref}</div></div></div><div class="section"><div class="section-title">Order Details</div><div class="info-grid"><div class="info-block"><div class="info-label">Branch</div><div class="info-value">${purchase.branch_name??`Branch #${purchase.branch_id}`}</div></div><div class="info-block"><div class="info-label">Supplier</div><div class="info-value">${purchase.supplier_name??`Supplier #${purchase.supplier_id}`}</div></div></div></div><div class="section"><div class="section-title">Line Items</div><table><thead><tr><th>Ingredient / Item</th><th class="right">Quantity</th><th class="right">Unit Cost (${currencyLabel})</th><th class="right">Gross Amount (${currencyLabel})</th></tr></thead><tbody><tr><td>${purchase.ingredient_name??purchase.item_name??`Item #${purchase.item_id}`}</td><td class="right">${qty.toFixed(3)}</td><td class="right">${fmt(unitCost)}</td><td class="right">${fmt(gross)}</td></tr></tbody></table><div class="totals"><div class="totals-row"><span>Gross Amount</span><span>${fmt(gross)}</span></div><div class="totals-row"><span>Tax</span><span>${fmt(tax)}</span></div><div class="totals-row"><span>Total Payable</span><span>${fmt(payable)}</span></div></div></div>${purchase.notes?`<div class="section"><div class="section-title">Notes</div><div class="notes-box">${purchase.notes}</div></div>`:""}<div class="footer"><div class="footer-brand">STARK AI</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div></div></body></html>`;
+  const html=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${ref} — STARK AI</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',sans-serif;font-size:13px;color:#1e293b;background:#f8fafc}.page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;padding:40px}.header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e3a5f;padding-bottom:20px;margin-bottom:28px}.brand{font-size:10px;font-weight:800;letter-spacing:4px;color:#1e3a5f;text-transform:uppercase;margin-bottom:6px}.doc-title{font-size:24px;font-weight:800;color:#0f172a;margin-bottom:4px}.doc-sub{font-size:12px;color:#64748b}.meta{text-align:right;font-size:11px;color:#94a3b8;line-height:1.8}.status-badge{display:inline-block;padding:3px 12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.5px;background:${purchase.status==="approved"?"#dcfce7":purchase.status==="rejected"?"#fee2e2":"#fef3c7"};color:${statusColor}}.section{margin-bottom:24px}.section-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:10px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.info-block{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}.info-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:4px}.info-value{font-size:13px;font-weight:600;color:#0f172a}table{width:100%;border-collapse:collapse;margin-bottom:20px}thead tr{background:#1e3a5f}thead th{color:#fff;padding:10px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}thead th.right{text-align:right}tbody tr{border-bottom:1px solid #f1f5f9}tbody tr:nth-child(even){background:#f8fafc}tbody td{padding:12px 14px;font-size:13px;color:#334155}tbody td.right{text-align:right;font-weight:600;color:#0f172a}.totals{margin-left:auto;width:280px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}.totals-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f1f5f9;font-size:13px}.totals-row:last-child{border-bottom:none;background:#1e3a5f;color:#fff;font-weight:700;font-size:14px}.totals-row:last-child span{color:#93c5fd}.notes-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;color:#475569;line-height:1.6}.footer{margin-top:40px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}.footer-brand{font-size:10px;font-weight:700;letter-spacing:2px;color:#1e3a5f;text-transform:uppercase}.footer-note{font-size:10px;color:#94a3b8}.print-btn{position:fixed;top:20px;right:20px;padding:10px 20px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.2)}.print-btn:hover{background:#1e40af}@media print{.print-btn{display:none}body{background:#fff}.page{padding:20px;max-width:100%}}</style></head><body><button class="print-btn" onclick="window.print()">🖨 Save as PDF</button><div class="page"><div class="header"><div><div class="brand">STARK AI — Costing Platform</div><div class="doc-title">Purchase Order</div><div class="doc-sub">${ref} · ${purchase.entry_date}</div></div><div class="meta"><div><span class="status-badge">${esc((purchase.status??"PENDING").toUpperCase())}</span></div><div style="margin-top:8px">Generated: ${now}</div><div>Ref: ${ref}</div></div></div><div class="section"><div class="section-title">Order Details</div><div class="info-grid"><div class="info-block"><div class="info-label">Branch</div><div class="info-value">${purchase.branch_name??`Branch #${purchase.branch_id}`}</div></div><div class="info-block"><div class="info-label">Supplier</div><div class="info-value">${purchase.supplier_name??`Supplier #${purchase.supplier_id}`}</div></div></div></div><div class="section"><div class="section-title">Line Items</div><table><thead><tr><th>Ingredient / Item</th><th class="right">Quantity</th><th class="right">Unit Cost (${currencyLabel})</th><th class="right">Gross Amount (${currencyLabel})</th></tr></thead><tbody><tr><td>${purchase.ingredient_name??purchase.item_name??`Item #${purchase.item_id}`}</td><td class="right">${qty.toFixed(3)}</td><td class="right">${fmt(unitCost)}</td><td class="right">${fmt(gross)}</td></tr></tbody></table><div class="totals"><div class="totals-row"><span>Gross Amount</span><span>${fmt(gross)}</span></div><div class="totals-row"><span>Tax</span><span>${fmt(tax)}</span></div><div class="totals-row"><span>Total Payable</span><span>${fmt(payable)}</span></div></div></div>${purchase.notes?`<div class="section"><div class="section-title">Notes</div><div class="notes-box">${purchase.notes}</div></div>`:""}<div class="footer"><div class="footer-brand">STARK AI</div><div class="footer-note">Confidential · ${now} · ${ref}</div></div></div></body></html>`;
   const blob=new Blob([html],{type:"text/html"});
   const url=URL.createObjectURL(blob);
   window.open(url,"_blank");
@@ -341,21 +356,23 @@ interface HtmlViewerParams {
 }
 
 function openRecordAsHtml(params: HtmlViewerParams): void {
-  const { title, subtitle, ref, badge, sections, totals, notes } = params;
+  const { badge, sections, totals } = params;
+  const title = esc(params.title), subtitle = esc(params.subtitle), ref = esc(params.ref);
+  const notes = params.notes ? esc(params.notes) : "";
   const now = new Date().toLocaleDateString();
 
   const badgeHtml = badge
-    ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${badge.label}</span>`
+    ? `<span class="status-badge" style="background:${badge.bg};color:${badge.color}">${esc(badge.label)}</span>`
     : "";
 
   const sectionsHtml = sections.map(sec => `
     <div class="section">
-      <div class="section-title">${sec.heading}</div>
+      <div class="section-title">${esc(sec.heading)}</div>
       <div class="info-grid">
         ${sec.rows.map(r => `
           <div class="info-block">
-            <div class="info-label">${r.label}</div>
-            <div class="info-value">${r.value}</div>
+            <div class="info-label">${esc(r.label)}</div>
+            <div class="info-value">${esc(r.value)}</div>
           </div>`).join("")}
       </div>
     </div>`).join("");
@@ -364,7 +381,7 @@ function openRecordAsHtml(params: HtmlViewerParams): void {
     <div class="totals">
       ${totals.map(t => `
         <div class="totals-row${t.highlight ? " highlight" : ""}">
-          <span>${t.label}</span><span>${t.value}</span>
+          <span>${esc(t.label)}</span><span>${esc(t.value)}</span>
         </div>`).join("")}
     </div>` : "";
 
@@ -621,6 +638,9 @@ const INVOICE_REF_OPTIONS: { value:InvoiceRefTable; label:string }[] = [
 ];
 
 const FILTER_KEY = "proc_filter_branch";
+// Last purchases list, so returning to this page paints instantly while a
+// fresh copy loads in the background.
+const purchasesCache = new Map<string, Purchase[]>();
 
 function SectionHeader({ title, action }: { title:string; action?:React.ReactNode }) {
   return <div className="flex items-center justify-between mb-5"><h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{title}</h2>{action}</div>;
@@ -668,10 +688,10 @@ export default function Procurement() {
   const periodCutoff = isCurrentPeriod ? null : lastDayOfPeriod(period);
 
   // ── Reference data ─────────────────────────────────────────────────────────
-  const { data:branchesRaw }          = useApi(getBranches);
-  const { data:suppliersRaw }         = useApi(getSuppliers);
-  const { data:ingredientsRaw }       = useApi(() => apiCall<Ingredient[]>("/api/ingredients"));
-  const { data:expenseCategoriesRaw } = useApi(() => apiCall<ExpenseCategory[]>("/api/expense-categories"));
+  const { data:branchesRaw }          = useApi(getBranches,  { cacheKey: `branches:${currentUserId}` });
+  const { data:suppliersRaw }         = useApi(getSuppliers, { cacheKey: `suppliers:${currentUserId}` });
+  const { data:ingredientsRaw }       = useApi(() => apiCall<Ingredient[]>("/api/ingredients"), { cacheKey: `ingredients:${currentUserId}` });
+  const { data:expenseCategoriesRaw } = useApi(() => apiCall<ExpenseCategory[]>("/api/expense-categories"), { cacheKey: `categories:${currentUserId}` });
 
   const branches    = (branchesRaw    ?? []) as Branch[];
   const suppliers   = (suppliersRaw   ?? []) as Supplier[];
@@ -689,12 +709,8 @@ export default function Procurement() {
   
 
   const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([]);
-  const categoriesInitialized = useRef(false);
   useEffect(() => {
-    if (expenseCategoriesRaw != null && !categoriesInitialized.current) {
-      setExpenseCategories(expenseCategoriesRaw as ExpenseCategory[]);
-      categoriesInitialized.current = true;
-    }
+    if (expenseCategoriesRaw != null) setExpenseCategories(expenseCategoriesRaw as ExpenseCategory[]);
   }, [expenseCategoriesRaw]);
 
   function handleCategoryAdded(cat: ExpenseCategory) {
@@ -707,10 +723,14 @@ export default function Procurement() {
     [...prev.filter(c => c && c.id !== cat.id), cat]
       .sort((a, b) => a.name.localeCompare(b.name))
   );
+  invalidateApiCache("categories:");
 }
   // ── Standard purchases ─────────────────────────────────────────────────────
-  const [purchases,        setPurchases]        = useState<Purchase[]>([]);
-  const [purchasesLoading, setPurchasesLoading] = useState(true);
+  const purchasesKey = `purchases:${currentUserId}`;
+  const [purchases,        setPurchases]        = useState<Purchase[]>(() => purchasesCache.get(purchasesKey) ?? []);
+  const [purchasesLoading, setPurchasesLoading] = useState(() => !purchasesCache.has(purchasesKey));
+  const purchasesRef = useRef(purchases);
+  purchasesRef.current = purchases;
   const [exporting,        setExporting]        = useState(false);
   const [openingPoId,      setOpeningPoId]      = useState<number|null>(null);
   const [approvingPoId,    setApprovingPoId]    = useState<number|null>(null);
@@ -739,18 +759,27 @@ export default function Procurement() {
 
 
   const fetchPurchases = useCallback(async () => {
-    setPurchasesLoading(true);
-    try { const data = await apiCall<Purchase[]>("/api/purchases"); setPurchases(data ?? []); }
-    catch { setPurchases([]); }
-    finally { setPurchasesLoading(false); }
-  }, []);
+    // Skeleton only when nothing is on screen; otherwise refresh quietly so the
+    // table doesn't blank out after every approve/edit.
+    if (purchasesRef.current.length === 0) setPurchasesLoading(true);
+    try {
+      const rows = (await apiCall<Purchase[]>("/api/purchases")) ?? [];
+      setPurchases(rows);
+      purchasesCache.set(purchasesKey, rows);
+    } catch {
+      // Keep whatever is on screen; only clear if there was nothing to show.
+      if (purchasesRef.current.length === 0) purchasesCache.delete(purchasesKey);
+    } finally { setPurchasesLoading(false); }
+  }, [purchasesKey]);
 
   const handleApprovePo = useCallback(async (id: number) => {
   setApprovingPoId(id);
   try {
     const updated = await apiCall<Purchase>(`/api/purchases/${id}/approve`, { method: "POST" });
+    invalidateGovernanceCache();
     if (updated?.id) {
       setPurchases(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+      purchasesCache.delete(purchasesKey);
     } else {
       await fetchPurchases();
     }
@@ -759,16 +788,18 @@ export default function Procurement() {
     fetchPurchases();
   }
   finally { setApprovingPoId(null); }
-}, [fetchPurchases]);
+}, [fetchPurchases, purchasesKey]);
 
 const handleRejectPo = useCallback(async (id: number) => {
   if (!window.confirm("Reject this PO? This cannot be undone.")) return;
   setApprovingPoId(id);
   try {
     const res: any = await apiCall(`/api/purchases/${id}/reject`, { method: "POST" });
+    invalidateGovernanceCache();
     const updated = res?.purchase ?? res;
     if (updated?.id) {
       setPurchases(prev => prev.map(p => p.id === id ? { ...p, ...updated } : p));
+      purchasesCache.delete(purchasesKey);
     } else {
       await fetchPurchases();
     }
@@ -777,7 +808,7 @@ const handleRejectPo = useCallback(async (id: number) => {
     fetchPurchases();
   }
   finally { setApprovingPoId(null); }
-}, [fetchPurchases]);
+}, [fetchPurchases, purchasesKey]);
   useEffect(() => { fetchPurchases(); }, [fetchPurchases]);
   useEffect(() => {
   const refresh = () => { void fetchPurchases(); };
@@ -789,7 +820,8 @@ const handleRejectPo = useCallback(async (id: number) => {
     setOpeningPoId(id);
     try {
       const token = localStorage.getItem("token") ?? "";
-      const resp  = await fetch(`/api/purchases/${id}`, { headers: { Authorization:`Bearer ${token}` } });
+      const API_BASE = import.meta.env.VITE_API_URL ?? "";
+      const resp  = await fetch(`${API_BASE}/api/purchases/${id}`, { headers: { Authorization:`Bearer ${token}` } });
       if (!resp.ok) throw new Error(`${resp.status}`);
       const json = await resp.json();
       openPoAsHtml(json.purchase ?? json, currencyLabel);
@@ -946,6 +978,7 @@ const handleRejectPo = useCallback(async (id: number) => {
         }),
       });
       setModal(null);
+      invalidateGovernanceCache();
       setEditingPurchase(null);
       await fetchPurchases();
     } catch (e: any) {
@@ -1055,6 +1088,7 @@ const handleRejectCash = useCallback(async (id:number) => {
   setRejectingId(id);
   try {
     await apiCall(`/api/cash-purchases/${id}/reject`, { method:"POST" });
+    invalidateGovernanceCache();
     await fetchCashPurchases();
   } catch { alert("Failed to reject cash purchase. Please try again."); }
   finally { setRejectingId(null); }
@@ -1064,6 +1098,7 @@ const handleRejectCash = useCallback(async (id:number) => {
     setApprovingId(id);
     try {
       await apiCall(`/api/cash-purchases/${id}/approve`, { method:"POST" });
+      invalidateGovernanceCache();
       await fetchCashPurchases();
       if (pettyBranchId) { await fetchPettyBalance(pettyBranchId); await fetchPettyLedger(pettyBranchId); }
     } catch { alert("Failed to approve cash purchase. Please try again."); }
@@ -1357,6 +1392,7 @@ const filteredPOsForSearch = useMemo(() => {
     try {
       await apiCall("/api/cash-purchases", { method:"POST", body:JSON.stringify({ branch_id:cashForm.branch_id, supplier_id:cashForm.supplier_id||undefined, ingredient_id:cashForm.purchase_mode==="ingredient"?cashForm.item_id:undefined, category_id:cashForm.purchase_mode==="expense"?cashForm.category_id:undefined, purchase_type:cashForm.purchase_type, entry_date:cashForm.entry_date, quantity:cashForm.quantity, unit_cost:cashForm.unit_cost, tax_amount:cashForm.tax_amount, payable_amount:cashForm.payable_amount, petty_cash_used:cashForm.petty_cash_used, notes:cashForm.notes, user_id:currentUserId }) });
       setModal(null);
+      invalidateGovernanceCache();
       await fetchCashPurchases();
     } catch { setFormError("Failed to save cash purchase. Check petty cash balance if using petty cash."); }
     finally  { setSaving(false); }
@@ -2097,7 +2133,7 @@ const filteredPOsForSearch = useMemo(() => {
                   <tr className="border-b border-border">
                     <Th>Date</Th><Th>Branch</Th><Th>Ingredient</Th><Th>Supplier</Th>
                     <Th right>Qty</Th><Th right>Unit Cost</Th><Th right>Total</Th>
-                    <Th center>Status</Th><Th center>Actions</Th>
+                    <Th center>Status</Th><Th center>Actions</Th>{canApprove && <Th center>Approval</Th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -2488,7 +2524,7 @@ const filteredPOsForSearch = useMemo(() => {
                     <Th right>PO Qty</Th><Th right>Received</Th><Th right>Pending</Th>
                     <Th center>GRNs</Th><Th>Last GRN</Th>
                     <Th right>PO Cost</Th><Th right>Actual Cost</Th><Th right>Variance</Th>
-                    <Th center>Status</Th><Th center>Actions</Th>{canApprove && <Th center>Approval</Th>}
+                    <Th center>Status</Th><Th center>Actions</Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">

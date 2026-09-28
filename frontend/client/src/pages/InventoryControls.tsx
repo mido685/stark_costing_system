@@ -25,7 +25,7 @@
     getCurrencyLabel,
   } from "@/lib/localization";
   import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";
-  import { PROCUREMENT_PO_EVENT } from "./Governance";
+  import { PROCUREMENT_PO_EVENT, invalidateGovernanceCache } from "@/lib/governanceCache";
   import { useAuth } from "@/contexts/AuthContext";
   // ─── Types ────────────────────────────────────────────────────────────────────
 
