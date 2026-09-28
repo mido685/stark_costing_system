@@ -1,4 +1,4 @@
-// import { useState, useEffect, useCallback } from "react";
+// import { useState, useEffect, useCallback, useRef } from "react";
 // import { Card } from "@/components/ui/card";
 // import { Button } from "@/components/ui/button";
 // import {
@@ -23,6 +23,66 @@
 // import { apiUpload, assetUrl } from "@/lib/api";
 // import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";   // make sure useEffect is imported
 
+
+// // Cache is memory-only and scoped to the signed-in user. A manual refetch
+// // bypasses the cache; cached content remains visible during background refresh.
+// const MASTER_CACHE_TTL = 60_000;
+// const masterCache = new Map<string, { value: unknown; timestamp: number }>();
+// function useCachedMaster<T>(key: string, fetcher: () => Promise<T>) {
+//   const fetcherRef = useRef(fetcher);
+//   fetcherRef.current = fetcher;
+//   const cached = masterCache.get(key);
+//   const [data, setData] = useState<T | undefined>(() => cached?.value as T | undefined);
+//   const [loading, setLoading] = useState(() => !cached);
+//   const [error, setError] = useState<string | null>(null);
+//   const keyRef = useRef(key);
+//   const requestRef = useRef(0);
+
+//   useEffect(() => {
+//     keyRef.current = key;
+//     const existing = masterCache.get(key);
+//     setData(existing?.value as T | undefined);
+//     setLoading(!existing);
+//     setError(null);
+//     let active = true;
+//     const request = ++requestRef.current;
+//     if (!existing || Date.now() - existing.timestamp > MASTER_CACHE_TTL) {
+//       void fetcherRef.current().then(value => {
+//         if (!active || request !== requestRef.current) return;
+//         masterCache.set(key, { value, timestamp: Date.now() });
+//         setData(value);
+//       }).catch(err => {
+//         if (active && request === requestRef.current) setError(err instanceof Error ? err.message : String(err));
+//       }).finally(() => {
+//         if (active && request === requestRef.current) setLoading(false);
+//       });
+//     }
+//     return () => { active = false; };
+//   }, [key]);
+
+//   const refetch = useCallback(async () => {
+//     const requestedKey = key;
+//     const request = ++requestRef.current;
+//     // Only show the initial skeleton when there is no previous result.
+//     if (!masterCache.has(key)) setLoading(true);
+//     setError(null);
+//     try {
+//       const value = await fetcherRef.current();
+//       if (request === requestRef.current && keyRef.current === requestedKey) {
+//         masterCache.set(key, { value, timestamp: Date.now() });
+//         setData(value);
+//       }
+//       return value;
+//     } catch (err) {
+//       if (request === requestRef.current && keyRef.current === requestedKey)
+//         setError(err instanceof Error ? err.message : String(err));
+//       throw err;
+//     } finally {
+//       if (request === requestRef.current && keyRef.current === requestedKey) setLoading(false);
+//     }
+//   }, [key]);
+//   return { data, loading, error, refetch };
+// }
 
 // // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -992,20 +1052,19 @@
 
 //   const currentUserId = Number(localStorage.getItem("user_id") ?? "0");
 
-//   const { data: branches,    loading: branchLoading,   refetch: refetchBranches  } = useApi(getBranches);
-//   const { data: suppliers,   loading: supplierLoading, refetch: refetchSuppliers } = useApi(getSuppliers);
-//   const { data: items,       loading: itemLoading,     refetch: refetchItemsRaw  } = useApi(getItems);
-//   const { data: users,       loading: userLoading,     refetch: refetchUsers     } = useApi(getUsers);
-
-//   const { data: ingredients, loading: ingredientLoading, refetch: refetchIngredients } = useApi(
-//   () => apiCall<IngredientOption[]>("/api/ingredients")
-// );
-
-
-//   const { data: skuPrefixData, loading: skuPrefixLoading, refetch: refetchSkuPrefixes } = useApi(
-//   getSkuPrefixes
-//   );
-
+//   const masterScope = String(currentUserId);
+//   const { data: branches, loading: branchLoading, error: branchError, refetch: refetchBranches } =
+//     useCachedMaster(`master:${masterScope}:branches`, getBranches);
+//   const { data: suppliers, loading: supplierLoading, error: supplierError, refetch: refetchSuppliers } =
+//     useCachedMaster(`master:${masterScope}:suppliers`, getSuppliers);
+//   const { data: items, loading: itemLoading, error: itemError, refetch: refetchItemsRaw } =
+//     useCachedMaster(`master:${masterScope}:items`, getItems);
+//   const { data: users, loading: userLoading, error: userError, refetch: refetchUsers } =
+//     useCachedMaster(`master:${masterScope}:users`, getUsers);
+//   const { data: ingredients, loading: ingredientLoading, error: ingredientError, refetch: refetchIngredients } =
+//     useCachedMaster(`master:${masterScope}:ingredients`, () => apiCall<IngredientOption[]>("/api/ingredients"));
+//   const { data: skuPrefixData, loading: skuPrefixLoading, error: skuPrefixError, refetch: refetchSkuPrefixes } =
+//     useCachedMaster(`master:${masterScope}:sku-prefixes`, getSkuPrefixes);
 
 //   const skuPrefixes: SkuPrefixRow[] = skuPrefixData ?? [];
 
@@ -1015,21 +1074,33 @@
 //   const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
 //   const [priceHistory, setPriceHistory] = useState<PriceHistoryRow[]>([]);
 //   const [priceLoading, setPriceLoading] = useState(false);
-
-// // REPLACE your current fetchPriceHistory function with this:
-//   const fetchPriceHistory = useCallback(async (ingredientId: number) => {
-//     if (!ingredientId) { setPriceHistory([]); return; }
-//     setPriceLoading(true);
-//     try {
-//       const rows = await apiCall<PriceHistoryRow[]>(
-//         `/api/suppliers/price-history/${ingredientId}`
-//       );
-//       setPriceHistory(Array.isArray(rows) ? rows : []);
-//     } catch {
-//       setPriceHistory([]);
+//   const [priceError, setPriceError] = useState("");
+//   const priceRequestRef = useRef(0);
+//   const fetchPriceHistory = useCallback(async (ingredientId: number, force = false) => {
+//     const request = ++priceRequestRef.current;
+//     if (!ingredientId) { setPriceHistory([]); setPriceLoading(false); return; }
+//     const key = `master:${masterScope}:price-history:${ingredientId}`;
+//     const cached = masterCache.get(key);
+//     setPriceHistory((cached?.value as PriceHistoryRow[] | undefined) ?? []);
+//     setPriceError("");
+//     if (cached && !force && Date.now() - cached.timestamp < MASTER_CACHE_TTL) {
+//       setPriceLoading(false);
+//       return;
 //     }
-//     setPriceLoading(false);
-//   }, []); 
+//     setPriceLoading(!cached);
+//     try {
+//       const rows = await apiCall<PriceHistoryRow[]>(`/api/suppliers/price-history/${ingredientId}`);
+//       if (request !== priceRequestRef.current) return;
+//       const safeRows = Array.isArray(rows) ? rows : [];
+//       masterCache.set(key, { value: safeRows, timestamp: Date.now() });
+//       setPriceHistory(safeRows);
+//     } catch (err) {
+//       if (request === priceRequestRef.current)
+//         setPriceError(err instanceof Error ? err.message : "Failed to load price history");
+//     } finally {
+//       if (request === priceRequestRef.current) setPriceLoading(false);
+//     }
+//   }, [masterScope]); 
 //   const filteredIngredients = (ingredients ?? []).filter((i: IngredientOption) =>
 //     i.name.toLowerCase().includes(ingredientSearch.toLowerCase())
 //   );
@@ -1183,7 +1254,7 @@
 //       setSelectedIngredient(result.id);
 //       setSelectedIngredientName(savedName);
 //       setTab("prices");
-//       await fetchPriceHistory(result.id);
+//       await fetchPriceHistory(result.id, true);
 //     }
 
 //     await refetchItemsRaw?.();
@@ -1275,7 +1346,7 @@
 //       setTab("prices");
 
 //       await Promise.all([
-//         fetchPriceHistory(savedIngredientId),
+//         fetchPriceHistory(savedIngredientId, true),
 //         refetchIngredients?.(),
 //         refetchItemsRaw?.(),
 //       ]);
@@ -1353,6 +1424,12 @@
 
 //   return (
 //     <div className="space-y-6">
+//       {(branchError || supplierError || itemError || userError || ingredientError || skuPrefixError || priceError) && (
+//         <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600">
+//           {branchError || supplierError || itemError || userError || ingredientError || skuPrefixError || priceError}
+//         </div>
+//       )}
+
 
 //       {/* ── Branch Modal ── */}
 //       {modal === "branch" && (
@@ -2236,6 +2313,7 @@ import {
   Tag, Upload, Pencil, Activity, CheckCircle,
 } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
+import { useCachedQuery, readCachedQuery, writeCachedQuery, invalidateCachedQueries } from "@/hooks/useCachedQuery";
 import {
   getBranches, getSuppliers, getItems, getUsers,
   addBranch, addSupplier, addItem, addUser,
@@ -2251,65 +2329,8 @@ import { apiUpload, assetUrl } from "@/lib/api";
 import { useWorkingPeriod } from "@/contexts/Workingperiodcontext";   // make sure useEffect is imported
 
 
-// Cache is memory-only and scoped to the signed-in user. A manual refetch
-// bypasses the cache; cached content remains visible during background refresh.
-const MASTER_CACHE_TTL = 60_000;
-const masterCache = new Map<string, { value: unknown; timestamp: number }>();
-function useCachedMaster<T>(key: string, fetcher: () => Promise<T>) {
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
-  const cached = masterCache.get(key);
-  const [data, setData] = useState<T | undefined>(() => cached?.value as T | undefined);
-  const [loading, setLoading] = useState(() => !cached);
-  const [error, setError] = useState<string | null>(null);
-  const keyRef = useRef(key);
-  const requestRef = useRef(0);
-
-  useEffect(() => {
-    keyRef.current = key;
-    const existing = masterCache.get(key);
-    setData(existing?.value as T | undefined);
-    setLoading(!existing);
-    setError(null);
-    let active = true;
-    const request = ++requestRef.current;
-    if (!existing || Date.now() - existing.timestamp > MASTER_CACHE_TTL) {
-      void fetcherRef.current().then(value => {
-        if (!active || request !== requestRef.current) return;
-        masterCache.set(key, { value, timestamp: Date.now() });
-        setData(value);
-      }).catch(err => {
-        if (active && request === requestRef.current) setError(err instanceof Error ? err.message : String(err));
-      }).finally(() => {
-        if (active && request === requestRef.current) setLoading(false);
-      });
-    }
-    return () => { active = false; };
-  }, [key]);
-
-  const refetch = useCallback(async () => {
-    const requestedKey = key;
-    const request = ++requestRef.current;
-    // Only show the initial skeleton when there is no previous result.
-    if (!masterCache.has(key)) setLoading(true);
-    setError(null);
-    try {
-      const value = await fetcherRef.current();
-      if (request === requestRef.current && keyRef.current === requestedKey) {
-        masterCache.set(key, { value, timestamp: Date.now() });
-        setData(value);
-      }
-      return value;
-    } catch (err) {
-      if (request === requestRef.current && keyRef.current === requestedKey)
-        setError(err instanceof Error ? err.message : String(err));
-      throw err;
-    } finally {
-      if (request === requestRef.current && keyRef.current === requestedKey) setLoading(false);
-    }
-  }, [key]);
-  return { data, loading, error, refetch };
-}
+// Shared cache implementation lives in @/hooks/useCachedQuery.
+const MASTER_CACHE_TTL = 5 * 60_000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -3279,19 +3300,21 @@ export default function Masters() {
 
   const currentUserId = Number(localStorage.getItem("user_id") ?? "0");
 
-  const masterScope = String(currentUserId);
+  const authUser = (() => { try { return JSON.parse(localStorage.getItem("auth_user") ?? "{}"); } catch { return {}; } })();
+  const companyId = String(authUser.company_id ?? authUser.company?.id ?? "unknown");
+  const masterScope = `${companyId}:${currentUserId}`;
   const { data: branches, loading: branchLoading, error: branchError, refetch: refetchBranches } =
-    useCachedMaster(`master:${masterScope}:branches`, getBranches);
+    useCachedQuery(`master:${masterScope}:branches`, getBranches);
   const { data: suppliers, loading: supplierLoading, error: supplierError, refetch: refetchSuppliers } =
-    useCachedMaster(`master:${masterScope}:suppliers`, getSuppliers);
+    useCachedQuery(`master:${masterScope}:suppliers`, getSuppliers);
   const { data: items, loading: itemLoading, error: itemError, refetch: refetchItemsRaw } =
-    useCachedMaster(`master:${masterScope}:items`, getItems);
+    useCachedQuery(`master:${masterScope}:items`, getItems);
   const { data: users, loading: userLoading, error: userError, refetch: refetchUsers } =
-    useCachedMaster(`master:${masterScope}:users`, getUsers);
+    useCachedQuery(`master:${masterScope}:users`, getUsers);
   const { data: ingredients, loading: ingredientLoading, error: ingredientError, refetch: refetchIngredients } =
-    useCachedMaster(`master:${masterScope}:ingredients`, () => apiCall<IngredientOption[]>("/api/ingredients"));
+    useCachedQuery(`master:${masterScope}:ingredients`, () => apiCall<IngredientOption[]>("/api/ingredients"));
   const { data: skuPrefixData, loading: skuPrefixLoading, error: skuPrefixError, refetch: refetchSkuPrefixes } =
-    useCachedMaster(`master:${masterScope}:sku-prefixes`, getSkuPrefixes);
+    useCachedQuery(`master:${masterScope}:sku-prefixes`, getSkuPrefixes);
 
   const skuPrefixes: SkuPrefixRow[] = skuPrefixData ?? [];
 
@@ -3307,7 +3330,7 @@ export default function Masters() {
     const request = ++priceRequestRef.current;
     if (!ingredientId) { setPriceHistory([]); setPriceLoading(false); return; }
     const key = `master:${masterScope}:price-history:${ingredientId}`;
-    const cached = masterCache.get(key);
+    const cached = readCachedQuery<PriceHistoryRow[]>(key);
     setPriceHistory((cached?.value as PriceHistoryRow[] | undefined) ?? []);
     setPriceError("");
     if (cached && !force && Date.now() - cached.timestamp < MASTER_CACHE_TTL) {
@@ -3319,7 +3342,7 @@ export default function Masters() {
       const rows = await apiCall<PriceHistoryRow[]>(`/api/suppliers/price-history/${ingredientId}`);
       if (request !== priceRequestRef.current) return;
       const safeRows = Array.isArray(rows) ? rows : [];
-      masterCache.set(key, { value: safeRows, timestamp: Date.now() });
+      writeCachedQuery(key, safeRows);
       setPriceHistory(safeRows);
     } catch (err) {
       if (request === priceRequestRef.current)
@@ -3572,6 +3595,7 @@ export default function Masters() {
       setSelectedIngredientName(savedIngredientName);
       setTab("prices");
 
+      invalidateCachedQueries(`master:${masterScope}:price-history:${savedIngredientId}`);
       await Promise.all([
         fetchPriceHistory(savedIngredientId, true),
         refetchIngredients?.(),
