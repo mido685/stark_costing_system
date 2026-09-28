@@ -135,6 +135,23 @@ const PAGE_SIZE         = 20;
 const HISTORY_PAGE_SIZE = 25;
 export const PROCUREMENT_PO_EVENT = "procurement:po-created";
 
+// Short-lived, in-memory cache. Scoped to the signed-in user; cleared on full reload.
+const GOV_CACHE_MS = 60_000;
+const governanceCache = new Map<string, { value: unknown; savedAt: number }>();
+function cachedGovernance<T>(key: string): T | undefined {
+  const entry = governanceCache.get(key);
+  if (!entry || Date.now() - entry.savedAt > GOV_CACHE_MS) return undefined;
+  return entry.value as T;
+}
+function saveGovernance<T>(key: string, value: T): void {
+  governanceCache.set(key, { value, savedAt: Date.now() });
+}
+
+// A PO created elsewhere invalidates everything, even while this page is unmounted.
+if (typeof window !== "undefined") {
+  window.addEventListener(PROCUREMENT_PO_EVENT, () => governanceCache.clear());
+}
+
 const CATEGORY_TYPES: { value: CategoryType; label: string }[] = [
   { value: "expense",   label: "Expense"   },
   { value: "inventory", label: "Inventory" },
@@ -981,9 +998,6 @@ function GovernanceHistoryTab({ rows, loading, error, onRetry, addToast }: {
             <Button variant="outline" size="sm" className="gov-btn-press h-8 text-xs" onClick={handleExportCSV} disabled={filtered.length === 0}>
               <Download className="w-3.5 h-3.5 me-1.5" /> Export
             </Button>
-            <Button variant="outline" size="sm" className="gov-btn-press h-8 w-8 p-0" onClick={onRetry} disabled={loading}>
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            </Button>
           </div>
         </div>
 
@@ -1133,9 +1147,6 @@ function POHistoryTab({ rows, loading, error, onRetry, addToast }: {
             <Button variant="outline" size="sm" className="gov-btn-press h-8 text-xs" onClick={handleExportCSV} disabled={filtered.length === 0}>
               <Download className="w-3.5 h-3.5 me-1.5" /> Export
             </Button>
-            <Button variant="outline" size="sm" className="gov-btn-press h-8 w-8 p-0" onClick={onRetry} disabled={loading}>
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            </Button>
           </div>
         </div>
 
@@ -1232,6 +1243,7 @@ export default function Governance() {
   const currentUserId = Number(authUser.id ?? 1);
   const currentUserRole = String(authUser.role ?? "").toLowerCase();
   const canApprove = ["owner", "admin", "manager"].includes(currentUserRole);
+  const cacheScope = String(authUser.id ?? "anonymous");
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState<number>(0);
@@ -1268,8 +1280,12 @@ export default function Governance() {
     []
   );
 
-  const fetchGovHistory = useCallback(async () => {
-    setGovHistoryLoading(true); setGovHistoryError(null);
+  const fetchGovHistory = useCallback(async (force = false) => {
+    const key = `gov-history:${cacheScope}:${branchId}`;
+    const cached = cachedGovernance<GovernanceHistoryRow[]>(key);
+    if (cached && !force) { setGovHistoryRows(cached); return; }
+    setGovHistoryLoading(!cached && govHistoryRows.length === 0);
+    setGovHistoryError(null);
     try {
       const params = new URLSearchParams();
       if (branchId) params.set("branch_id", String(branchId));
@@ -1283,21 +1299,26 @@ export default function Governance() {
         return { ...row, item_sku: itemSku };
       });
       setGovHistoryRows(rows);
+      saveGovernance(key, rows);
     } catch (err: any) {
       const msg = err?.message ?? "Failed to load governance history";
       setGovHistoryError(msg); addToast("error", msg);
     } finally { setGovHistoryLoading(false); }
-  }, [branchId, masterItems, addToast]);
+  }, [branchId, masterItems, addToast, cacheScope, govHistoryRows.length]);
 
-  useEffect(() => { fetchGovHistory(); }, [fetchGovHistory]);
+  useEffect(() => { void fetchGovHistory(); }, [fetchGovHistory]);
 
   // ── PO history (fetched once per branch, not per tab click) ──
   const [poHistoryRows,    setPoHistoryRows]    = useState<PurchaseHistoryRow[]>([]);
   const [poHistoryLoading, setPoHistoryLoading] = useState(true);
   const [poHistoryError,   setPoHistoryError]   = useState<string | null>(null);
 
-  const fetchPOHistory = useCallback(async () => {
-    setPoHistoryLoading(true); setPoHistoryError(null);
+  const fetchPOHistory = useCallback(async (force = false) => {
+    const key = `po-history:${cacheScope}:${branchId}`;
+    const cached = cachedGovernance<PurchaseHistoryRow[]>(key);
+    if (cached && !force) { setPoHistoryRows(cached); return; }
+    setPoHistoryLoading(!cached && poHistoryRows.length === 0);
+    setPoHistoryError(null);
     try {
       const params = new URLSearchParams({ limit: "200" });
       if (branchId) params.set("branch_id", String(branchId));
@@ -1311,13 +1332,14 @@ export default function Governance() {
         return { ...row, item_sku: itemSku };
       });
       setPoHistoryRows(rows);
+      saveGovernance(key, rows);
     } catch (err: any) {
       const msg = err?.message ?? "Failed to load purchase orders";
       setPoHistoryError(msg); addToast("error", msg);
     } finally { setPoHistoryLoading(false); }
-  }, [branchId, addToast, masterItems]);
+  }, [branchId, addToast, masterItems, cacheScope, poHistoryRows.length]);
 
-  useEffect(() => { fetchPOHistory(); }, [fetchPOHistory]);
+  useEffect(() => { void fetchPOHistory(); }, [fetchPOHistory]);
   const selectedPeriodStart = `${workingPeriod}-01`;
   const selectedPeriodEnd = useMemo(() => {
     const [year, month] = workingPeriod.split("-").map(Number);
@@ -1356,10 +1378,16 @@ export default function Governance() {
 
   // ── Fetch approvals ───────────────────────────────────────────────────────
 
-  const fetchApprovals = useCallback(async () => {
-    setApprovalsLoading(true); setApprovalsError(null);
+  const fetchApprovals = useCallback(async (force = false) => {
+    const key = `approvals:${cacheScope}`;
+    const cached = cachedGovernance<any[]>(key);
+    setApprovalsLoading(!cached && approvals.length === 0);
+    setApprovalsError(null);
     try {
-      const data = await apiCall<any[]>("/api/approvals/pending");
+      const data = cached && !force
+        ? cached
+        : await apiCall<any[]>("/api/approvals/pending");
+      if (!cached || force) saveGovernance(key, data);
       const serverItems: ApprovalItem[] = (Array.isArray(data) ? data : []).map((row) => {
         // Resolve each purchase against the current Items Master before it is
         // displayed or printed. This keeps the PO item code current and also
@@ -1432,8 +1460,7 @@ export default function Governance() {
       const msg = err?.message ?? t("gov.error.fetchApprovals");
       setApprovalsError(msg); addToast("error", msg);
     } finally { setApprovalsLoading(false); }
-  }, [addToast, t, masterItems]);
-
+  }, [addToast, t, masterItems, cacheScope, approvals.length]);
   useEffect(() => {
     function handleNewPO(event: Event) {
       const d = (event as CustomEvent).detail;
@@ -1449,8 +1476,8 @@ export default function Governance() {
           ? `${count} new Purchase Order${count !== 1 ? "s" : ""} added to approval queue.`
           : `New ${poRef(d.po_number, d.id)} added to approval queue.`
       );
-    fetchApprovals();
-    fetchPOHistory();
+    void fetchApprovals(true);
+    void fetchPOHistory(true);
   }
     window.addEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
     return () => window.removeEventListener(PROCUREMENT_PO_EVENT, handleNewPO);
@@ -1469,14 +1496,16 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
   try {
     await apiCall(`/api/approvals/${id}/${action}`, { method: "POST", body: JSON.stringify({ user_id: currentUserId }) });
     addToast("success", action === "approve" ? t("gov.toast.approved") : t("gov.toast.rejected"));
-    fetchApprovals();
+    void fetchApprovals(true);
+    void fetchGovHistory(true);
+    void fetchPOHistory(true);
   } catch (err: any) {
     addToast("error", err?.message ?? t("gov.error.action"));
-    fetchApprovals();
+    void fetchApprovals(true);
   } finally {
     setLoadingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
   }
-}, [currentUserId, addToast, t, fetchApprovals]);
+}, [currentUserId, addToast, t, fetchApprovals, fetchGovHistory, fetchPOHistory, canApprove]);
 
   // ── Bulk approve ──────────────────────────────────────────────────────────
 
@@ -1679,9 +1708,6 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
               <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={approvalsLoading || approvals.length === 0} className="gov-btn-press text-xs">
                 <Download className="w-3.5 h-3.5 me-1.5" />{t("gov.action.export")}
               </Button>
-              <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="gov-btn-press">
-                <RefreshCw className={`w-4 h-4 ${approvalsLoading ? "animate-spin" : ""}`} />
-              </Button>
             </>
           )}
         </div>
@@ -1716,7 +1742,7 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
             rows={govHistoryRows}
             loading={govHistoryLoading}
             error={govHistoryError}
-            onRetry={fetchGovHistory}
+            onRetry={() => { void fetchGovHistory(true); }}
             addToast={addToast}
           />
         )}
@@ -1725,7 +1751,7 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
             rows={poHistoryRows}
             loading={poHistoryLoading}
             error={poHistoryError}
-            onRetry={fetchPOHistory}
+            onRetry={() => { void fetchPOHistory(true); }}
             addToast={addToast}
           />
         )}
@@ -1821,9 +1847,6 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
                       Price changes awaiting review
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" onClick={fetchApprovals} disabled={approvalsLoading} className="w-full justify-start text-xs h-9">
-                    <RefreshCw className={`w-3.5 h-3.5 me-2 ${approvalsLoading ? "animate-spin" : ""}`} />Refresh queue
-                  </Button>
                   <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={approvals.length === 0} className="w-full justify-start text-xs h-9">
                     <Download className="w-3.5 h-3.5 me-2" />Export current view
                   </Button>
@@ -1924,7 +1947,7 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
                 </div>
               )}
 
-              {approvalsError && <div className="mb-4"><ErrorBanner message={approvalsError} onRetry={fetchApprovals} /></div>}
+              {approvalsError && <div className="mb-4"><ErrorBanner message={approvalsError} onRetry={() => { void fetchApprovals(true); }} /></div>}
 
               {approvalsLoading ? (
                 <div className="space-y-2">{[1,2,3].map((i) => <SkeletonRow key={i} />)}</div>
