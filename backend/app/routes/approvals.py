@@ -68,7 +68,8 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 (
                     SELECT sph2.price
                     FROM supplier_price_history sph2
-                    WHERE sph2.ingredient_id = sph.ingredient_id
+                    WHERE ar.entity_type   = 'price_history'
+                    AND sph2.ingredient_id = sph.ingredient_id
                     AND sph2.supplier_id   = sph.supplier_id
                     AND sph2.status        = 'approved'
                     AND sph2.id            < sph.id
@@ -126,11 +127,7 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 OR (
                     ar.entity_type = 'price_history'
                     AND ar.branch_id IS NULL
-                    AND %s IN (
-                        SELECT company_id
-                        FROM supplier_price_history
-                        WHERE id = ar.entity_id
-                    )
+                    AND sph.company_id = %s
                 )
             )
             AND ar.status = 'pending'
@@ -315,7 +312,7 @@ def governance_history(
                 cp.purchase_type,
                 cp.petty_cash_used,
                 ec.name AS expense_category,
-                sub.display_name    AS submitter_name
+                gal.submitted_by    AS submitter_name
             FROM governance_action_log gal
             LEFT JOIN branches          b   ON b.id   = gal.branch_id
             LEFT JOIN app_users         u   ON u.id   = gal.actor_id
@@ -335,9 +332,6 @@ def governance_history(
                 ON ec.id = cp.category_id
             LEFT JOIN suppliers         s   ON s.id   = p.supplier_id
             LEFT JOIN ingredients       i   ON i.id   = p.ingredient_id
-            LEFT JOIN approval_requests ar  ON gal.entity_type = ar.entity_type
-                                           AND gal.item_id::integer = ar.entity_id
-            LEFT JOIN app_users         sub ON sub.id = ar.requested_by
             WHERE {" AND ".join(where)}
             ORDER BY gal.action_date DESC
             LIMIT 500
@@ -474,39 +468,20 @@ def _set_approval_status(
                 (status, old["entity_id"]),
             )
         elif old["entity_type"] == "price_history":
-            # Delegate entirely to the db function — it handles
-            # supplier_price_history status, ingredients.cost_per_unit,
-            # standard_cost_history, log_audit, and log_event in one place.
-            conn.commit()
-            approve_supplier_price(
-                price_id=old["entity_id"],
-                company_id=company_id,
-                approver_id=current_user["id"],
-                action=status,
-                ip_address=ip_address,
-            )
-            # governance log + audit for the approval_requests row itself
-            # are handled below; re-open connection for those writes.
-            conn2 = get_connection()
-            cur2 = dict_cursor(conn2)
+            # Runs inside this transaction: if the price update fails, the
+            # approval_requests change above is rolled back with it.
             try:
-                _write_governance_and_audit(
-                    cur2, conn2,
-                    old_dict=old_dict,
-                    row=row,
-                    status=status,
+                approve_supplier_price(
+                    price_id=old["entity_id"],
                     company_id=company_id,
-                    current_user=current_user,
+                    approver_id=current_user["id"],
+                    action=status,
                     ip_address=ip_address,
+                    conn=conn,
                 )
-                conn2.commit()
-            except Exception:
-                conn2.rollback()
-                raise
-            finally:
-                cur2.close()
-                conn2.close()
-            return success(f"Approval {status}", approval=row)
+            except ValueError as exc:
+                conn.rollback()
+                return error(str(exc), status=409)
 
         # ── Audit + log_event for approval_requests row ───────────────────────
         _write_governance_and_audit(

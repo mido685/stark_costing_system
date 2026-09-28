@@ -445,6 +445,7 @@ def approve_supplier_price(
     approver_id: int,
     action: str,  # "approved" or "rejected"
     ip_address: str | None = None,
+    conn: Any | None = None,  # pass an open connection to join the caller's transaction
 ) -> dict:
     """
     Approve or reject a pending supplier price record.
@@ -455,7 +456,9 @@ def approve_supplier_price(
     if action not in {"approved", "rejected"}:
         raise ValueError("Action must be 'approved' or 'rejected'")
 
-    conn = get_connection()
+    owns_conn = conn is None
+    if owns_conn:
+        conn = get_connection()
     cur = dict_cursor(conn)
     try:
         cur.execute("""
@@ -465,6 +468,7 @@ def approve_supplier_price(
             WHERE sph.id = %s
               AND s.company_id = %s
               AND sph.status = 'pending'
+            FOR UPDATE OF sph
         """, (price_id, company_id))
         price_row = cur.fetchone()
         if not price_row:
@@ -539,15 +543,18 @@ def approve_supplier_price(
             },
             ip_address=ip_address,
         )
-        conn.commit()
+        if owns_conn:
+            conn.commit()
         return updated
 
     except Exception:
-        conn.rollback()
+        if owns_conn:
+            conn.rollback()
         raise
     finally:
         cur.close()
-        conn.close()
+        if owns_conn:
+            conn.close()
 
 
 def update_standard_cost(
