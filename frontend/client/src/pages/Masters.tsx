@@ -1017,25 +1017,44 @@ export default function Masters() {
 
   // Price stats
   const priceStats: Stat[] = (() => {
-    if (!priceHistory.length) return [];
-    const latest = priceHistory[0].price, oldest = priceHistory[priceHistory.length - 1].price;
-    const diff = latest - oldest, pct = oldest > 0 ? (diff / oldest) * 100 : 0;
-    const std = ingredients?.find(i => i.id === selectedIngredient)?.cost_per_unit ?? null;
-    const market = priceHistory.find(r => (r.price_type === "market_price" || !r.price_type) && r.status === "approved");
-    const variance = std != null && market ? market.price - std : null;
-    const variancePct = std && std > 0 && variance != null ? (variance / std) * 100 : null;
-    const trendColor = (n: number) => n > 0 ? "text-red-500" : n < 0 ? "text-green-600" : "text-muted-foreground";
-    const sign = (n: number) => (n > 0 ? "+" : "");
-    return [
-      { label: "Latest Price",   value: formatCurrency(latest), color: "text-foreground" },
-      { label: "Overall Change", value: `${sign(diff)}${formatCurrency(diff)} (${sign(pct)}${pct.toFixed(1)}%)`, color: trendColor(diff) },
-      { label: "Standard Cost",  value: std != null ? formatCurrency(std) : "—", color: "text-foreground" },
-      { label: "Market vs Standard",
-        value: variance == null ? "—" : `${sign(variance)}${formatCurrency(variance)}${variancePct != null ? ` (${sign(variancePct)}${variancePct.toFixed(1)}%)` : ""}`,
-        color: variance == null ? "text-muted-foreground" : trendColor(variance) },
-    ];
-  })();
+  if (!priceHistory.length) return [];
 
+  const latest = priceHistory[0].price;
+  const oldest = priceHistory[priceHistory.length - 1].price;
+
+  const diff = latest - oldest;
+  const pct = oldest > 0 ? (diff / oldest) * 100 : 0;
+
+  const initialCost =
+    ingredients?.find(i => i.id === selectedIngredient)?.cost_per_unit ?? null;
+
+  const trendColor = (n: number) =>
+    n > 0
+      ? "text-red-500"
+      : n < 0
+      ? "text-green-600"
+      : "text-muted-foreground";
+
+  const sign = (n: number) => (n > 0 ? "+" : "");
+
+  return [
+    {
+      label: "Latest Price",
+      value: formatCurrency(latest),
+      color: "text-foreground",
+    },
+    {
+      label: "Price Change",
+      value: `${sign(diff)}${formatCurrency(diff)} (${sign(pct)}${pct.toFixed(1)}%)`,
+      color: trendColor(diff),
+    },
+    {
+      label: "Initial Cost",
+      value: initialCost != null ? formatCurrency(initialCost) : "—",
+      color: "text-foreground",
+    },
+  ];
+})();
   const anyError = branchError || supplierError || itemError || userError || ingredientError || skuError || priceError;
 
   // ── Render ──
