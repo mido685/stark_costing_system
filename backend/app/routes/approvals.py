@@ -47,6 +47,7 @@ def pending_approvals(current_user: dict = Depends(get_current_user)):
                 cp.purchase_type,
                 cp.petty_cash_used,
                 ec.name AS expense_category,
+                cp.cash_purchase_number,
 
                 COALESCE(s.name, cs.name, sph_s.name) AS supplier_name,
                 COALESCE(s.phone, cs.phone) AS supplier_phone,

@@ -222,7 +222,8 @@ class PurchaseRequest(BaseModel):
     payable_amount: float = 0
     notes:         str   = ""
     status:        str   = "pending"  # PO starts as pending — no stock impact yet
-
+class PurchaseCancellationRequest(BaseModel):
+    cancellation_reason: str
 
 class PurchaseUpdateRequest(BaseModel):
     quantity:      float

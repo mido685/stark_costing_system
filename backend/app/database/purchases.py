@@ -216,10 +216,10 @@ def approve_purchase(
 
         cur.execute("""
             UPDATE purchases
-            SET status = 'approved', approved_by = %s
+            SET status = 'approved'
             WHERE id = %s
             RETURNING *
-        """, (user_id, purchase_id))
+        """, (purchase_id,))
         updated = dict(cur.fetchone())
 
         # ── Keep approval_requests in sync (Governance reads this table) ──────
@@ -346,7 +346,134 @@ def reject_purchase(
         cur.close()
         conn.close()
 
+# ---------------------------------------------------------------------------
+# Cancel — only approved POs that have not been received
+# ---------------------------------------------------------------------------
 
+def cancel_purchase(
+    purchase_id: int,
+    company_id: int,
+    user_id: int,
+    cancellation_reason: str,
+    ip_address: str | None = None,
+) -> dict:
+    if not cancellation_reason or not cancellation_reason.strip():
+        raise ValueError("Cancellation reason is required")
+
+    conn = get_connection()
+    cur = dict_cursor(conn)
+
+    try:
+        cur.execute("""
+            SELECT p.*, b.company_id
+            FROM purchases p
+            JOIN branches b ON b.id = p.branch_id
+            WHERE p.id = %s
+              AND b.company_id = %s
+              AND p.status = 'approved'
+        """, (purchase_id, company_id))
+
+        purchase = cur.fetchone()
+
+        if not purchase:
+            raise ValueError(
+                "Purchase not found, not approved, already cancelled, "
+                "or access denied"
+            )
+
+        purchase = dict(purchase)
+
+        # Do not allow cancellation if this PO has already been received.
+        cur.execute("""
+            SELECT 1
+            FROM goods_receipts
+            WHERE purchase_id = %s
+            LIMIT 1
+        """, (purchase_id,))
+
+        if cur.fetchone():
+            raise ValueError(
+                "This purchase order has already been received and cannot be cancelled"
+            )
+
+        cur.execute("""
+            UPDATE purchases
+            SET status = 'cancelled',
+                cancellation_reason = %s,
+                cancelled_by = %s,
+                cancelled_at = NOW()
+            WHERE id = %s
+              AND company_id = %s
+              AND status = 'approved'
+            RETURNING *
+        """, (
+            cancellation_reason.strip(),
+            user_id,
+            purchase_id,
+            company_id,
+        ))
+
+        updated = cur.fetchone()
+
+        if not updated:
+            raise ValueError(
+                "Purchase could not be cancelled"
+            )
+
+        updated = dict(updated)
+
+        log_audit(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="CANCEL",
+            table_name="purchases",
+            record_id=purchase_id,
+            old_data={
+                "status": "approved",
+            },
+            new_data={
+                "status": "cancelled",
+                "cancellation_reason": cancellation_reason.strip(),
+                "cancelled_by": user_id,
+            },
+            ip_address=ip_address,
+        )
+
+        log_event(
+            conn,
+            company_id=company_id,
+            user_id=user_id,
+            branch_id=purchase["branch_id"],
+            action="cancelled",
+            category="data",
+            level="warning",
+            entity_type="purchases",
+            entity_id=purchase_id,
+            payload={
+                "po_number": purchase.get("po_number"),
+                "changes": {
+                    "status": "cancelled",
+                    "cancellation_reason": cancellation_reason.strip(),
+                },
+                "original": {
+                    "status": "approved",
+                },
+            },
+            ip_address=ip_address,
+        )
+
+        conn.commit()
+        return updated
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        cur.close()
+        conn.close()
 # ---------------------------------------------------------------------------
 # Edit  —  only allowed while still pending
 # ---------------------------------------------------------------------------

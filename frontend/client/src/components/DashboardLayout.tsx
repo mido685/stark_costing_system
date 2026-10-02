@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   LayoutDashboard, Settings2, Package, ShoppingCart,
   Factory, ClipboardList, DollarSign, TrendingUp,
@@ -59,7 +59,24 @@ export default function DashboardLayout({ children, onLogout }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [location] = useLocation();
-
+  const search = useSearch();
+  const activeInventoryTab =
+    new URLSearchParams(search).get("tab") ?? "dashboard";
+  const activeProcurementTab =
+    new URLSearchParams(search).get("tab") ?? "po";
+    
+  const activeMastersTab =
+    new URLSearchParams(search).get("tab") ?? "branches";
+  
+  const [inventoryOpen, setInventoryOpen] = useState(
+  location.startsWith("/inventory")
+  );
+  const [procurementOpen, setProcurementOpen] = useState(
+    location.startsWith("/procurement")
+  );
+  const [mastersOpen, setMastersOpen] = useState(
+    location.startsWith("/masters")
+);
   const { toggleTheme, isDark }                = useTheme();
   const { language, toggleLanguage, t, isRTL } = useLanguage();
   const { user, token, updateUser, hasModule } = useAuth();
@@ -162,33 +179,404 @@ export default function DashboardLayout({ children, onLogout }: Props) {
           </div>
         </div>
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5" aria-label="Main navigation">
+        <nav
+          className="flex-1 overflow-y-auto p-2 space-y-0.5"
+          aria-label="Main navigation"
+        >
           {NAV_ITEMS
             .filter((item) => !("module" in item) || hasModule(item.module))
             .map(({ href, labelKey, icon: Icon, color }) => {
-            const active = location === href;
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? "page" : undefined}
-                className={`
-                  flex items-center gap-3 rounded-md px-2.5 py-2 text-sm
-                  transition-colors
-                  ${collapsed ? "justify-center" : ""}
-                  ${active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  }
-                `}
-              >
-                <Icon size={18} className={`shrink-0 ${active ? "text-primary" : color}`} />
-                {!collapsed && (
-                  <span className="truncate font-medium">{t(labelKey)}</span>
-                )}
-            </Link>
-            );
-          })}
+
+              // ── Masters parent ───────────────────────────────────────────
+            if (href === "/masters") {
+              const active = location === href;
+
+              return (
+                <div key={href} className="space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setMastersOpen((open) => !open)}
+                    className={`
+                      w-full flex items-center gap-3 rounded-md px-2.5 py-2 text-sm
+                      transition-colors
+                      ${collapsed ? "justify-center" : ""}
+                      ${
+                        active
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      }
+                    `}
+                  >
+                    <Icon
+                      size={18}
+                      className={`shrink-0 ${active ? "text-primary" : color}`}
+                    />
+
+                    {!collapsed && (
+                      <>
+                        <span className="truncate font-medium flex-1 text-left">
+                          {t(labelKey)}
+                        </span>
+
+                        <ChevronDown
+                          size={14}
+                          className={`
+                            shrink-0 transition-transform duration-200
+                            ${mastersOpen ? "rotate-180" : ""}
+                          `}
+                        />
+                      </>
+                    )}
+                  </button>
+
+                  {!collapsed && mastersOpen && (
+                    <div className="ml-5 pl-3 border-l border-border space-y-0.5">
+
+                      <Link
+                        href="/masters?tab=branches"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeMastersTab === "branches"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Branches
+                      </Link>
+
+                      <Link
+                        href="/masters?tab=suppliers"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeMastersTab === "suppliers"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Suppliers
+                      </Link>
+
+                      <Link
+                        href="/masters?tab=items"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeMastersTab === "items"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Items
+                      </Link>
+
+                      <Link
+                        href="/masters?tab=users"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeMastersTab === "users"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Users
+                      </Link>
+
+                      <Link
+                        href="/masters?tab=prices"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeMastersTab === "prices"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Prices
+                      </Link>
+
+                      <Link
+                        href="/masters?tab=skuPrefixes"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeMastersTab === "skuPrefixes"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        SKU Prefixes
+                      </Link>
+
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+              // ── Inventory parent ─────────────────────────────────────────
+              if (href === "/inventory-controls") {
+                const active = location === href;
+
+                return (
+                  <div key={href} className="space-y-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setInventoryOpen((open) => !open)}
+                      className={`
+                        w-full flex items-center gap-3 rounded-md px-2.5 py-2 text-sm
+                        transition-colors
+                        ${collapsed ? "justify-center" : ""}
+                        ${active
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }
+                      `}
+                    >
+                      <Icon
+                        size={18}
+                        className={`shrink-0 ${active ? "text-primary" : color}`}
+                      />
+
+                      {!collapsed && (
+                        <>
+                          <span className="truncate font-medium flex-1 text-left">
+                            {t(labelKey)}
+                          </span>
+
+                          <ChevronDown
+                            size={14}
+                            className={`
+                              shrink-0 transition-transform duration-200
+                              ${inventoryOpen ? "rotate-180" : ""}
+                            `}
+                          />
+                        </>
+                      )}
+                    </button>
+
+                    {/* Inventory submenu */}
+                    {!collapsed && inventoryOpen && (
+                    <div className="ml-5 pl-3 border-l border-border space-y-0.5">
+
+                      <Link
+                        href="/inventory-controls?tab=dashboard"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "dashboard"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Overview
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=rawMaterials"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "rawMaterials"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Raw Materials
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=finishedGoods"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "finishedGoods"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Finished Goods
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=transactions"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "transactions"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Transactions
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=transfers"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "transfers"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Transfers
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=variance"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "variance"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Variance Report
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=cogs"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "cogs"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Consumption
+                      </Link>
+
+                      <Link
+                        href="/inventory-controls?tab=auditLog"
+                        className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeInventoryTab === "auditLog"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                      >
+                        Audit Log
+                      </Link>
+
+                    </div>
+                  )}
+                  </div>
+                );
+              }
+              // ── Procurement parent ─────────────────────────────────────────────
+              if (href === "/procurement") {
+                const active = location === href;
+
+                return (
+                  <div key={href} className="space-y-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setProcurementOpen((open) => !open)}
+                      className={`
+                        w-full flex items-center gap-3 rounded-md px-2.5 py-2 text-sm
+                        transition-colors
+                        ${collapsed ? "justify-center" : ""}
+                        ${
+                          active
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }
+                      `}
+                    >
+                      <Icon
+                        size={18}
+                        className={`shrink-0 ${active ? "text-primary" : color}`}
+                      />
+
+                      {!collapsed && (
+                        <>
+                          <span className="truncate font-medium flex-1 text-left">
+                            {t(labelKey)}
+                          </span>
+
+                          <ChevronDown
+                            size={14}
+                            className={`
+                              shrink-0 transition-transform duration-200
+                              ${procurementOpen ? "rotate-180" : ""}
+                            `}
+                          />
+                        </>
+                      )}
+                    </button>
+
+                    {!collapsed && procurementOpen && (
+                      <div className="ml-7 space-y-0.5 border-l border-border pl-2">
+                        <Link
+                          href="/procurement?tab=po"
+                          className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                          activeProcurementTab === "po"
+                            ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        }`}
+                        >
+                          Purchase Orders
+                        </Link>
+
+                        <Link
+                          href="/procurement?tab=cash"
+                          className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                            activeProcurementTab === "cash"
+                              ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          Cash Purchases
+                        </Link>
+
+                        <Link
+                          href="/procurement?tab=fulfillment"
+                          className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                            activeProcurementTab === "fulfillment"
+                              ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          PO Fulfillment
+                        </Link>
+
+                        <Link
+                          href="/procurement?tab=invoices"
+                          className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                            activeProcurementTab === "invoices"
+                              ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          Invoices
+                        </Link>
+
+                        <Link
+                          href="/procurement?tab=petty"
+                          className={`block rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                            activeProcurementTab === "petty"
+                              ? "bg-primary/15 text-primary font-semibold border-l-2 border-primary"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          }`}
+                        >
+                          Petty Cash
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // ── All other navigation items ───────────────────────────────
+              const active = location === href;
+
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={`
+                    flex items-center gap-3 rounded-md px-2.5 py-2 text-sm
+                    transition-colors
+                    ${collapsed ? "justify-center" : ""}
+                    ${active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    }
+                  `}
+                >
+                  <Icon
+                    size={18}
+                    className={`shrink-0 ${active ? "text-primary" : color}`}
+                  />
+
+                  {!collapsed && (
+                    <span className="truncate font-medium">
+                      {t(labelKey)}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
         </nav>
       </aside>
 

@@ -495,12 +495,11 @@ export async function getDashboardMetricsFiltered(
 // ─── Branches ─────────────────────────────────────────────────────────────────
 
 export async function getBranches(): Promise<Branch[]> {
-  try {
-    const res = await apiCall<any>("/api/branches");
-    return Array.isArray(res) ? res : (res.branches ?? res.data ?? []);
-  } catch {
-    return [];
-  }
+  const res = await apiCall<any>("/api/branches");
+
+  return Array.isArray(res)
+    ? res
+    : (res.branches ?? res.data ?? []);
 }
 
 export async function addBranch(data: {

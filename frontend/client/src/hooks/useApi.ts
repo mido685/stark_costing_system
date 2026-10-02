@@ -9,13 +9,33 @@ interface UseApiState<T> {
 }
 
 // Shared in-memory cache. Lives until a full page reload.
-const API_CACHE_MS = 5 * 60_000;
+export const CACHE_TTL = {
+  branches: 30 * 60_000,
+  suppliers: 10 * 60_000,
+  ingredients: 10 * 60_000,
+  purchases: 60_000,
+  transfers: 60_000,
+  inventory: 30_000,
+} as const;
 const apiCache = new Map<string, { data: unknown; savedAt: number }>();
 
-function readApiCache<T>(key?: string): T | undefined {
+function readApiCache<T>(
+  key?: string,
+  cacheTime = 5 * 60_000
+): T | undefined {
   if (!key) return undefined;
+
   const hit = apiCache.get(key);
-  if (!hit || Date.now() - hit.savedAt > API_CACHE_MS) return undefined;
+
+  if (!hit) return undefined;
+
+  const age = Date.now() - hit.savedAt;
+
+  if (age > cacheTime) {
+    apiCache.delete(key);
+    return undefined;
+  }
+
   return hit.data as T;
 }
 
@@ -26,33 +46,34 @@ export function invalidateApiCache(prefix?: string): void {
 }
 
 interface UseApiOptions {
-  /**
-   * Show the last result instantly on remount, then refresh in the background.
-   * Include the user id (and any deps) in the key, e.g. `branches:${userId}`.
-   */
   cacheKey?: string;
-  /** Skip the initial fetch (and any refetching). State stays idle. */
+  cacheTime?: number;
   skip?: boolean;
-  /** Re-fetch on this interval (ms). Paused when the tab is hidden. */
   refetchInterval?: number;
-  /** Re-fetch when any of these values change (shallow compared via JSON). */
   deps?: unknown[];
 }
-
 // ─── useApi ──────────────────────────────────────────────────────────────────
 
 export function useApi<T>(
   fetchFn: () => Promise<T>,
   options: UseApiOptions = {}
 ): UseApiState<T> & { refetch: () => Promise<void> } {
-  const { skip = false, refetchInterval, deps, cacheKey } = options;
+  const {
+  skip = false,
+  refetchInterval,
+  deps,
+  cacheKey,
+  cacheTime = 5 * 60_000,
+} = options;
 
   // Start idle (not loading) when skip=true so consumers don't spin forever.
   // With a warm cache, start with data and no spinner.
-  const hydratedRef = useRef(false);
+  
   const [state, setState] = useState<UseApiState<T>>(() => {
-    const cached = skip ? undefined : readApiCache<T>(cacheKey);
-    if (cached !== undefined) hydratedRef.current = true;
+    const cached = skip
+  ? undefined
+  : readApiCache<T>(cacheKey, cacheTime);
+    
     return { data: cached ?? null, loading: !skip && cached === undefined, error: null };
   });
   const cacheKeyRef = useRef(cacheKey);
@@ -62,21 +83,45 @@ export function useApi<T>(
   const fetchFnRef = useRef(fetchFn);
   fetchFnRef.current = fetchFn;
   const reqIdRef = useRef(0);
+  const activeRequestKeyRef = useRef(cacheKey);
+
+  activeRequestKeyRef.current = cacheKey;
 
   // Stable fetch function — identity never changes, safe to put in deps.
   const fetchData = useCallback(async () => {
   const myId = ++reqIdRef.current;
-  const quiet = hydratedRef.current; // first fetch after a cache hit: no spinner
-  hydratedRef.current = false;
-  if (!quiet) setState((prev) => ({ ...prev, loading: true, error: null }));
+  const requestCacheKey = cacheKeyRef.current;
+
+  setState((prev) => ({
+  ...prev,
+  loading: true,
+  error: null,
+  }));
   try {
     const result = await fetchFnRef.current();
-    if (myId !== reqIdRef.current) return; // a newer request replaced this one
-    if (cacheKeyRef.current) apiCache.set(cacheKeyRef.current, { data: result, savedAt: Date.now() });
+    if (
+      myId !== reqIdRef.current ||
+      requestCacheKey !== activeRequestKeyRef.current
+    ) {
+      return;
+    }
     setState({ data: result, loading: false, error: null });
+    if (requestCacheKey) {
+  apiCache.set(requestCacheKey, {
+    data: result,
+    savedAt: Date.now(),
+  });
+}
   } catch (err) {
-    if (myId !== reqIdRef.current) return;
-    if (cacheKeyRef.current) apiCache.delete(cacheKeyRef.current);
+    if (
+  myId !== reqIdRef.current ||
+  requestCacheKey !== activeRequestKeyRef.current
+) {
+  return;
+}
+    if (requestCacheKey) {
+  apiCache.delete(requestCacheKey);
+  }
     setState({
       data: null,
       loading: false,
@@ -89,18 +134,45 @@ export function useApi<T>(
   const depsKey = JSON.stringify(deps ?? []);
 
   // Initial fetch + re-fetch on dep/skip changes.
-  useEffect(() => {
-    if (skip) {
-      setState((prev) =>
-        prev.loading ? { ...prev, loading: false } : prev
-      );
-      return;
-    }
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchData, skip, depsKey]);
+useEffect(() => {
+  return () => {
+    reqIdRef.current++;
+  };
+}, []);
 
-  // Polling interval — paused when tab is hidden.
+useEffect(() => {
+  // Prevent an older request from updating this hook
+  reqIdRef.current++;
+
+  if (skip) {
+    setState({
+      data: null,
+      loading: false,
+      error: null,
+    });
+    return;
+  }
+
+  const cached = readApiCache<T>(cacheKey, cacheTime);
+
+  if (cached !== undefined) {
+    setState({
+      data: cached,
+      loading: false,
+      error: null,
+    });
+    return;
+  }
+
+  // Don't display the previous company's or branch's data
+  setState({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  fetchData();
+}, [fetchData, skip, depsKey, cacheKey, cacheTime]);  // Polling interval — paused when tab is hidden.
   useEffect(() => {
     if (!refetchInterval || skip) return;
 

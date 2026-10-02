@@ -7,9 +7,8 @@ from fastapi.responses import Response
 from app.api.responses import success, error
 from app.database import purchases as purchases_db
 from app.database import inventory as inventory_db
-from app.schemas import PurchaseRequest, PurchaseReturnRequest, PurchaseUpdateRequest
+from app.schemas import PurchaseRequest, PurchaseReturnRequest, PurchaseUpdateRequest,PurchaseCancellationRequest
 from app.security.dependencies import get_current_user, require_roles, check_period_open, require_module
-
 router = APIRouter(
     prefix="/purchases",
     tags=["purchases"],
@@ -191,7 +190,43 @@ def reject_purchase(
         import traceback; traceback.print_exc()
         return error(f"Failed to reject purchase: {e}", status=500)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CANCEL — only approved POs that have not been received
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/{purchase_id}/cancel")
+def cancel_purchase(
+    purchase_id: int,
+    request: Request,
+    current_user: dict = Depends(require_roles("owner", "admin", "manager")),
+):
+    try:
+        body = request.json()
 
+        cancellation_reason = body.get("cancellation_reason", "").strip()
+
+        if not cancellation_reason:
+            return error("Cancellation reason is required")
+
+        updated = purchases_db.cancel_purchase(
+            purchase_id=purchase_id,
+            company_id=current_user["company_id"],
+            user_id=current_user["id"],
+            cancellation_reason=cancellation_reason,
+            ip_address=request.client.host,
+        )
+
+        return success("Purchase cancelled", purchase=updated)
+
+    except ValueError as e:
+        return error(str(e))
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return error(
+            f"Failed to cancel purchase: {e}",
+            status=500,
+        )
 # ─────────────────────────────────────────────────────────────────────────────
 # EDIT  —  only pending POs
 # ─────────────────────────────────────────────────────────────────────────────

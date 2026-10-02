@@ -147,18 +147,68 @@ def add_cash_purchase(
         gross_amount = round(quantity * unit_cost, 2)
         payable      = payable_amount or round(gross_amount + tax_amount, 2)
 
+        # ---------------------------------------------------------
+        # Generate company-local cash purchase number
+        # ---------------------------------------------------------
         cur.execute("""
-            INSERT INTO cash_purchases
-                (company_id, branch_id, supplier_id, ingredient_id, category_id,
-                 purchase_type, entry_date, quantity, unit_cost, gross_amount,
-                 tax_amount, payable_amount, petty_cash_used, status, notes, created_by)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING *
-        """, (
-            company_id, branch_id, supplier_id, ingredient_id, category_id,
-            purchase_type, entry_date, quantity, unit_cost, gross_amount,
-            tax_amount, payable, petty_cash_used, status, notes, user_id,
-        ))
+            INSERT INTO company_cash_purchase_sequences (
+                company_id,
+                last_number
+            )
+            VALUES (%s, 1)
+            ON CONFLICT (company_id) DO UPDATE
+                SET last_number =
+                    company_cash_purchase_sequences.last_number + 1
+            RETURNING last_number
+        """, (company_id,))
+
+        cash_purchase_number = cur.fetchone()["last_number"]
+
+        cur.execute("""
+        INSERT INTO cash_purchases
+            (
+                company_id,
+                branch_id,
+                supplier_id,
+                ingredient_id,
+                category_id,
+                cash_purchase_number,
+                purchase_type,
+                entry_date,
+                quantity,
+                unit_cost,
+                gross_amount,
+                tax_amount,
+                payable_amount,
+                petty_cash_used,
+                status,
+                notes,
+                created_by
+            )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        RETURNING *
+    """, (
+        company_id,
+        branch_id,
+        supplier_id,
+        ingredient_id,
+        category_id,
+        cash_purchase_number,
+        purchase_type,
+        entry_date,
+        quantity,
+        unit_cost,
+        gross_amount,
+        tax_amount,
+        payable,
+        petty_cash_used,
+        status,
+        notes,
+        user_id,
+    ))
         purchase = _row(dict(cur.fetchone()))
         cur.execute(
             """

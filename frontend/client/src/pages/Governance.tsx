@@ -148,7 +148,13 @@ const CATEGORY_TYPES: { value: CategoryType; label: string }[] = [
 function toTypeKey(row: any): string {
   const src = String(row.table_name ?? row.type ?? row.record_type ?? row.kind ?? row.entity_type ?? "").toLowerCase();
   if (src.includes("price_history") || src.includes("price history")) return "gov.approvalType.priceHistory";
-  if (src.includes("purchase") || src.includes("po")) return "gov.approvalType.purchase";
+  if (src === "cash_purchase") {
+    return "gov.approvalType.pettyCash";
+  }
+
+  if (src === "purchase" || src === "po") {
+    return "gov.approvalType.purchase";
+  }
   if (src.includes("expense"))                         return "gov.approvalType.expense";
   if (src.includes("transfer"))                        return "gov.approvalType.transfer";
   if (src.includes("adjustment") || src.includes("adj")) return "gov.approvalType.stockAdj";
@@ -648,7 +654,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry: () => voi
 
 function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
-  if (s === "approved")
+  if (s === "approved" || s === "approve")
     return <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:ring-emerald-800">approved</span>;
   if (s === "rejected" || s === "reject")
     return <span className="inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md capitalize bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-900/20 dark:text-red-400 dark:ring-red-800">rejected</span>;
@@ -1963,9 +1969,11 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
                             <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-medium text-muted-foreground">{t(a.typeKey)}</span>
                               <span className="text-xs text-muted-foreground font-mono">
-                                {a.fromProcurement && a.purchaseId
+                               {a.cashPurchaseId != null
+                                ? `CP-${String(a.cashPurchaseId).padStart(5, "0")}`
+                                : a.fromProcurement && a.purchaseId
                                   ? poRef(a.po_number, a.purchaseId)
-                                  : `#${a.id}`}
+                                  : `#${a.id}`} 
                               </span>
 
                               {/* Price history inline summary */}
@@ -2035,7 +2043,11 @@ const handleAction = useCallback(async (id: string, action: "approve" | "reject"
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.fromProcurement ? "bg-blue-500 dark:bg-blue-400" : "bg-amber-500 dark:bg-amber-400"}`} />
                               <p className="text-sm font-medium text-foreground">{t(a.typeKey)}</p>
-                              <span className="text-xs text-muted-foreground font-mono">{a.fromProcurement && a.purchaseId ? poRef(a.po_number, a.purchaseId) : `#${a.id}`}</span>
+                              <span className="text-xs text-muted-foreground font-mono">{a.cashPurchaseId != null
+                              ? `CP-${String(a.cashPurchaseId).padStart(5, "0")}`
+                              : a.fromProcurement && a.purchaseId
+                                ? poRef(a.po_number, a.purchaseId)
+                                : `#${a.id}`}</span>
                               {a.fromProcurement && (
                                 <span className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                                   <ShoppingCart className="w-2.5 h-2.5" /> Procurement

@@ -869,8 +869,7 @@ export default function PeriodStatusControl() {
           const next = !open;
           setOpen(next);
           if (next) {
-            fetchStatus(workingPeriod);
-            fetchPast();  // refresh calendar dots on every open
+            fetchPast();
           }
           setDrillPeriod(null);
           setShowAdjForm(false);
