@@ -1249,9 +1249,10 @@ const handleRejectCash = useCallback(async (id:number) => {
   }, [fulfillmentKey, fulfillBranchId, fulfillIngredientId]);
 
   useEffect(() => {
+  if (activeTab === "fulfillment") {
     void fetchFulfillment();
-    }, [fetchFulfillment]);
-
+  }
+}, [activeTab, fetchFulfillment]);
   const filteredFulfillment = useMemo(() => {
     if (!fulfillStatusFilter) return fulfillment;
     return fulfillment.filter(r => r.fulfillment_status === fulfillStatusFilter);
